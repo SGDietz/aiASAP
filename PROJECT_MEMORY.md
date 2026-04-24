@@ -1,0 +1,42 @@
+# aiASAP Project Memory
+
+- Work only inside `C:\Users\sgdie\Dropbox\Codex\aiASAP` for aiASAP tasks.
+- Telegram is referred to as `t`.
+- The Telegram bot's user-facing name is Codex.
+- The aiASAP Telegram bot should be fast to operate from Telegram, but avoid persistent bottom command buttons unless directly relevant.
+- The bot should support typed messages and Telegram voice notes.
+- Voice notes should be understood silently: no "Transcribing voice...", no "Transcript:", and no "Thinking..." messages.
+- Telegram chat history should persist locally so conversations survive bot restarts.
+- Keep secrets out of chat and logs. `.env` holds local keys and tokens.
+- User wants "brief" to mean extremely brief: only the few lines needed, especially when action is needed.
+- Use the 95% rule: ask questions until at least 95% sure what the user wants, but keep questions concise.
+- Default posture: do things for the user, ask for permissions when needed, and keep the computer/browser tidy by closing anything that does not need to stay open.
+- aiASAP vision: a voice-first, self-learning AI company and product that helps people adopt AI with minimal mental friction.
+- Company name must always be written exactly as `aiASAP`; never use any other capitalization or spacing.
+- Active tagline options: "Build a Better Life. aiASAP", "Make Life Easier. aiASAP", and "Life Made Easy. aiASAP"; keep them in rotation as branding evolves.
+- aiASAP should feel one-click: install/open it, then a natural-language avatar guides the user and performs tasks across computer, phone, and tablet.
+- LiveAvatar is intended as the front-facing natural-language avatar layer, including a digital copy of the user where appropriate.
+- Codex is intended to be the operating brain for building aiASAP and coordinating implementation.
+- Hardware context: this machine is a GEEKOM A5 mini PC running Windows 11 Pro 64-bit.
+- Hardware limits: AMD Ryzen 5 7430U, 6 cores / 12 logical processors, 16 GB RAM, integrated AMD Radeon graphics, 512 GB Lexar SSD with roughly 385 GB free when checked on 2026-04-24.
+- Build constraint: prefer cloud/API inference and lightweight local tooling; do not plan heavy local model training, GPU-heavy video generation, or long-running resource-intensive workloads on this PC unless explicitly approved.
+- Avatar status: no dedicated aiASAP avatar exists yet; avatar work is planning-only until the user creates or chooses one.
+- aiASAP avatar name: `6` using the number, not "Six" or "SIX".
+- Everything in aiASAP should orient users around this promise: `6` does the work for them.
+- `6` personality: warm, southern, folksy, friendly AI buddy; allowed to be funny.
+- `6` should sound like his own warm southern character, not necessarily like the user.
+- `6` intro concept: "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. I'm here to make your life easier. Tell me a couple things you know you can't forget, and I'll keep track of them for you."
+- LiveAvatar intro audio may cut off during load, so aiASAP should trigger the opening intro from our app after the avatar is ready, not rely only on LiveAvatar's built-in intro.
+- First laser-focused product job: help people remember things they cannot forget.
+- Users interact primarily by voice; voice is transcribed, understood, confirmed, stored, and turned into reminders/lists/follow-ups.
+- `6` should confirm important captured details by reading them back, especially emails letter-by-letter, phone numbers digit-by-digit, and lists item-by-item.
+- `6` should usually ask when something is due or when the user needs it by.
+- `6` should ask for the user's name naturally and use the name naturally, without overdoing it.
+- Users can talk before creating an account. When saving persistent memory, `6` should say: if you want me to remember who you are next time, I need you to set up an account.
+- Account capture should include name, email, and phone number.
+- Memory/data direction: use Supabase or similar for accounts, persistent user memory, reminders, lists, and notification preferences.
+- Reminder channel priority: SMS/text first, email second, phone calls third for urgent/escalated reminders, then app push, Telegram, Messenger where feasible.
+- Reference context: iSolveUrProblems.ai has a working, complex `6` persona/context window. For aiASAP, use the same discipline: strict identity, voice-first rules, no typing language, natural humor, read-back confirmation, persistent memory, user override handling, silence rules, and never sounding like a generic chatbot.
+- aiASAP `6` differs from iSolve `6`: aiASAP is not home/garden or investment-pipeline focused. Its first lane is everyday life assistance: remembering, reminders, lists, follow-ups, calendar, and making life easier by doing the work.
+- aiASAP should eventually have its own complete avatar context window modeled on the iSolve structure, but rewritten for aiASAP's lane and promise.
+- GitHub/Vercel direction: reuse proven iSolve integration patterns where possible, but do not modify the existing iSolve codebase unless explicitly instructed. Clone/reference it separately and build aiASAP as its own project/repo.

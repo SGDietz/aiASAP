@@ -1,0 +1,6 @@
+.env
+*.log
+__pycache__/
+*.pyc
+telegram_conversations.json
+telegram_conversations.json.tmp
