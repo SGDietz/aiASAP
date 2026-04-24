@@ -39,4 +39,5 @@
 - Reference context: iSolveUrProblems.ai has a working, complex `6` persona/context window. For aiASAP, use the same discipline: strict identity, voice-first rules, no typing language, natural humor, read-back confirmation, persistent memory, user override handling, silence rules, and never sounding like a generic chatbot.
 - aiASAP `6` differs from iSolve `6`: aiASAP is not home/garden or investment-pipeline focused. Its first lane is everyday life assistance: remembering, reminders, lists, follow-ups, calendar, and making life easier by doing the work.
 - aiASAP should eventually have its own complete avatar context window modeled on the iSolve structure, but rewritten for aiASAP's lane and promise.
+- Current LiveAvatar aiASAP `6` context ID: `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930`.
 - GitHub/Vercel direction: reuse proven iSolve integration patterns where possible, but do not modify the existing iSolve codebase unless explicitly instructed. Clone/reference it separately and build aiASAP as its own project/repo.
