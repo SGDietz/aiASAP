@@ -16,7 +16,7 @@ import { Radio, Camera, Images, Video, Play, Square } from "lucide-react";
 export type SessionStoppedReason = { reason?: "inactivity" };
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. I'm here to make your life easier. What should I call you?";
+  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. aiASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
 
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
@@ -400,6 +400,15 @@ const LiveAvatarSessionComponent: React.FC<{
     isStreamReady,
     ensureAudioOutputReady,
   ]);
+
+  const shouldShowBeginSurface =
+    mode === "FULL" &&
+    visionMode !== "streaming" &&
+    !isCameraActive &&
+    !isActive &&
+    sessionState === SessionState.CONNECTED &&
+    isStreamReady &&
+    !voiceStartAwaitingReady;
 
   useEffect(() => {
     // console.log("isStreamReady: ", isStreamReady);
@@ -2106,6 +2115,15 @@ const LiveAvatarSessionComponent: React.FC<{
         )}
       </div>
 
+      {shouldShowBeginSurface && (
+        <button
+          type="button"
+          aria-label="Begin talking with 6"
+          className="fixed inset-0 z-30 cursor-pointer bg-transparent"
+          onClick={() => void handleVoiceStartStop()}
+        />
+      )}
+
       {/* Fixed buttons at bottom - positioned relative to viewport */}
       {mode === "FULL" && (
         <>
@@ -2174,7 +2192,7 @@ const LiveAvatarSessionComponent: React.FC<{
                         voiceStartAwaitingReady ? (
                           <span className="block">Starting…</span>
                         ) : (
-                          <span className="block">Tap Start to begin</span>
+                          <span className="block">Tap anywhere to begin</span>
                         )
                       ) : (
                         <span className="block">Tell 6 what you can&apos;t forget</span>
@@ -2182,7 +2200,7 @@ const LiveAvatarSessionComponent: React.FC<{
                     </p>
                   </div>
                 )} 
-              <div className="mx-auto w-full max-w-md">
+              <div className="hidden">
                 <div className="mb-2.5">
                   <button
                     type="button"

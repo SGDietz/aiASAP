@@ -14,10 +14,12 @@
 - Absolute workflow rule: ask questions first; when ready to act on meaningful product/code/database changes, ask the user for permission and wait for explicit permission before acting.
 - Default posture: do things for the user, ask for permissions when needed, and keep the computer/browser tidy by closing anything that does not need to stay open.
 - Supabase rule: aiASAP must use its own Supabase project/database, never the iSolve database. Current project URL starts with `https://wqszxsqzkaatghyrqviv.supabase.co`.
+- Audit rule for product changes and auto-debug: audit first, give G a plan, get approval, then build/fix/deploy. Send G operational alerts through Telegram first.
 - aiASAP vision: a voice-first, self-learning AI company and product that helps people adopt AI with minimal mental friction.
 - Company name must always be written exactly as `aiASAP`; never use any other capitalization or spacing.
-- Active tagline options: "Build a Better Life. aiASAP", "Make Life Easier. aiASAP", and "Life Made Easy. aiASAP"; keep them in rotation as branding evolves.
+- Current tagline direction: "Take the Leap"; older lines can remain as brainstorming, but smoke tests should use the current direction unless G changes it.
 - aiASAP should feel one-click: install/open it, then a natural-language avatar guides the user and performs tasks across computer, phone, and tablet.
+- UI rule: design mobile-first. LiveAvatar is portrait-only 9:16, so desktop/landscape must frame the portrait avatar cleanly without distorting it. G usually tests smoke tests on his phone.
 - LiveAvatar is intended as the front-facing natural-language avatar layer, including a digital copy of the user where appropriate.
 - Codex is intended to be the operating brain for building aiASAP and coordinating implementation.
 - Hardware context: this machine is a GEEKOM A5 mini PC running Windows 11 Pro 64-bit.
@@ -36,6 +38,10 @@
 - Key promise language: "I will remind you when you need to do things" and "You will never forget another birthday."
 - LiveAvatar intro audio may cut off during load, so aiASAP should trigger the opening intro from our app after the avatar is ready, not rely only on LiveAvatar's built-in intro.
 - First laser-focused product job: help people remember things they cannot forget.
+- Product foundation: reminders first, lists second, then account/memory, notifications, shopping/gifts, daily routines, and later business-building guidance.
+- aiASAP deeper mission: help people become more thoughtful and build a better life. 6 should lightly encourage users over time to build something with AI, but establish trust with reminders/lists first.
+- 6 should avoid medical, mental health, legal, tax, investment, relationship counseling, politics, religion, sexual content, and unsafe/illegal instructions; redirect warmly to planning, tracking, or a qualified professional.
+- Notification provider defaults: aiASAP inbox/push first, Telnyx for SMS/voice later, Mailgun for email later, Telegram for G's internal alerts.
 - Users interact primarily by voice; voice is transcribed, understood, confirmed, stored, and turned into reminders/lists/follow-ups.
 - `6` should confirm important captured details by reading them back, especially emails letter-by-letter, phone numbers digit-by-digit, and lists item-by-item.
 - `6` should usually ask when something is due or when the user needs it by.
@@ -48,7 +54,7 @@
 - aiASAP `6` differs from iSolve `6`: aiASAP is not home/garden or investment-pipeline focused. Its first lane is everyday life assistance: remembering, reminders, lists, follow-ups, calendar, and making life easier by doing the work.
 - aiASAP should eventually have its own complete avatar context window modeled on the iSolve structure, but rewritten for aiASAP's lane and promise.
 - Current LiveAvatar aiASAP `6` context ID: `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930`.
-- LiveAvatar context `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930` was updated through the API on 2026-04-24 to `aiASAP 6 MVP`: name-first opening handoff, reminder collection, birthdays, recurrence, notification preferences, and MVP honesty.
+- LiveAvatar context `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930` was updated through the API on 2026-04-25 to `aiASAP 6 Life Builder`: name-first opening handoff, mission, reminders, lists, notifications, account/memory, light business-building, and safety redirects.
 - Current aiASAP `6` voice ID: `a65a59af-39bd-4f57-8cc6-235449ca3348`.
-- A valid LiveAvatar API key was received and tested locally on 2026-04-24; it is stored only in ignored `.env`, not committed. Production still needs the same key added to Vercel environment variables.
+- A valid LiveAvatar API key was received and tested locally on 2026-04-24; it is stored only in ignored `.env` and Vercel environment variables, not committed.
 - GitHub/Vercel direction: reuse proven iSolve integration patterns where possible, but do not modify the existing iSolve codebase unless explicitly instructed. Clone/reference it separately and build aiASAP as its own project/repo.
