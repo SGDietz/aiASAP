@@ -1,5 +1,8 @@
 .env
 *.log
+node_modules/
+.next/
+next-env.d.ts
 __pycache__/
 *.pyc
 telegram_conversations.json
