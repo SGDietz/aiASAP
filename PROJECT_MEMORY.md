@@ -46,6 +46,7 @@
 - aiASAP `6` differs from iSolve `6`: aiASAP is not home/garden or investment-pipeline focused. Its first lane is everyday life assistance: remembering, reminders, lists, follow-ups, calendar, and making life easier by doing the work.
 - aiASAP should eventually have its own complete avatar context window modeled on the iSolve structure, but rewritten for aiASAP's lane and promise.
 - Current LiveAvatar aiASAP `6` context ID: `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930`.
+- LiveAvatar context `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930` was updated through the API on 2026-04-24 to `aiASAP 6 MVP`: name-first opening handoff, reminder collection, birthdays, recurrence, notification preferences, and MVP honesty.
 - Current aiASAP `6` voice ID: `a65a59af-39bd-4f57-8cc6-235449ca3348`.
 - A valid LiveAvatar API key was received and tested locally on 2026-04-24; it is stored only in ignored `.env`, not committed. Production still needs the same key added to Vercel environment variables.
 - GitHub/Vercel direction: reuse proven iSolve integration patterns where possible, but do not modify the existing iSolve codebase unless explicitly instructed. Clone/reference it separately and build aiASAP as its own project/repo.
