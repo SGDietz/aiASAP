@@ -16,7 +16,7 @@ import { Radio, Camera, Images, Video, Play, Square } from "lucide-react";
 export type SessionStoppedReason = { reason?: "inactivity" };
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. aiASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
+  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Tell me what you want handled first",
@@ -2344,27 +2344,18 @@ const LiveAvatarSessionComponent: React.FC<{
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             isActive && (
-              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.15rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none">
+              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+8.25rem)] left-1/2 z-30 flex w-[92%] max-w-[30rem] -translate-x-1/2 flex-col items-center gap-2 text-center pointer-events-none">
                 {thoughtPrompts.slice(0, 4).map((prompt, index) => {
-                  const emphasis =
-                    index === 0
-                      ? "text-[1.5rem] sm:text-[1.9rem] text-white/96"
-                      : index === 1
-                        ? "text-[1.32rem] sm:text-[1.65rem] text-white/86"
-                        : index === 2
-                          ? "text-[1.15rem] sm:text-[1.42rem] text-white/74"
-                          : "text-[1rem] sm:text-[1.22rem] text-white/62";
-
                   return (
                     <p
                       key={prompt}
-                      className={`max-w-[24rem] text-balance font-semibold leading-[1.08] drop-shadow-[0_3px_18px_rgba(0,0,0,0.88)] ${emphasis}`}
+                      className="max-w-[24rem] text-balance text-[1.18rem] sm:text-[1.34rem] font-semibold leading-[1.12] text-[#f2c98a] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
                       style={{
-                        animation: `idea-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) ${
-                          index * 90
-                        }ms both, idea-float ${
-                          6200 + index * 520
-                        }ms ease-in-out ${index * 160}ms infinite`,
+                        animation: `idea-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) ${
+                          index * 80
+                        }ms both`,
+                        fontFamily:
+                          '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
                       }}
                     >
                       {prompt}
@@ -2428,21 +2419,6 @@ const LiveAvatarSessionComponent: React.FC<{
           100% {
             opacity: 1;
             transform: translateY(0) scale(1);
-          }
-        }
-        @keyframes idea-float {
-          0%,
-          100% {
-            transform: translateY(0);
-            filter: blur(0);
-          }
-          45% {
-            transform: translateY(-0.22rem);
-            filter: blur(0);
-          }
-          70% {
-            transform: translateY(0.08rem);
-            filter: blur(0);
           }
         }
       `}</style>
