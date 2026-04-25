@@ -48,7 +48,7 @@
 - LiveAvatar intro audio may cut off during load, so aiASAP should trigger the opening intro from our app after the avatar is ready, not rely only on LiveAvatar's built-in intro.
 - First laser-focused product job: help people remember things they cannot forget.
 - Product foundation: reminders first, lists second, then account/memory, notifications, shopping/gifts, daily routines, and later business-building guidance.
-- aiASAP deeper mission: help people become more thoughtful and build a better life. 6 should lightly encourage users over time to build something with AI, but establish trust with reminders/lists first.
+- aiASAP deeper mission: help people become more thoughtful and build a more wonderful life. 6 should lightly encourage users over time to build something with AI, but establish trust with reminders/lists first.
 - 6 should avoid medical, mental health, legal, tax, investment, relationship counseling, politics, religion, sexual content, and unsafe/illegal instructions; redirect warmly to planning, tracking, or a qualified professional.
 - Notification provider defaults: aiASAP inbox/push first, Telnyx for SMS/voice later, Mailgun for email later, Telegram for G's internal alerts.
 - Users interact primarily by voice; voice is transcribed, understood, confirmed, stored, and turned into reminders/lists/follow-ups.
