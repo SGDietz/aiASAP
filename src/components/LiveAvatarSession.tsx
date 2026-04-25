@@ -2353,15 +2353,18 @@ const LiveAvatarSessionComponent: React.FC<{
                   </button>
                 </div>
               </div>
-              <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center justify-center pointer-events-auto">
-                <Link
-                  href="/terms"
-                  target="_blank"
-                  className="block text-center text-[10px] sm:text-[11px] text-white/55 hover:text-white/80 transition-colors whitespace-nowrap"
-                >
-                  © 2026 aiASAP All Rights Reserved · Terms
-                </Link>
-              </div>
+            </div>
+          )}
+
+          {visionMode !== "streaming" && !isCameraActive && (
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
+              <Link
+                href="/terms"
+                target="_blank"
+                className="block text-center text-[10px] sm:text-[11px] text-white/55 hover:text-white/80 transition-colors whitespace-nowrap"
+              >
+                &copy; 2026 aiASAP All Rights Reserved &middot; Terms
+              </Link>
             </div>
           )}
         </>
