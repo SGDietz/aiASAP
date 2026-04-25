@@ -24,6 +24,7 @@
 - Monetization direction: beta is free/no money ask. Later, use prepaid credits instead of subscriptions. Pricing philosophy is cost plus roughly 5 percent, as affordable as practical.
 - App-store commerce rule: play by Apple/Google rules; if in-app digital credits are consumed inside mobile apps, plan for Apple/Google in-app purchase requirements.
 - Founder/business direction: SG Dietz is the Creator/Founder/Builder/CEO of iSolveUrProblems.ai & aiASAP. He is self-funding early aiASAP as much as possible and prefers retaining ownership if feasible. Be open, publish cost/usage analyses where practical, and position aiASAP as helping people first.
+- Company structure direction: DietzX is the intended parent/umbrella company for aiASAP and iSolveUrProblems.ai. The earlier separate-company mention from voice dictation was an error; treat that as DietzX.
 - Name rule: `G` is the user's personal name/nickname only. Do not use `G` as a generic user placeholder or public founder label.
 - LiveAvatar is intended as the front-facing natural-language avatar layer, including a digital copy of the user where appropriate.
 - Codex is intended to be the operating brain for building aiASAP and coordinating implementation.
@@ -39,6 +40,9 @@
 - After getting a user's name, `6` should say it is a pleasure to meet them, then ask for the most important things they cannot forget.
 - `6` should use the person's name naturally every 6-10 responses, not constantly.
 - `6` should collect reminders conversationally: birthdays, anniversaries, daily/weekly/monthly/yearly tasks, due dates, recurrence, urgency, and preferred notification channel.
+- Birthday reminder default: one week before, one day before, and the morning of; stop the chain after the user confirms "I remembered."
+- Silence timing rule: first re-engagement waits a full 10 seconds, second re-engagement waits a full 15 seconds, then stay quiet.
+- UI thought prompts should stay present as a rolling rail and update with the conversation; they should be case-correct and not flash on/off.
 - `6` should explain that aiASAP can remind by SMS/text first, email, phone call for urgency, Telegram, Messenger, WhatsApp, Signal, app push, and new channels where feasible.
 - Key promise language: "I will remind you when you need to do things" and "You will never forget another birthday."
 - LiveAvatar intro audio may cut off during load, so aiASAP should trigger the opening intro from our app after the avatar is ready, not rely only on LiveAvatar's built-in intro.

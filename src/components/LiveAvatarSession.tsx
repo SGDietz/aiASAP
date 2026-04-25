@@ -18,6 +18,62 @@ export type SessionStoppedReason = { reason?: "inactivity" };
 const VOICE_START_GREETING =
   "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. aiASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
 
+const DEFAULT_THOUGHT_PROMPTS = [
+  "Remember a Birthday",
+  "Add to Shopping List",
+  "Start a Reminder",
+];
+
+const getThoughtPrompts = (text: string): string[] => {
+  const value = text.toLowerCase();
+
+  if (value.includes("birthday")) {
+    return [
+      "Remember Another Birthday",
+      "Remember an Anniversary",
+      "Add to Shopping List",
+    ];
+  }
+
+  if (value.includes("anniversary")) {
+    return [
+      "Remember a Birthday",
+      "Remember Another Anniversary",
+      "Plan a Gift",
+    ];
+  }
+
+  if (
+    value.includes("shopping") ||
+    value.includes("grocery") ||
+    value.includes("store") ||
+    value.includes("home depot") ||
+    value.includes("walmart") ||
+    value.includes("list")
+  ) {
+    return [
+      "Add Another Item",
+      "Make This Recurring",
+      "Set a Store Reminder",
+    ];
+  }
+
+  if (
+    value.includes("business") ||
+    value.includes("company") ||
+    value.includes("money") ||
+    value.includes("build")
+  ) {
+    return [
+      "Explore Business Ideas",
+      "Find What You Love",
+      "Build the Next Step",
+    ];
+  }
+
+  return DEFAULT_THOUGHT_PROMPTS;
+};
+
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
   onSessionStopped: (opts?: SessionStoppedReason) => void;
@@ -97,6 +153,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceHeldUntilUserStartRef = useRef(false);
   const [hasUserPressedVoiceStart, setHasUserPressedVoiceStart] = useState(false);
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
+  const [thoughtPrompts, setThoughtPrompts] = useState(DEFAULT_THOUGHT_PROMPTS);
 
   // Vision mode state: 'streaming' for Go Live, 'snapshot' for Camera button, null for inactive
   const [visionMode, setVisionMode] = useState<"streaming" | "snapshot" | null>(
@@ -1093,6 +1150,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
     const handleUserTranscription = async (event: { text: string }) => {
       const userText = event.text.trim();
+      setThoughtPrompts(getThoughtPrompts(userText));
       console.log(
         "User transcription received:",
         userText,
@@ -1944,12 +2002,17 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {/* Text overlays at the top */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-5 sm:pt-7 pb-3">
+      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
-          <h1 className="inline-block text-white text-[1.75rem] sm:text-[2.55rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
-            aiASAP
-          </h1>
-          <p className="mx-auto mt-1 sm:mt-1.5 max-w-[18rem] text-white text-[0.95rem] sm:text-[1.1rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
+          <div className="flex items-start justify-center gap-2">
+            <h1 className="inline-block text-white text-[2.15rem] sm:text-[2.85rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+              aiASAP
+            </h1>
+            <span className="mt-1.5 rounded-full border border-white/35 bg-black/35 px-2 py-0.5 text-[0.62rem] sm:text-xs font-semibold uppercase tracking-normal text-white/85 backdrop-blur-sm">
+              beta
+            </span>
+          </div>
+          <p className="mx-auto mt-0.5 max-w-[18rem] text-white text-[0.9rem] sm:text-[1.05rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
         </div>
@@ -2183,12 +2246,12 @@ const LiveAvatarSessionComponent: React.FC<{
           )}
 
           {visionMode !== "streaming" && !isCameraActive && (
-            <div className="fixed left-1/2 top-[52%] -translate-x-1/2 -translate-y-1/2 w-[95%] max-w-7xl z-20 px-4 flex flex-col items-center pointer-events-none">
+            <div className="fixed left-1/2 bottom-[8.5rem] sm:bottom-[9rem] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
                 isStreamReady && (
                   <div className="w-full flex items-center justify-center text-center">
-                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1.8rem] sm:text-[2.25rem] font-semibold leading-tight">
+                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1.15rem] sm:text-[1.55rem] font-semibold leading-tight text-balance">
                       {!isActive ? (
                         voiceStartAwaitingReady ? (
                           <span className="block">Starting…</span>
@@ -2196,11 +2259,29 @@ const LiveAvatarSessionComponent: React.FC<{
                           <span className="block">Tap anywhere to begin</span>
                         )
                       ) : (
-                        <span className="block">Tell 6 what you can&apos;t forget</span>
+                        <span className="block">Tell 6 What You Need to Remember</span>
                       )}
                     </p>
                   </div>
-                )} 
+                )}
+              {sessionState !== SessionState.DISCONNECTED &&
+                isStreamReady &&
+                isActive && (
+                  <div className="mt-3 w-full overflow-hidden rounded-full bg-black/18 py-1.5 backdrop-blur-[2px]">
+                    <div className="flex w-max animate-[prompt-roll_22s_linear_infinite] gap-2 px-2">
+                      {[...thoughtPrompts, ...thoughtPrompts].map(
+                        (prompt, index) => (
+                          <span
+                            key={`${prompt}-${index}`}
+                            className="whitespace-nowrap rounded-full border border-white/25 bg-black/25 px-3 py-1 text-[0.72rem] sm:text-[0.86rem] font-semibold text-white/88 shadow-[0_2px_12px_rgba(0,0,0,0.35)]"
+                          >
+                            {prompt}
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
               <div className="hidden">
                 <div className="mb-2.5">
                   <button
@@ -2272,7 +2353,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   </button>
                 </div>
               </div>
-              <div className="mt-8 flex items-center justify-center">
+              <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center justify-center pointer-events-auto">
                 <Link
                   href="/terms"
                   target="_blank"
@@ -2317,6 +2398,16 @@ const LiveAvatarSessionComponent: React.FC<{
           </div>
         </>
       )}
+      <style>{`
+        @keyframes prompt-roll {
+          0% {
+            transform: translateX(0);
+          }
+          100% {
+            transform: translateX(-50%);
+          }
+        }
+      `}</style>
     </div>
   );
 };
