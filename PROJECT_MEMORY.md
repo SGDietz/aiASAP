@@ -20,6 +20,11 @@
 - Current tagline direction: "Take the Leap"; older lines can remain as brainstorming, but smoke tests should use the current direction unless G changes it.
 - aiASAP should feel one-click: install/open it, then a natural-language avatar guides the user and performs tasks across computer, phone, and tablet.
 - UI rule: design mobile-first. LiveAvatar is portrait-only 9:16, so desktop/landscape must frame the portrait avatar cleanly without distorting it. G usually tests smoke tests on his phone.
+- UI permission rule: avoid double permission prompts. Load avatar silently/muted first, then use one clear tap-to-begin gesture for mic/audio.
+- Monetization direction: beta is free/no money ask. Later, use prepaid credits instead of subscriptions. Pricing philosophy is cost plus roughly 5 percent, as affordable as practical.
+- App-store commerce rule: play by Apple/Google rules; if in-app digital credits are consumed inside mobile apps, plan for Apple/Google in-app purchase requirements.
+- Founder/business direction: Scott is the Creator/Founder/Builder/CEO of aiASAP. He is self-funding early aiASAP as much as possible and prefers retaining ownership if feasible. Be open, publish cost/usage analyses where practical, and position aiASAP as helping people first.
+- Name rule: `G` is the user's personal name/nickname only. Do not use `G` as a generic user placeholder or public founder label.
 - LiveAvatar is intended as the front-facing natural-language avatar layer, including a digital copy of the user where appropriate.
 - Codex is intended to be the operating brain for building aiASAP and coordinating implementation.
 - Hardware context: this machine is a GEEKOM A5 mini PC running Windows 11 Pro 64-bit.
@@ -54,7 +59,7 @@
 - aiASAP `6` differs from iSolve `6`: aiASAP is not home/garden or investment-pipeline focused. Its first lane is everyday life assistance: remembering, reminders, lists, follow-ups, calendar, and making life easier by doing the work.
 - aiASAP should eventually have its own complete avatar context window modeled on the iSolve structure, but rewritten for aiASAP's lane and promise.
 - Current LiveAvatar aiASAP `6` context ID: `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930`.
-- LiveAvatar context `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930` was updated through the API on 2026-04-25 to `aiASAP 6 Life Builder`: name-first opening handoff, mission, reminders, lists, notifications, account/memory, light business-building, and safety redirects.
+- LiveAvatar context `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930` was updated through the API on 2026-04-25 to `aiASAP 6 Life Builder`: name-first opening handoff, mission, reminders, lists, notifications, account/memory, light business-building, affordability/cost-plus philosophy, and safety redirects.
 - Current aiASAP `6` voice ID: `a65a59af-39bd-4f57-8cc6-235449ca3348`.
 - A valid LiveAvatar API key was received and tested locally on 2026-04-24; it is stored only in ignored `.env` and Vercel environment variables, not committed.
 - GitHub/Vercel direction: reuse proven iSolve integration patterns where possible, but do not modify the existing iSolve codebase unless explicitly instructed. Clone/reference it separately and build aiASAP as its own project/repo.

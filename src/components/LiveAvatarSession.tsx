@@ -276,7 +276,7 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, [isOnHomeScreen, resetToHomeScreen, stopSession]);
 
-  // SDK starts voice chat on connect; hold mic inactive until the user taps Start.
+  // Voice chat starts only after the user taps the begin surface.
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
       voiceHeldUntilUserStartRef.current = false;
@@ -406,6 +406,7 @@ const LiveAvatarSessionComponent: React.FC<{
     visionMode !== "streaming" &&
     !isCameraActive &&
     !isActive &&
+    !isAvatarTalking &&
     sessionState === SessionState.CONNECTED &&
     isStreamReady &&
     !voiceStartAwaitingReady;
@@ -1945,7 +1946,7 @@ const LiveAvatarSessionComponent: React.FC<{
       {/* Text overlays at the top */}
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-5 sm:pt-7 pb-3">
         <div className="text-center px-4">
-          <h1 className="inline-block text-white text-[2.05rem] sm:text-[3rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+          <h1 className="inline-block text-white text-[1.75rem] sm:text-[2.55rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
             aiASAP
           </h1>
           <p className="mx-auto mt-1 sm:mt-1.5 max-w-[18rem] text-white text-[0.95rem] sm:text-[1.1rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
@@ -2182,12 +2183,12 @@ const LiveAvatarSessionComponent: React.FC<{
           )}
 
           {visionMode !== "streaming" && !isCameraActive && (
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-20 px-4 pb-4 flex flex-col items-center">
+            <div className="fixed left-1/2 top-[52%] -translate-x-1/2 -translate-y-1/2 w-[95%] max-w-7xl z-20 px-4 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
                 isStreamReady && (
-                  <div className="mb-4 w-full flex items-center justify-center text-center">
-                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1rem] sm:text-[1.15rem] font-semibold leading-tight">
+                  <div className="w-full flex items-center justify-center text-center">
+                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1.8rem] sm:text-[2.25rem] font-semibold leading-tight">
                       {!isActive ? (
                         voiceStartAwaitingReady ? (
                           <span className="block">Starting…</span>

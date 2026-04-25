@@ -206,7 +206,7 @@ export const LiveAvatarContextProvider = ({
   const apiUrl =
     typeof window !== "undefined" ? `${window.location.origin}/api` : "";
   const config = {
-    voiceChat: true,
+    voiceChat: false,
     apiUrl,
   };
   const sessionRef = useRef<LiveAvatarSession>(
