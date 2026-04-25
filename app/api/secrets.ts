@@ -1,5 +1,5 @@
 export const API_KEY = process.env.LIVEAVATAR_API_KEY || "";
-export const API_URL = process.env.LIVEAVATAR_API_URL || "";
+export const API_URL = process.env.LIVEAVATAR_API_URL || "https://api.liveavatar.com";
 export const AVATAR_ID = process.env.LIVEAVATAR_AVATAR_ID || "";
 
 // FULL MODE Customizations

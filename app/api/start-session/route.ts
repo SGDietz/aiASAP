@@ -9,6 +9,25 @@ import {
 import { assertCanMintSessionToken } from "../../../src/lib/liveavatarCredits";
 
 export async function POST() {
+  const missing = [
+    ["LIVEAVATAR_API_KEY", API_KEY],
+    ["LIVEAVATAR_AVATAR_ID", AVATAR_ID],
+    ["LIVEAVATAR_VOICE_ID", VOICE_ID],
+    ["LIVEAVATAR_CONTEXT_ID", CONTEXT_ID],
+  ].filter(([, value]) => !value);
+
+  if (missing.length > 0) {
+    return new Response(
+      JSON.stringify({
+        error: `LiveAvatar is missing: ${missing.map(([name]) => name).join(", ")}`,
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+
   const gate = await assertCanMintSessionToken();
   if (!gate.ok) {
     return new Response(JSON.stringify({ error: gate.message }), {
