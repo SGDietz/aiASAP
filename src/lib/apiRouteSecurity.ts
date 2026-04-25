@@ -3,6 +3,8 @@
 const ALLOWED_ORIGINS = new Set([
   "https://ai-asap.vercel.app",
   "https://aiasap.vercel.app",
+  "https://aiasap.ai",
+  "https://www.aiasap.ai",
 ]);
 
 /**

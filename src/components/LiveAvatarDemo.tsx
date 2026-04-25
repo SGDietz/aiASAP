@@ -239,10 +239,10 @@ export const LiveAvatarDemo = () => {
           sizes="100vw"
         />
         <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 pb-2">
-          <h1 className="text-white text-[1.35rem] sm:text-2xl font-bold tracking-tight">
+          <h1 className="text-[#d7a05a] text-[1.35rem] sm:text-2xl font-bold tracking-tight">
             aiASAP
           </h1>
-          <p className="text-white text-xs sm:text-[0.8125rem] font-medium mt-1 text-white/90">
+          <p className="text-[#d7a05a] text-xs sm:text-[0.8125rem] font-medium mt-1">
             Life Made Easy
           </p>
         </div>
@@ -281,7 +281,7 @@ export const LiveAvatarDemo = () => {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-20 px-4">
           <Link
             href="/terms"
-            className="block text-center text-[11px] sm:text-xs text-white/55 hover:text-white/80 transition-colors py-2"
+            className="block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-2"
           >
             © 2026 aiASAP All Rights Reserved · Terms
           </Link>
@@ -311,11 +311,11 @@ export const LiveAvatarDemo = () => {
           </div>
         )}
         {!error && (
-          <div className="text-inset text-xl text-white/90">Loading...</div>
+          <div className="text-inset text-xl">Loading...</div>
         )}
         <Link
           href="/terms"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl block text-center text-[11px] sm:text-xs text-white/55 hover:text-white/80 transition-colors py-2"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-2"
         >
           © 2026 aiASAP All Rights Reserved · Terms
         </Link>

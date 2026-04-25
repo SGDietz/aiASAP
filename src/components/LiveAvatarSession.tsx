@@ -159,6 +159,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const [hasUserPressedVoiceStart, setHasUserPressedVoiceStart] = useState(false);
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
   const [thoughtPrompts, setThoughtPrompts] = useState(DEFAULT_THOUGHT_PROMPTS);
+  const promptBrainHistoryRef = useRef<string[]>([]);
+  const promptBrainSeqRef = useRef(0);
+  const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // Vision mode state: 'streaming' for Go Live, 'snapshot' for Camera button, null for inactive
   const [visionMode, setVisionMode] = useState<"streaming" | "snapshot" | null>(
@@ -175,6 +180,70 @@ const LiveAvatarSessionComponent: React.FC<{
     null,
   );
   const sessionStartErrorRef = useRef<string | null>(null);
+
+  const runPromptBrain = useCallback(async (text: string) => {
+    const latestUserText = text.trim();
+    if (latestUserText.length < 3) return;
+
+    const fallbackPrompts = getThoughtPrompts(latestUserText);
+    const recentUserTexts = [
+      ...promptBrainHistoryRef.current,
+      latestUserText,
+    ].slice(-8);
+    promptBrainHistoryRef.current = recentUserTexts;
+
+    const sequence = ++promptBrainSeqRef.current;
+    setThoughtPrompts(fallbackPrompts);
+
+    try {
+      const response = await fetch("/api/prompt-brain", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          latestUserText,
+          recentUserTexts,
+          currentPrompts: fallbackPrompts,
+        }),
+      });
+
+      if (!response.ok || sequence !== promptBrainSeqRef.current) return;
+
+      const data = await response.json();
+      if (
+        Array.isArray(data?.prompts) &&
+        data.prompts.every((prompt: unknown) => typeof prompt === "string")
+      ) {
+        const prompts = data.prompts
+          .map((prompt: string) => prompt.trim())
+          .filter(Boolean)
+          .slice(0, 4);
+        if (prompts.length === 4) {
+          setThoughtPrompts(prompts);
+        }
+      }
+    } catch (error) {
+      console.warn("Prompt brain unavailable, using fallback prompts", error);
+    }
+  }, []);
+
+  const schedulePromptBrain = useCallback(
+    (text: string) => {
+      const latestUserText = text.trim();
+      if (latestUserText.length < 3) return;
+
+      setThoughtPrompts(getThoughtPrompts(latestUserText));
+
+      if (promptBrainTimeoutRef.current) {
+        clearTimeout(promptBrainTimeoutRef.current);
+      }
+      promptBrainTimeoutRef.current = setTimeout(() => {
+        void runPromptBrain(latestUserText);
+      }, 600);
+    },
+    [runPromptBrain],
+  );
 
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
@@ -1155,7 +1224,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
     const handleUserTranscription = async (event: { text: string }) => {
       const userText = event.text.trim();
-      setThoughtPrompts(getThoughtPrompts(userText));
+      schedulePromptBrain(userText);
       console.log(
         "User transcription received:",
         userText,
@@ -1334,6 +1403,9 @@ const LiveAvatarSessionComponent: React.FC<{
       if (processingTimeoutRef.current) {
         clearTimeout(processingTimeoutRef.current);
       }
+      if (promptBrainTimeoutRef.current) {
+        clearTimeout(promptBrainTimeoutRef.current);
+      }
       if (sessionRef.current) {
         console.log("Cleaning up USER_TRANSCRIPTION listener");
         // Use removeListener if off is not available
@@ -1361,6 +1433,7 @@ const LiveAvatarSessionComponent: React.FC<{
     mode,
     repeat,
     isProcessingCameraQuestion,
+    schedulePromptBrain,
   ]);
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
@@ -2010,14 +2083,14 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
           <div className="flex items-start justify-center gap-2">
-            <h1 className="inline-block text-white text-[2.15rem] sm:text-[2.85rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="inline-block text-[#d7a05a] text-[2.15rem] sm:text-[2.85rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
-            <span className="mt-1.5 rounded-full border border-white/35 bg-black/35 px-2 py-0.5 text-[0.62rem] sm:text-xs font-semibold uppercase tracking-normal text-white/85 backdrop-blur-sm">
+            <span className="mt-1.5 rounded-full border border-[#d7a05a]/60 bg-black/35 px-2 py-0.5 text-[0.62rem] sm:text-xs font-semibold uppercase tracking-normal text-[#d7a05a] backdrop-blur-sm">
               beta
             </span>
           </div>
-          <p className="mx-auto mt-0.5 max-w-[18rem] text-white text-[1.15rem] sm:text-[1.35rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
+          <p className="mx-auto mt-0.5 max-w-[18rem] text-[1.15rem] sm:text-[1.35rem] font-medium text-[#d7a05a] leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
         </div>
@@ -2349,7 +2422,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   return (
                     <p
                       key={prompt}
-                      className="max-w-[24rem] text-balance text-[1.18rem] sm:text-[1.34rem] font-semibold leading-[1.12] text-[#f2c98a] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                      className="max-w-[24rem] text-balance text-[1.18rem] sm:text-[1.34rem] font-semibold leading-[1.12] text-[#d7a05a] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
                       style={{
                         animation: `idea-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) ${
                           index * 80
@@ -2370,7 +2443,7 @@ const LiveAvatarSessionComponent: React.FC<{
               <Link
                 href="/terms"
                 target="_blank"
-                className="block text-center text-[10px] sm:text-[11px] text-white/55 hover:text-white/80 transition-colors whitespace-nowrap"
+                className="block text-center text-[10px] sm:text-[11px] text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors whitespace-nowrap"
               >
                 &copy; 2026 aiASAP All Rights Reserved &middot; Terms
               </Link>
@@ -2403,7 +2476,7 @@ const LiveAvatarSessionComponent: React.FC<{
             <Link
               href="/terms"
               target="_blank"
-              className="block text-center text-[11px] sm:text-xs text-white/55 hover:text-white/80 transition-colors py-1"
+              className="block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-1"
             >
               Terms
             </Link>
