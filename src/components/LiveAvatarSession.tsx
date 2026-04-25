@@ -19,9 +19,10 @@ const VOICE_START_GREETING =
   "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. aiASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Remember a Birthday",
-  "Add to Shopping List",
-  "Start a Reminder",
+  "Tell me what you want handled first",
+  "Set a reminder before it slips",
+  "Turn this into a quick list",
+  "Save a follow-up for later",
 ];
 
 const getThoughtPrompts = (text: string): string[] => {
@@ -29,17 +30,19 @@ const getThoughtPrompts = (text: string): string[] => {
 
   if (value.includes("birthday")) {
     return [
-      "Remember Another Birthday",
-      "Remember an Anniversary",
-      "Add to Shopping List",
+      "Save the birthday with the right date",
+      "Add a yearly reminder",
+      "Plan a gift idea",
+      "Remember who else should know",
     ];
   }
 
   if (value.includes("anniversary")) {
     return [
-      "Remember a Birthday",
-      "Remember Another Anniversary",
-      "Plan a Gift",
+      "Save the anniversary date",
+      "Add a yearly reminder",
+      "Plan a thoughtful gift",
+      "Set a note for next year",
     ];
   }
 
@@ -52,9 +55,10 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("list")
   ) {
     return [
-      "Add Another Item",
-      "Make This Recurring",
-      "Set a Store Reminder",
+      "Add the next item to the list",
+      "Group it by store or errand",
+      "Make this list reusable",
+      "Remind me before I leave",
     ];
   }
 
@@ -65,9 +69,10 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("build")
   ) {
     return [
-      "Explore Business Ideas",
-      "Find What You Love",
-      "Build the Next Step",
+      "Pick the most useful next step",
+      "Turn this into a simple plan",
+      "List the people who can help",
+      "Save the idea for later",
     ];
   }
 
@@ -2245,41 +2250,19 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
-          {visionMode !== "streaming" && !isCameraActive && (
+          {visionMode !== "streaming" && !isCameraActive && !isActive && (
             <div className="fixed left-1/2 bottom-[11rem] sm:bottom-[11.5rem] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
                 isStreamReady && (
                   <div className="w-full flex items-center justify-center text-center">
                     <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1.45rem] sm:text-[1.85rem] font-semibold leading-tight text-balance">
-                      {!isActive ? (
-                        voiceStartAwaitingReady ? (
-                          <span className="block">Starting…</span>
-                        ) : (
-                          <span className="block">Tap Anywhere to Begin</span>
-                        )
+                      {voiceStartAwaitingReady ? (
+                        <span className="block">Starting…</span>
                       ) : (
-                        <span className="block">Tell 6 What You Need to Remember</span>
+                        <span className="block">Tap Anywhere to Begin</span>
                       )}
                     </p>
-                  </div>
-                )}
-              {sessionState !== SessionState.DISCONNECTED &&
-                isStreamReady &&
-                isActive && (
-                  <div className="mt-3 w-full overflow-hidden rounded-full bg-black/18 py-1.5 backdrop-blur-[2px]">
-                    <div className="flex w-max animate-[prompt-roll_22s_linear_infinite] gap-2 px-2">
-                      {[...thoughtPrompts, ...thoughtPrompts].map(
-                        (prompt, index) => (
-                          <span
-                            key={`${prompt}-${index}`}
-                            className="whitespace-nowrap rounded-full border border-white/25 bg-black/25 px-3 py-1 text-[0.72rem] sm:text-[0.86rem] font-semibold text-white/88 shadow-[0_2px_12px_rgba(0,0,0,0.35)]"
-                          >
-                            {prompt}
-                          </span>
-                        ),
-                      )}
-                    </div>
                   </div>
                 )}
               <div className="hidden">
@@ -2356,6 +2339,41 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
+          {visionMode !== "streaming" &&
+            !isCameraActive &&
+            sessionState !== SessionState.DISCONNECTED &&
+            isStreamReady &&
+            isActive && (
+              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.15rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none">
+                {thoughtPrompts.slice(0, 4).map((prompt, index) => {
+                  const emphasis =
+                    index === 0
+                      ? "text-[1.5rem] sm:text-[1.9rem] text-white/96"
+                      : index === 1
+                        ? "text-[1.32rem] sm:text-[1.65rem] text-white/86"
+                        : index === 2
+                          ? "text-[1.15rem] sm:text-[1.42rem] text-white/74"
+                          : "text-[1rem] sm:text-[1.22rem] text-white/62";
+
+                  return (
+                    <p
+                      key={prompt}
+                      className={`max-w-[24rem] text-balance font-semibold leading-[1.08] drop-shadow-[0_3px_18px_rgba(0,0,0,0.88)] ${emphasis}`}
+                      style={{
+                        animation: `idea-rise 560ms cubic-bezier(0.22, 1, 0.36, 1) ${
+                          index * 90
+                        }ms both, idea-float ${
+                          6200 + index * 520
+                        }ms ease-in-out ${index * 160}ms infinite`,
+                      }}
+                    >
+                      {prompt}
+                    </p>
+                  );
+                })}
+              </div>
+            )}
+
           {visionMode !== "streaming" && !isCameraActive && (
             <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
               <Link
@@ -2402,12 +2420,29 @@ const LiveAvatarSessionComponent: React.FC<{
         </>
       )}
       <style>{`
-        @keyframes prompt-roll {
+        @keyframes idea-rise {
           0% {
-            transform: translateX(0);
+            opacity: 0;
+            transform: translateY(0.65rem) scale(0.98);
           }
           100% {
-            transform: translateX(-50%);
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        @keyframes idea-float {
+          0%,
+          100% {
+            transform: translateY(0);
+            filter: blur(0);
+          }
+          45% {
+            transform: translateY(-0.22rem);
+            filter: blur(0);
+          }
+          70% {
+            transform: translateY(0.08rem);
+            filter: blur(0);
           }
         }
       `}</style>
