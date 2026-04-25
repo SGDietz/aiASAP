@@ -16,7 +16,7 @@ import { Radio, Camera, Images, Video, Play, Square } from "lucide-react";
 export type SessionStoppedReason = { reason?: "inactivity" };
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. I'm here to make your life easier. Tell me a couple things you know you can't forget, and I'll keep track of them for you.";
+  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. I'm here to make your life easier. What should I call you?";
 
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
@@ -1934,12 +1934,12 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {/* Text overlays at the top */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2 pb-2">
-        <div className="text-center px-4 mb-2">
-          <h1 className="inline-block text-white text-[1.2rem] sm:text-[1.7rem] font-bold tracking-tight leading-tight">
+      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-5 sm:pt-7 pb-3">
+        <div className="text-center px-4">
+          <h1 className="inline-block text-white text-[2.4rem] sm:text-[3.4rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
             aiASAP
           </h1>
-          <p className="mx-auto max-w-[16.5rem] text-white text-[0.72rem] sm:text-[0.78rem] font-medium text-white/85 leading-snug">
+          <p className="mx-auto mt-2 sm:mt-3 max-w-[18rem] text-white text-[0.95rem] sm:text-[1.1rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
             Life Made Easy
           </p>
         </div>
@@ -2164,34 +2164,29 @@ const LiveAvatarSessionComponent: React.FC<{
           )}
 
           {visionMode !== "streaming" && !isCameraActive && (
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-20 px-4 pb-2 flex flex-col items-center">
+            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-20 px-4 pb-4 flex flex-col items-center">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
                 isStreamReady && (
                   <div className="mb-4 w-full flex items-center justify-center text-center">
-                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[0.9rem] sm:text-[1rem] font-semibold leading-tight">
+                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1rem] sm:text-[1.15rem] font-semibold leading-tight">
                       {!isActive ? (
                         voiceStartAwaitingReady ? (
                           <span className="block">Starting…</span>
                         ) : (
-                          <span className="block text-[1rem] sm:text-[1.1rem]">Tap Start to Begin</span>
+                          <span className="block">Tap Start to begin</span>
                         )
                       ) : (
-                        <>
-                          <span className="block">Tell 6 What You Can&apos;t Forget</span>
-                          <span className="block">
-                            or <em>Show Him</em>
-                          </span>
-                        </>
+                        <span className="block">Tell 6 what you can&apos;t forget</span>
                       )}
                     </p>
                   </div>
                 )} 
-              <div className="mx-auto w-full max-w-sm">
-                <div className="grid grid-cols-2 gap-3 mb-2.5">
+              <div className="mx-auto w-full max-w-md">
+                <div className="mb-2.5">
                   <button
                     type="button"
-                    className="btn-inset py-2 px-2.5 rounded-md flex items-center justify-center text-sm font-medium whitespace-nowrap min-h-[2.75rem]"
+                    className="btn-inset w-full py-4 px-6 rounded-lg flex items-center justify-center text-2xl sm:text-3xl font-semibold whitespace-nowrap min-h-[4.75rem]"
                     disabled={
                       sessionState !== SessionState.CONNECTED ||
                       !isStreamReady ||
@@ -2213,12 +2208,12 @@ const LiveAvatarSessionComponent: React.FC<{
                     </span> */}
                     {isActive ? (
                       <Square
-                        className="mr-1.5 w-4 h-4 shrink-0 text-red-500 fill-current"
+                        className="mr-3 w-7 h-7 shrink-0 text-red-500 fill-current"
                         aria-hidden
                       />
                     ) : (
                       <Play
-                        className="mr-1.5 w-4 h-4 shrink-0 text-red-500 fill-current"
+                        className="mr-3 w-7 h-7 shrink-0 text-red-500 fill-current"
                         aria-hidden
                       />
                     )}
@@ -2226,7 +2221,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   </button>
                   <button
                     type="button"
-                    className="btn-inset py-2 px-2.5 rounded-md flex items-center justify-center text-sm font-medium whitespace-nowrap min-h-[2.75rem]"
+                    className="hidden"
                     onClick={async () => {
                       await unlockAudio();
                       handleGoLive();
@@ -2236,7 +2231,7 @@ const LiveAvatarSessionComponent: React.FC<{
                     Go Live
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-3 mb-2.5">
+                <div className="hidden">
                   <button
                     type="button"
                     className="btn-inset py-2 px-2.5 rounded-md flex items-center justify-center text-sm font-medium whitespace-nowrap min-h-[2.75rem]"
@@ -2258,7 +2253,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   </button>
                 </div>
               </div>
-              <div className="h-14 flex items-center justify-center">
+              <div className="mt-8 flex items-center justify-center">
                 <Link
                   href="/terms"
                   target="_blank"

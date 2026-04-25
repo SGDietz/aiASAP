@@ -6,199 +6,80 @@ const sections: Array<{
   bullets?: string[];
 }> = [
   {
-    title: "1. ACCEPTANCE OF TERMS",
+    title: "1. Acceptance Of Terms",
     paragraphs: [
-      "Your access to and use of the Service constitutes full, unconditional, and legally binding acceptance of these terms.",
-      "No additional acknowledgment, click-through, or confirmation is required.",
+      "By using aiASAP, you agree to these terms. If you do not agree, do not use the service.",
     ],
   },
   {
-    title: "2. USE AT YOUR OWN RISK",
+    title: "2. What aiASAP Does",
     paragraphs: [
-      "The Service provides Ai-generated information, suggestions, and problem-solving guidance.",
-      "We make no representations or warranties, including but not limited to:",
-      "You assume full responsibility for all actions and outcomes.",
+      "aiASAP is a voice-first AI assistant designed to help users remember important tasks, create lists, set reminders, and make everyday life easier.",
+      "aiASAP may help collect information such as names, phone numbers, email addresses, reminder details, dates, times, and notification preferences when users voluntarily provide them.",
     ],
-    bullets: ["accuracy", "completeness", "reliability", "safety", "effectiveness", "suitability for any purpose"],
   },
   {
-    title: "3. NO PROFESSIONAL ADVICE",
+    title: "3. No Professional Advice",
     paragraphs: [
-      "The Service does NOT provide:",
-      "All content is informational only.",
-      "You are solely responsible for verifying information and consulting qualified professionals.",
-    ],
-    bullets: [
-      "legal advice",
-      "financial advice",
-      "medical advice",
-      "engineering or construction advice",
-      "licensed or regulated professional services",
+      "aiASAP provides general information and assistance only. It does not provide legal, medical, financial, emergency, or other regulated professional advice.",
+      "You are responsible for your decisions, actions, and verification of important information.",
     ],
   },
   {
-    title: "4. NO GUARANTEES",
+    title: "4. Reminders And Notifications",
     paragraphs: [
-      "We make no guarantees regarding:",
-      "Any suggestions or recommendations are non-binding and non-guaranteed.",
-    ],
-    bullets: ["results", "cost savings", "project outcomes", "contractor performance", "safety", "timelines"],
-  },
-  {
-    title: "5. USER RESPONSIBILITY",
-    paragraphs: ["You agree that:"],
-    bullets: [
-      "You are solely responsible for your decisions and actions",
-      "You will independently verify all information",
-      "You will use licensed professionals where appropriate",
-      "You will comply with all applicable laws, codes, and regulations",
+      "aiASAP may offer reminders by text message, email, phone call, Telegram, Messenger, WhatsApp, Signal, app notifications, or other channels as the product develops.",
+      "Reminders are provided as a convenience and are not guaranteed. You remain responsible for important deadlines, appointments, birthdays, obligations, and tasks.",
     ],
   },
   {
-    title: "6. CONTRACTORS, REFERRALS, AND THIRD PARTIES",
+    title: "5. Accounts And Memory",
     paragraphs: [
-      "The Service may:",
-      "We do not vet, guarantee, or endorse any third party.",
-      "We are not responsible for:",
-      "All agreements are solely between you and the third party.",
-    ],
-    bullets: [
-      "recommend contractors or service providers",
-      "connect users with third parties",
-      "receive referral fees or compensation",
-      "performance",
-      "safety",
-      "licensing",
-      "pricing",
-      "disputes",
+      "Some features may require an account so aiASAP can remember you across sessions.",
+      "Information you provide may be stored so aiASAP can personalize help, maintain reminders, improve the product, and support requested services.",
     ],
   },
   {
-    title: "7. DATA COLLECTION, RECORDING, AND USE",
+    title: "6. Data Use",
     paragraphs: [
-      "By using the Service, you explicitly acknowledge and agree that:",
-      "Any information you voluntarily provide (including name, email, phone number, or other details) may be collected and retained.",
-      "Data may be used for:",
-      "Your continued use of the Service constitutes affirmative and legally binding consent to these practices.",
-      "If you do not agree, you must immediately discontinue use.",
-      "You agree not to submit sensitive information, including:",
-      "We are not responsible for any consequences resulting from information you choose to provide.",
-      "We do not sell personal data, but may share data with:",
-    ],
-    bullets: [
-      "All interactions, including conversations with Ai systems, may be recorded, stored, analyzed, and used",
-      "operating the Service",
-      "improving performance",
-      "training Ai systems",
-      "analytics and optimization",
-      "facilitating connections with third parties",
-      "financial account data",
-      "passwords",
-      "social security numbers",
-      "confidential or proprietary information",
-      "service providers",
-      "contractors (when relevant)",
-      "analytics tools",
-      "legal authorities if required",
+      "Conversations and interactions with aiASAP may be recorded, transcribed, stored, analyzed, and used to operate, secure, improve, and train the service.",
+      "Do not provide passwords, financial account numbers, social security numbers, private medical details, or other highly sensitive information unless a future feature explicitly supports it with appropriate protections.",
     ],
   },
   {
-    title: "8. INTELLECTUAL PROPERTY",
+    title: "7. Third-Party Services",
     paragraphs: [
-      "All content and technology, including:",
-      "are the exclusive property of iSolveUrProblems.ai.",
-      "You may not:",
-      "any part of the Service.",
-    ],
-    bullets: [
-      "software",
-      "Ai systems",
-      "design",
-      "branding",
-      "text",
-      "functionality",
-      "copy",
-      "reproduce",
-      "distribute",
-      "reverse engineer",
-      "scrape",
-      "exploit",
+      "aiASAP may rely on third-party services for AI, voice, avatars, messaging, email, phone calls, hosting, analytics, storage, authentication, and payments.",
+      "Those services may have their own terms and privacy practices.",
     ],
   },
   {
-    title: "9. LIMITATION OF LIABILITY",
+    title: "8. Intellectual Property",
     paragraphs: [
-      "TO THE MAXIMUM EXTENT PERMITTED BY LAW:",
-      "iSolveUrProblems.ai shall not be liable for:",
-      "arising from:",
-      "TOTAL LIABILITY SHALL NOT EXCEED $0.",
-    ],
-    bullets: [
-      "direct damages",
-      "indirect damages",
-      "incidental damages",
-      "consequential damages",
-      "personal injury",
-      "property damage",
-      "lost profits",
-      "use of the Service",
-      "reliance on information",
-      "third-party interactions",
+      "aiASAP, its branding, software, workflows, AI systems, interface, and related content are owned by aiASAP or its creator unless otherwise stated.",
+      "You may not copy, scrape, reverse engineer, exploit, or redistribute the service without permission.",
     ],
   },
   {
-    title: "10. INDEMNIFICATION",
+    title: "9. Service Changes",
     paragraphs: [
-      "You agree to indemnify, defend, and hold harmless iSolveUrProblems.ai from any claims, damages, losses, or expenses arising from:",
-    ],
-    bullets: [
-      "your use of the Service",
-      "your actions or decisions",
-      "your violation of these terms",
-      "your interactions with third parties",
+      "aiASAP is early-stage software. Features may change, break, pause, be limited, or be discontinued at any time.",
     ],
   },
   {
-    title: "11. SERVICE MODIFICATIONS",
+    title: "10. Limitation Of Liability",
     paragraphs: [
-      "We may:",
-      "any part of the Service at any time, without notice or liability.",
-    ],
-    bullets: ["modify", "suspend", "restrict", "discontinue"],
-  },
-  {
-    title: "12. TERMINATION",
-    paragraphs: [
-      "We reserve the right to terminate or restrict access at any time, for any reason, without notice.",
+      "To the maximum extent permitted by law, aiASAP is provided as-is and without warranties.",
+      "aiASAP is not liable for missed reminders, incorrect information, service outages, user decisions, third-party service failures, or any direct or indirect damages arising from use of the service.",
     ],
   },
   {
-    title: "13. FUTURE CORPORATE STRUCTURE",
-    paragraphs: [
-      "The Service may be transferred to or operated by a future legal entity, including a Delaware C-Corporation.",
-      "All rights and protections herein shall transfer automatically.",
-    ],
-  },
-  {
-    title: "14. GOVERNING LAW",
+    title: "11. Governing Law",
     paragraphs: ["These terms are governed by the laws of the State of Maryland."],
   },
   {
-    title: "15. DISPUTE RESOLUTION",
-    paragraphs: ["All disputes shall be resolved through binding arbitration.", "You waive:"],
-    bullets: ["the right to a jury trial", "participation in class actions"],
-  },
-  {
-    title: "16. CHANGES TO TERMS",
-    paragraphs: [
-      "We may update these terms at any time.",
-      "Continued use of the Service constitutes acceptance of any changes.",
-    ],
-  },
-  {
-    title: "17. CONTACT",
-    paragraphs: ["For legal inquiries:"],
-    bullets: ["sgdietz@pm.me"],
+    title: "12. Contact",
+    paragraphs: ["For legal or privacy inquiries, contact sgdietz@pm.me."],
   },
 ];
 
@@ -207,24 +88,31 @@ export default function LegalPage() {
     <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
       <BackToPreviousButton />
       <article className="mx-auto w-full max-w-4xl rounded-xl border border-white/10 bg-zinc-900/70 p-5 shadow-lg backdrop-blur sm:p-8">
-        
-        <h1 className="text-3xl font-bold tracking-wide text-white sm:text-4xl">Terms</h1>
-        <p className="mt-3 text-sm text-zinc-300 sm:text-base">Effective Date: Jan 01, 2026</p>
+        <h1 className="text-3xl font-bold tracking-normal text-white sm:text-4xl">
+          aiASAP Terms
+        </h1>
+        <p className="mt-3 text-sm text-zinc-300 sm:text-base">
+          Effective Date: April 24, 2026
+        </p>
 
         <div className="mt-6 space-y-4 text-sm leading-relaxed text-zinc-200 sm:text-base">
           <p>
-            Welcome to iSolveUrProblems.ai ("Company," "we," "our," or "us"). By accessing or using this website,
-            platform, or any associated services (collectively, the "Service"), you agree to the following terms.
+            Welcome to aiASAP. These terms apply to this website, avatar
+            experience, and related services.
           </p>
-          <p>If you do not agree, you must not use the Service.</p>
         </div>
 
         <div className="mt-8 space-y-8">
           {sections.map((section) => (
             <section key={section.title}>
-              <h2 className="text-lg font-semibold text-white sm:text-xl">{section.title}</h2>
+              <h2 className="text-lg font-semibold text-white sm:text-xl">
+                {section.title}
+              </h2>
               {section.paragraphs?.map((paragraph) => (
-                <p key={paragraph} className="mt-3 text-sm leading-relaxed text-zinc-200 sm:text-base">
+                <p
+                  key={paragraph}
+                  className="mt-3 text-sm leading-relaxed text-zinc-200 sm:text-base"
+                >
                   {paragraph}
                 </p>
               ))}
@@ -240,12 +128,12 @@ export default function LegalPage() {
         </div>
 
         <section className="mt-10 border-t border-white/10 pt-6">
-          <h2 className="text-lg font-semibold text-white sm:text-xl">FINAL NOTE</h2>
+          <h2 className="text-lg font-semibold text-white sm:text-xl">
+            Final Note
+          </h2>
           <p className="mt-3 text-sm leading-relaxed text-zinc-200 sm:text-base">
-            This platform is a tool to assist with thinking and problem-solving.
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-200 sm:text-base">
-            It is not a substitute for professional judgment, experience, or licensed expertise.
+            aiASAP is built to help, but it is not a substitute for your own
+            judgment or responsibility.
           </p>
         </section>
       </article>
