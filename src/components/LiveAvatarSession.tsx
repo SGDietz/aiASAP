@@ -1905,9 +1905,11 @@ const LiveAvatarSessionComponent: React.FC<{
       {sessionStartError && (
         <div className="absolute inset-x-0 top-0 z-50 bg-red-900/95 text-white px-4 py-4 text-center shadow-lg">
           <p className="text-inset text-lg font-semibold">{sessionStartError}</p>
-          <p className="text-inset mt-2 text-sm text-red-200">
-            Add credits to your LiveAvatar account in the dashboard to continue.
-          </p>
+          {sessionStartError.toLowerCase().includes("credit") && (
+            <p className="text-inset mt-2 text-sm text-red-200">
+              Add credits to your LiveAvatar account in the dashboard to continue.
+            </p>
+          )}
           {onExit && (
             <button
               type="button"
