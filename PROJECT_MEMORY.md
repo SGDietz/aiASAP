@@ -11,7 +11,9 @@
 - User wants "brief" to mean extremely brief: only the few lines needed, especially when action is needed.
 - When sending the user a link or build to try, call it a "smoke test".
 - Use the 95% rule: ask questions until at least 95% sure what the user wants, but keep questions concise.
+- Absolute workflow rule: ask questions first; when ready to act on meaningful product/code/database changes, ask the user for permission and wait for explicit permission before acting.
 - Default posture: do things for the user, ask for permissions when needed, and keep the computer/browser tidy by closing anything that does not need to stay open.
+- Supabase rule: aiASAP must use its own Supabase project/database, never the iSolve database. Current project URL starts with `https://wqszxsqzkaatghyrqviv.supabase.co`.
 - aiASAP vision: a voice-first, self-learning AI company and product that helps people adopt AI with minimal mental friction.
 - Company name must always be written exactly as `aiASAP`; never use any other capitalization or spacing.
 - Active tagline options: "Build a Better Life. aiASAP", "Make Life Easier. aiASAP", and "Life Made Easy. aiASAP"; keep them in rotation as branding evolves.

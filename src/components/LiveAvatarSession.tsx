@@ -1936,11 +1936,11 @@ const LiveAvatarSessionComponent: React.FC<{
       {/* Text overlays at the top */}
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-5 sm:pt-7 pb-3">
         <div className="text-center px-4">
-          <h1 className="inline-block text-white text-[2.4rem] sm:text-[3.4rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+          <h1 className="inline-block text-white text-[2.05rem] sm:text-[3rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
             aiASAP
           </h1>
-          <p className="mx-auto mt-2 sm:mt-3 max-w-[18rem] text-white text-[0.95rem] sm:text-[1.1rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
-            Life Made Easy
+          <p className="mx-auto mt-1 sm:mt-1.5 max-w-[18rem] text-white text-[0.95rem] sm:text-[1.1rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
+            Take the Leap
           </p>
         </div>
         {microphoneWarning && (
