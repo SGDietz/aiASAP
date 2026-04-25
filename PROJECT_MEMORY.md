@@ -67,3 +67,16 @@
 - Current aiASAP `6` voice ID: `a65a59af-39bd-4f57-8cc6-235449ca3348`.
 - A valid LiveAvatar API key was received and tested locally on 2026-04-24; it is stored only in ignored `.env` and Vercel environment variables, not committed.
 - GitHub/Vercel direction: reuse proven iSolve integration patterns where possible, but do not modify the existing iSolve codebase unless explicitly instructed. Clone/reference it separately and build aiASAP as its own project/repo.
+
+## Current Handoff - 2026-04-25
+
+- Latest pushed commit before this handoff: `00245d1 Tune aiASAP mobile prompts`.
+- GitHub repo: `https://github.com/SGDietz/aiASAP`.
+- Production smoke test URL: `https://ai-asap.vercel.app`.
+- Latest smoke test was sent to Telegram after Vercel reported READY.
+- Current UI state: mobile-first portrait avatar, top `aiASAP` with `beta`, `Take the Leap` closer underneath, bottom prompt `Tell 6 What You Need to Remember`, rolling thought prompt rail, terms pinned to bottom.
+- Current timing state: first silence re-engagement after 10 seconds, second after 15 seconds, session inactivity timeout after 60 seconds.
+- LiveAvatar context `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930` was updated after the timing/reminder changes.
+- Next thing G may do: run the smoke test on phone. After he says it is done, inspect Supabase transcript/session data, learn from it, and ask concise questions.
+- Important unresolved check: Supabase schema may still need to be confirmed as run. If transcript lookup fails because tables do not exist, use `supabase/schema.sql` in the aiASAP Supabase SQL editor.
+- Safe restart note: no local dev server is required for the live site; current source is pushed to GitHub and deployed through Vercel. Local `.env` secrets are only on this machine, while Vercel has production env vars.
