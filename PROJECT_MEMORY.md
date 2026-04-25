@@ -23,7 +23,7 @@
 - UI permission rule: avoid double permission prompts. Load avatar silently/muted first, then use one clear tap-to-begin gesture for mic/audio.
 - Monetization direction: beta is free/no money ask. Later, use prepaid credits instead of subscriptions. Pricing philosophy is cost plus roughly 5 percent, as affordable as practical.
 - App-store commerce rule: play by Apple/Google rules; if in-app digital credits are consumed inside mobile apps, plan for Apple/Google in-app purchase requirements.
-- Founder/business direction: SG Dietz is the Creator/Founder/Builder/CEO of iSolveUrProblems.ai and aiASAP. He is self-funding early aiASAP as much as possible and prefers retaining ownership if feasible. Be open, publish cost/usage analyses where practical, and position aiASAP as helping people first.
+- Founder/business direction: SG Dietz is the Creator/Founder/Builder/CEO of iSolveUrProblems.ai & aiASAP. He is self-funding early aiASAP as much as possible and prefers retaining ownership if feasible. Be open, publish cost/usage analyses where practical, and position aiASAP as helping people first.
 - Name rule: `G` is the user's personal name/nickname only. Do not use `G` as a generic user placeholder or public founder label.
 - LiveAvatar is intended as the front-facing natural-language avatar layer, including a digital copy of the user where appropriate.
 - Codex is intended to be the operating brain for building aiASAP and coordinating implementation.
