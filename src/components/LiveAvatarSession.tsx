@@ -2012,7 +2012,7 @@ const LiveAvatarSessionComponent: React.FC<{
               beta
             </span>
           </div>
-          <p className="mx-auto mt-0.5 max-w-[18rem] text-white text-[0.9rem] sm:text-[1.05rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
+          <p className="mx-auto mt-0.5 max-w-[18rem] text-white text-[1.15rem] sm:text-[1.35rem] font-medium text-white/85 leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
         </div>
@@ -2246,17 +2246,17 @@ const LiveAvatarSessionComponent: React.FC<{
           )}
 
           {visionMode !== "streaming" && !isCameraActive && (
-            <div className="fixed left-1/2 bottom-[8.5rem] sm:bottom-[9rem] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
+            <div className="fixed left-1/2 bottom-[11rem] sm:bottom-[11.5rem] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
                 isStreamReady && (
                   <div className="w-full flex items-center justify-center text-center">
-                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1.15rem] sm:text-[1.55rem] font-semibold leading-tight text-balance">
+                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1.45rem] sm:text-[1.85rem] font-semibold leading-tight text-balance">
                       {!isActive ? (
                         voiceStartAwaitingReady ? (
                           <span className="block">Starting…</span>
                         ) : (
-                          <span className="block">Tap anywhere to begin</span>
+                          <span className="block">Tap Anywhere to Begin</span>
                         )
                       ) : (
                         <span className="block">Tell 6 What You Need to Remember</span>
