@@ -20,7 +20,7 @@
 - Hardware context: this machine is a GEEKOM A5 mini PC running Windows 11 Pro 64-bit.
 - Hardware limits: AMD Ryzen 5 7430U, 6 cores / 12 logical processors, 16 GB RAM, integrated AMD Radeon graphics, 512 GB Lexar SSD with roughly 385 GB free when checked on 2026-04-24.
 - Build constraint: prefer cloud/API inference and lightweight local tooling; do not plan heavy local model training, GPU-heavy video generation, or long-running resource-intensive workloads on this PC unless explicitly approved.
-- Avatar status: no dedicated aiASAP avatar exists yet; avatar work is planning-only until the user creates or chooses one.
+- Current aiASAP LiveAvatar avatar ID: `3cbe98e4-50ff-4e48-8954-7685fcf09dac`.
 - aiASAP avatar name: `6` using the number, not "Six" or "SIX".
 - Everything in aiASAP should orient users around this promise: `6` does the work for them.
 - `6` personality: warm, southern, folksy, friendly AI buddy; allowed to be funny.
@@ -40,4 +40,6 @@
 - aiASAP `6` differs from iSolve `6`: aiASAP is not home/garden or investment-pipeline focused. Its first lane is everyday life assistance: remembering, reminders, lists, follow-ups, calendar, and making life easier by doing the work.
 - aiASAP should eventually have its own complete avatar context window modeled on the iSolve structure, but rewritten for aiASAP's lane and promise.
 - Current LiveAvatar aiASAP `6` context ID: `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930`.
+- Current aiASAP `6` voice ID: `a65a59af-39bd-4f57-8cc6-235449ca3348`.
+- The LiveAvatar API key pasted on 2026-04-24 tested as invalid against `POST https://api.liveavatar.com/v1/sessions/token`; do not commit API keys, and do not treat that pasted key as verified.
 - GitHub/Vercel direction: reuse proven iSolve integration patterns where possible, but do not modify the existing iSolve codebase unless explicitly instructed. Clone/reference it separately and build aiASAP as its own project/repo.
