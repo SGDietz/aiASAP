@@ -19,8 +19,6 @@ import {
   Play,
   Square,
   X,
-  List as ListIcon,
-  ListOrdered,
 } from "lucide-react";
 
 export type SessionStoppedReason = { reason?: "inactivity" };
@@ -29,11 +27,11 @@ const AIASAP_FOUNDER_TITLE =
   "Creator/Builder/Founder/Financier/CEO aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. This is the MVP, the minimum viable product. The full build is coming, and G is building it as we speak. Someday, folks will build whole companies inside aiASAP just by talking to me. And later, when the subscription system is ready, it can drop automatically when you use less. Go two months with no use at all, and it can drop you to the free tier, keep your info, and let you pick up right where you left off. You ever heard of that before? This whole system is built for you. You can customize most of this place and how we work together, but I'm always your guide. What should I call you?";
+  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Start a Grocery List",
-  "Create ToDo",
+  "Create To Do List",
   "Remember a Birthday",
   "Plan this Weekend",
 ];
@@ -48,9 +46,9 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("task")
   ) {
     return [
-      "Create ToDo",
-      "Open Work ToDo",
-      "Open Family ToDo",
+      "Create To Do List",
+      "Open Work To Do",
+      "Open Family To Do",
       "Add Next Task",
     ];
   }
@@ -83,7 +81,7 @@ const getThoughtPrompts = (text: string): string[] => {
   ) {
     return [
       value.includes("walmart") ? "Open Walmart List" : "Add to Grocery List",
-      "Create ToDo",
+      "Create To Do List",
       "Add the Next Item",
       "Sort by Store",
     ];
@@ -192,11 +190,10 @@ const LIST_ACCENT_COLORS: Record<
 
 function titleCaseWords(value: string): string {
   return value
-    .replace(/\bto[-\s]?do\b/gi, "ToDo")
+    .replace(/\bto[-\s]?do\b/gi, "To Do")
     .split(" ")
     .filter(Boolean)
     .map((word) => {
-      if (word === "ToDo") return word;
       if (/^walmart$/i.test(word)) return "Walmart";
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
@@ -219,7 +216,7 @@ function normalizeListTitle(value: string, kind: AssistantListKind): string {
       .replace(/\b(?:todo|to-do|to do|task|tasks|list)\b/gi, " ")
       .replace(/\s+/g, " ")
       .trim();
-    return scope ? `${titleCaseWords(scope)} ToDo` : "ToDo";
+    return scope ? `${titleCaseWords(scope)} To Do List` : "To Do List";
   }
 
   const withoutList = cleaned.replace(/\blist\b/gi, " ").trim();
@@ -355,7 +352,7 @@ function detectListIntent(text: string): {
 
   if (/\b(?:to[-\s]?do|todo|tasks?)\b/i.test(text)) {
     return {
-      title: todoScope ? `${todoScope} ToDo` : "ToDo",
+      title: todoScope ? `${titleCaseWords(todoScope)} To Do List` : "To Do List",
       kind: "todo",
     };
   }
@@ -703,20 +700,6 @@ const LiveAvatarSessionComponent: React.FC<{
     [],
   );
 
-  const setActiveListDisplayStyle = useCallback(
-    (style: ListDisplayStyle) => {
-      if (!activeListId) return;
-      setAssistantLists((currentLists) =>
-        currentLists.map((list) =>
-          list.id === activeListId
-            ? { ...list, displayStyle: style, updatedAt: Date.now() }
-            : list,
-        ),
-      );
-    },
-    [activeListId],
-  );
-
   const setListDisplayStyle = useCallback(
     (listId: string, style: ListDisplayStyle) => {
       setAssistantLists((currentLists) =>
@@ -728,20 +711,6 @@ const LiveAvatarSessionComponent: React.FC<{
       );
     },
     [],
-  );
-
-  const setActiveListAccentColor = useCallback(
-    (accentColor: ListAccentColor) => {
-      if (!activeListId) return;
-      setAssistantLists((currentLists) =>
-        currentLists.map((list) =>
-          list.id === activeListId
-            ? { ...list, accentColor, updatedAt: Date.now() }
-            : list,
-        ),
-      );
-    },
-    [activeListId],
   );
 
   const setListAccentColor = useCallback(
@@ -3092,42 +3061,6 @@ const LiveAvatarSessionComponent: React.FC<{
                     {activeList.title}
                   </h2>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      aria-label="Show bullets"
-                      title="Show bullets"
-                      onClick={() => setActiveListDisplayStyle("bulleted")}
-                      className={`flex h-9 w-9 items-center justify-center rounded-full border border-white/10 ${
-                        activeList.displayStyle === "bulleted"
-                          ? "text-zinc-950"
-                          : "bg-black/20"
-                      }`}
-                      style={
-                        activeList.displayStyle === "bulleted"
-                          ? { backgroundColor: activeListTheme.solid }
-                          : { color: activeListTheme.foreground }
-                      }
-                    >
-                      <ListIcon className="h-4 w-4" aria-hidden />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Show numbers"
-                      title="Show numbers"
-                      onClick={() => setActiveListDisplayStyle("numbered")}
-                      className={`flex h-9 w-9 items-center justify-center rounded-full border border-white/10 ${
-                        activeList.displayStyle === "numbered"
-                          ? "text-zinc-950"
-                          : "bg-black/20"
-                      }`}
-                      style={
-                        activeList.displayStyle === "numbered"
-                          ? { backgroundColor: activeListTheme.solid }
-                          : { color: activeListTheme.foreground }
-                      }
-                    >
-                      <ListOrdered className="h-4 w-4" aria-hidden />
-                    </button>
                     <span
                       className="rounded-full bg-black/20 px-3 py-1 text-[0.78rem] font-semibold uppercase"
                       style={{ color: activeListTheme.foreground }}
@@ -3135,34 +3068,6 @@ const LiveAvatarSessionComponent: React.FC<{
                       {activeList.items.length || 0}
                     </span>
                   </div>
-                </div>
-                <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
-                  {(Object.keys(LIST_ACCENT_COLORS) as ListAccentColor[]).map(
-                    (color) => {
-                      const option = LIST_ACCENT_COLORS[color];
-                      return (
-                        <button
-                          type="button"
-                          key={color}
-                          aria-label={`Use ${option.label}`}
-                          title={`Use ${option.label}`}
-                          onClick={() => setActiveListAccentColor(color)}
-                          className={`h-7 w-7 shrink-0 rounded-full border ${
-                            activeList.accentColor === color
-                              ? "border-white"
-                              : "border-white/20"
-                          }`}
-                          style={{
-                            backgroundColor: option.solid,
-                            boxShadow:
-                              activeList.accentColor === color
-                                ? `0 0 0 3px ${option.soft}`
-                                : undefined,
-                          }}
-                        />
-                      );
-                    },
-                  )}
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                   {activeList.items.length > 0 ? (
