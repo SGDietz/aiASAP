@@ -14,9 +14,13 @@ const OPENAI_MODEL =
 const FALLBACK_PROMPTS = [
   "Start a Grocery List",
   "Create To Do List",
-  "Remember a Birthday",
-  "Plan this Weekend",
+  "Plan This Weekend",
+  "Change Subject",
 ];
+
+const CHANGE_SUBJECT_PROMPT = "Change Subject";
+const BLOCKED_PROMPT_RE =
+  /\b(?:contact|contacts|named g|for g|with g|call g|text g|email g|remind g|g's)\b/i;
 
 const LOWERCASE_TITLE_WORDS = new Set([
   "a",
@@ -71,8 +75,9 @@ function cleanPrompt(value: unknown): string | null {
     .trim();
 
   const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
-  if (wordCount < 3 || wordCount > 4) return null;
-  if (cleaned.length < 3 || cleaned.length > 42) return null;
+  if (wordCount < 2 || wordCount > 4) return null;
+  if (cleaned.length < 3 || cleaned.length > 32) return null;
+  if (BLOCKED_PROMPT_RE.test(cleaned)) return null;
   return toPromptTitleCase(cleaned);
 }
 
@@ -84,7 +89,12 @@ function normalizePrompts(value: unknown): string[] {
     .filter((prompt): prompt is string => Boolean(prompt));
 
   const unique = [...new Set(prompts)];
-  return [...unique, ...FALLBACK_PROMPTS].slice(0, 4);
+  const topical = unique.filter((prompt) => prompt !== CHANGE_SUBJECT_PROMPT);
+  return [...topical, ...FALLBACK_PROMPTS]
+    .filter((prompt, index, all) => all.indexOf(prompt) === index)
+    .filter((prompt) => prompt !== CHANGE_SUBJECT_PROMPT)
+    .slice(0, 3)
+    .concat(CHANGE_SUBJECT_PROMPT);
 }
 
 export async function POST(request: Request) {
@@ -135,7 +145,7 @@ export async function POST(request: Request) {
       {
         role: "system",
         content:
-          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts ranked from most useful to least useful for what the user is discussing now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt exactly 3 or 4 words. Use title case, but keep small connector words lowercase, such as a, an, and, for, of, the, this, and to. Prefer concrete, practical help that improves daily life: reminders, lists, To Do lists, errands, birthdays, follow-ups, small next steps, and useful personal organization. The exact prompt Create To Do List is preferred whenever tasks, chores, plans, work, family, or open loops are in the conversation. If the user already has or is building a grocery list, prefer Add to Grocery List over Start a Grocery List. Avoid vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
+          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts for what the user is discussing right now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt 2 to 4 words. Use title case, but keep small connector words lowercase, such as a, an, and, for, of, the, this, and to. The first three prompts must be tightly related to the current subject. The fourth prompt should usually be Change Subject. Prefer concrete, practical help that improves daily life: reminders, lists, To Do lists, errands, birthdays, weekend plans, hikes, outdoor activities, follow-ups, small next steps, and useful personal organization. Keep Plan This Weekend as a strong proactive option when weekend, free time, activity, family, friends, energy, health, or getting out of the house fits. The exact prompt Create To Do List is preferred whenever tasks, chores, plans, work, family, or open loops are in the conversation. If the user already has or is building a grocery list, prefer Add to Grocery List over Start a Grocery List. If reminders are relevant, prefer Add Reminder, not Set Reminder for G. Never create prompts about adding contacts named G, setting reminders for G, calling G, texting G, or emailing G; G is the Creator/Builder/Founder/Financier/CEO aiASAP, not a random contact. Avoid stale ideas, vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
       },
       {
         role: "user",

@@ -8,6 +8,7 @@ import { checkRateLimit } from "../../../src/lib/rateLimit";
 import { getSupabaseAdminConfig } from "../../../src/lib/supabaseAdmin";
 
 const AIASAP_FOUNDER_TITLE = "Creator/Builder/Founder/Financier/CEO aiASAP";
+const BUG_REPORT_BUCKET = process.env.AIASAP_ACCOUNT_BUCKET || "aiasap-accounts";
 const MAX_BUG_SUMMARY_CHARS = 900;
 const MAX_PAGE_URL_CHARS = 600;
 
@@ -25,6 +26,14 @@ function supabaseHeaders(serviceRoleKey: string) {
     Authorization: `Bearer ${serviceRoleKey}`,
     "Content-Type": "application/json",
     Prefer: "return=representation",
+  };
+}
+
+function storageHeaders(serviceRoleKey: string) {
+  return {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    "Content-Type": "application/json",
   };
 }
 
@@ -69,6 +78,37 @@ async function storeBugReport(row: Record<string, unknown>) {
     return Array.isArray(data) ? data[0] : data;
   } catch (error) {
     console.error("bug-report Supabase unavailable:", error);
+    return null;
+  }
+}
+
+async function storeBugReportFallback(row: Record<string, unknown>) {
+  try {
+    const { url, serviceRoleKey } = getSupabaseAdminConfig();
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const iso = now.toISOString().replace(/[:.]/g, "-");
+    const rand = Math.random().toString(36).slice(2, 10);
+    const path = `bug-reports/${yyyy}-${mm}/${iso}-${rand}.json`;
+    const res = await fetch(
+      `${url}/storage/v1/object/${BUG_REPORT_BUCKET}/${encodeURI(path)}`,
+      {
+        method: "POST",
+        headers: {
+          ...storageHeaders(serviceRoleKey),
+          "x-upsert": "false",
+        },
+        body: JSON.stringify({ ...row, stored_at: now.toISOString() }),
+      },
+    );
+    if (!res.ok) {
+      console.error("bug-report storage fallback failed:", await res.text());
+      return null;
+    }
+    return path;
+  } catch (error) {
+    console.error("bug-report storage fallback unavailable:", error);
     return null;
   }
 }
@@ -168,19 +208,32 @@ export async function POST(request: Request) {
 
     const storedId =
       stored && typeof stored.id === "string" ? (stored.id as string) : null;
+    const fallbackPath = storedId
+      ? null
+      : await storeBugReportFallback({
+          session_id: sessionId,
+          summary,
+          transcript,
+          page_url: pageUrl,
+          active_list: activeList,
+          recipient_title: AIASAP_FOUNDER_TITLE,
+          email_to: founderEmail || null,
+          source: "six_voice",
+        });
     const emailSent = await emailBugReport({
       summary,
       sessionId,
       pageUrl,
       founderEmail,
-      storedId,
+      storedId: storedId ?? fallbackPath,
     });
 
     return new Response(
       JSON.stringify({
         ok: true,
-        stored: Boolean(stored),
+        stored: Boolean(storedId || fallbackPath),
         reportId: storedId,
+        storagePath: fallbackPath,
         emailSent,
         recipientTitle: AIASAP_FOUNDER_TITLE,
       }),

@@ -21,6 +21,7 @@ import {
   Play,
   Square,
   X,
+  MapPin,
 } from "lucide-react";
 
 export type SessionStoppedReason = { reason?: "inactivity" };
@@ -34,9 +35,11 @@ const VOICE_START_GREETING =
 const DEFAULT_THOUGHT_PROMPTS = [
   "Start a Grocery List",
   "Create To Do List",
-  "Remember a Birthday",
-  "Plan this Weekend",
+  "Plan This Weekend",
+  "Change Subject",
 ];
+
+const CHANGE_SUBJECT_PROMPT = "Change Subject";
 
 const getThoughtPrompts = (text: string): string[] => {
   const value = text.toLowerCase();
@@ -51,7 +54,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Create To Do List",
       "Open Work To Do",
       "Open Family To Do",
-      "Add Next Task",
+      CHANGE_SUBJECT_PROMPT,
     ];
   }
 
@@ -60,7 +63,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Remember the Birthday",
       "Add Yearly Reminder",
       "Plan a Gift",
-      "Invite the Right People",
+      CHANGE_SUBJECT_PROMPT,
     ];
   }
 
@@ -69,7 +72,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Remember the Anniversary",
       "Add Yearly Reminder",
       "Plan a Gift",
-      "Save Next Year's Note",
+      CHANGE_SUBJECT_PROMPT,
     ];
   }
 
@@ -85,7 +88,24 @@ const getThoughtPrompts = (text: string): string[] => {
       value.includes("walmart") ? "Open Walmart List" : "Add to Grocery List",
       "Create To Do List",
       "Add the Next Item",
-      "Sort by Store",
+      CHANGE_SUBJECT_PROMPT,
+    ];
+  }
+
+  if (
+    value.includes("hike") ||
+    value.includes("hiking") ||
+    value.includes("trail") ||
+    value.includes("park") ||
+    value.includes("outside") ||
+    value.includes("outdoor") ||
+    value.includes("weekend")
+  ) {
+    return [
+      "Find Local Hikes",
+      "Plan This Weekend",
+      "Check the Weather",
+      CHANGE_SUBJECT_PROMPT,
     ];
   }
 
@@ -99,12 +119,27 @@ const getThoughtPrompts = (text: string): string[] => {
       "Pick the Next Step",
       "Make a Simple Plan",
       "Find Helpful People",
-      "Save This Idea",
+      CHANGE_SUBJECT_PROMPT,
     ];
   }
 
   return DEFAULT_THOUGHT_PROMPTS;
 };
+
+function normalizeThoughtPrompts(prompts: string[]): string[] {
+  const cleaned = prompts
+    .map((prompt) => prompt.trim())
+    .filter(Boolean)
+    .filter((prompt) => !/\b(?:contact|named g|for g|call g|text g|email g)\b/i.test(prompt))
+    .filter((prompt, index, all) => all.indexOf(prompt) === index)
+    .filter((prompt) => prompt !== CHANGE_SUBJECT_PROMPT)
+    .slice(0, 3);
+  return [...cleaned, ...DEFAULT_THOUGHT_PROMPTS]
+    .filter((prompt, index, all) => all.indexOf(prompt) === index)
+    .filter((prompt) => prompt !== CHANGE_SUBJECT_PROMPT)
+    .slice(0, 3)
+    .concat(CHANGE_SUBJECT_PROMPT);
+}
 
 type AssistantListKind = "grocery" | "shopping" | "todo" | "custom";
 type ListDisplayStyle = "numbered" | "bulleted";
@@ -127,8 +162,14 @@ type AssistantList = {
   updatedAt: number;
 };
 
+type OnlineLookupSource = {
+  title: string;
+  url: string;
+};
+
 const ASSISTANT_LISTS_STORAGE_KEY = "aiasap.assistantLists.v1";
 const MAX_LIST_ITEMS = 80;
+const MAX_ONLINE_LOOKUP_SOURCE_COUNT = 3;
 const INTERNAL_SIGNAL_RE =
   /^\s*\[(?:USER HAS BEEN SILENT|SILENT|OBJECT_NOT_VISIBLE)[^\]]*\]/i;
 const LIST_TRIGGER_RE =
@@ -149,10 +190,18 @@ const BUG_REPORT_TRIGGER_RE =
   /\b(?:report (?:a )?bug|file (?:a )?bug|bug report|this (?:is|looks) broken|the app (?:is|seems|looks) broken|something (?:is|went) wrong|this is not working|that did not work|issue with (?:the )?app)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
+const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
+  /\b(?:send me (?:an?\s+)?email|email reminder|text me|notify me|two weeks before|2 weeks before|one week before|1 week before|day before|morning of|set (?:those|that|them) reminders?|save (?:that|this) reminder)\b/i;
 const ACCOUNT_READY_YES_RE =
   /\b(?:yes|yeah|yep|sure|ready|ok|okay|do it|let'?s do it|set it up|send it)\b/i;
 const ACCOUNT_READY_NO_RE = /\b(?:no|not now|later|stop|never mind|cancel)\b/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const ONLINE_LOOKUP_TOPIC_RE =
+  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|weekend|weekend activities|things to do|places to go|place to go|weather|forecast)\b/i;
+const ONLINE_LOOKUP_ACTION_RE =
+  /\b(?:find|look up|search|show me|where|nearby|near me|plan|check|help me find)\b/i;
+const LOCATION_HINT_RE =
+  /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
 const SHOPPING_MODE_OPEN_RE =
   /\b(?:shopping mode|store mode|in the store|at the store|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
 const SHOPPING_MODE_CLOSE_RE =
@@ -364,6 +413,39 @@ function canInferListItems(
   return cleaned.split(/\s+/).length <= 3;
 }
 
+function isOnlineLookupIntent(text: string): boolean {
+  return (
+    ONLINE_LOOKUP_TOPIC_RE.test(text) &&
+    (ONLINE_LOOKUP_ACTION_RE.test(text) || /\b(?:weekend|hike|hiking)\b/i.test(text))
+  );
+}
+
+function extractLocationHint(text: string): string | null {
+  const direct = text.match(/\b\d{5}(?:-\d{4})?\b/)?.[0] ?? null;
+  if (direct) return direct;
+  const match = text.match(LOCATION_HINT_RE);
+  if (!match?.[1]) return null;
+  const cleaned = match[1]
+    .replace(/\b(?:for|to|that|this|please|today|tomorrow|weekend|hike|hiking|trail|trails|park|parks|place|places|activity|activities)\b.*$/i, "")
+    .replace(/[^\w\s,.'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/^(?:me|here|my area|current location|where i am)$/i.test(cleaned)) {
+    return null;
+  }
+  return cleaned.length >= 2 ? cleaned.slice(0, 80) : null;
+}
+
+function isLikelyTypedLocation(text: string): boolean {
+  const value = text.trim();
+  if (value.length < 2 || value.length > 80) return false;
+  if (/[?]/.test(value)) return false;
+  if (ACCOUNT_READY_YES_RE.test(value) || ACCOUNT_READY_NO_RE.test(value)) {
+    return false;
+  }
+  return /\b\d{5}(?:-\d{4})?\b/.test(value) || /^[a-z][a-z\s,.'-]+$/i.test(value);
+}
+
 function extractListItems(
   text: string,
   options: { allowBareItems?: boolean } = {},
@@ -557,7 +639,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceHeldUntilUserStartRef = useRef(false);
   const [hasUserPressedVoiceStart, setHasUserPressedVoiceStart] = useState(false);
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
-  const [thoughtPrompts, setThoughtPrompts] = useState(DEFAULT_THOUGHT_PROMPTS);
+  const [thoughtPrompts, setThoughtPrompts] = useState(
+    normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS),
+  );
   const [dissolvingPrompt, setDissolvingPrompt] = useState<string | null>(null);
   const [assistantLists, setAssistantLists] =
     useState<AssistantList[]>(loadAssistantLists);
@@ -568,11 +652,24 @@ const LiveAvatarSessionComponent: React.FC<{
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
     string | null
   >(null);
+  const [onlineLookupNotice, setOnlineLookupNotice] = useState<string | null>(
+    null,
+  );
+  const [onlineLookupSources, setOnlineLookupSources] = useState<
+    OnlineLookupSource[]
+  >([]);
+  const [isOnlineLookupLoading, setIsOnlineLookupLoading] = useState(false);
+  const [postVerifyGreeting, setPostVerifyGreeting] = useState<string | null>(
+    null,
+  );
   const promptBrainHistoryRef = useRef<string[]>([]);
   const promptBrainSeqRef = useRef(0);
   const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const onlineLookupLocationRef = useRef<string | null>(null);
+  const onlineLookupPendingQueryRef = useRef<string | null>(null);
+  const postVerifyGreetingSpokenRef = useRef(false);
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
   const accountSetupOfferMadeRef = useRef(false);
@@ -608,7 +705,9 @@ const LiveAvatarSessionComponent: React.FC<{
     const latestUserText = text.trim();
     if (latestUserText.length < 3) return;
 
-    const fallbackPrompts = getThoughtPrompts(latestUserText);
+    const fallbackPrompts = normalizeThoughtPrompts(
+      getThoughtPrompts(latestUserText),
+    );
     const recentUserTexts = [
       ...promptBrainHistoryRef.current,
       latestUserText,
@@ -640,10 +739,9 @@ const LiveAvatarSessionComponent: React.FC<{
       ) {
         const prompts = data.prompts
           .map((prompt: string) => prompt.trim())
-          .filter(Boolean)
-          .slice(0, 4);
-        if (prompts.length === 4) {
-          setThoughtPrompts(prompts);
+          .filter(Boolean);
+        if (prompts.length > 0) {
+          setThoughtPrompts(normalizeThoughtPrompts(prompts));
         }
       }
     } catch (error) {
@@ -656,7 +754,9 @@ const LiveAvatarSessionComponent: React.FC<{
       const latestUserText = text.trim();
       if (latestUserText.length < 3) return;
 
-      setThoughtPrompts(getThoughtPrompts(latestUserText));
+      setThoughtPrompts(
+        normalizeThoughtPrompts(getThoughtPrompts(latestUserText)),
+      );
 
       if (promptBrainTimeoutRef.current) {
         clearTimeout(promptBrainTimeoutRef.current);
@@ -701,6 +801,25 @@ const LiveAvatarSessionComponent: React.FC<{
             );
           }
         }
+        const accountStatus = new URLSearchParams(window.location.search).get(
+          "account",
+        );
+        if (accountStatus === "verified") {
+          const firstListTitle =
+            Array.isArray(data.lists) && data.lists[0]?.title
+              ? String(data.lists[0].title)
+              : null;
+          setPostVerifyGreeting(
+            firstListTitle
+              ? `You're back. Account is set, and I remember your ${firstListTitle}. Let's pick up right there.`
+              : "You're back. Account is set, and I'll remember what you ask me to remember.",
+          );
+          window.history.replaceState(
+            {},
+            "",
+            `${window.location.pathname}${window.location.hash}`,
+          );
+        }
         accountListsLoadedRef.current = true;
       })
       .catch((error) => console.warn("Account load failed:", error));
@@ -708,6 +827,23 @@ const LiveAvatarSessionComponent: React.FC<{
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      !postVerifyGreeting ||
+      postVerifyGreetingSpokenRef.current ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady
+    ) {
+      return;
+    }
+    postVerifyGreetingSpokenRef.current = true;
+    setAccountNotice("Account verified");
+    void repeat(postVerifyGreeting).then(() => {
+      lastAvatarResponseRef.current = postVerifyGreeting;
+      lastVisionResponseTimeRef.current = Date.now();
+    });
+  }, [isStreamReady, postVerifyGreeting, repeat, sessionState]);
 
   useEffect(() => {
     if (!accountEmail || !accountListsLoadedRef.current) return;
@@ -1280,6 +1416,139 @@ const LiveAvatarSessionComponent: React.FC<{
     await ensureAudioOutputReady();
   }, [ensureAudioOutputReady]);
 
+  const performOnlineLookup = useCallback(
+    async (query: string, location: string) => {
+      if (isOnlineLookupLoading) return true;
+      setIsOnlineLookupLoading(true);
+      setOnlineLookupSources([]);
+      setOnlineLookupNotice("Looking online...");
+      try {
+        const response = await fetch("/api/online-search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query, location }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || typeof data?.answer !== "string") {
+          throw new Error(data?.error || "Online lookup failed");
+        }
+        const sources = Array.isArray(data.sources)
+          ? data.sources
+              .filter(
+                (source: unknown): source is OnlineLookupSource =>
+                  Boolean(source) &&
+                  typeof source === "object" &&
+                  typeof (source as OnlineLookupSource).title === "string" &&
+                  typeof (source as OnlineLookupSource).url === "string",
+              )
+              .slice(0, MAX_ONLINE_LOOKUP_SOURCE_COUNT)
+          : [];
+        setOnlineLookupSources(sources);
+        setOnlineLookupNotice(
+          sources.length > 0
+            ? "Online sources ready"
+            : "Online lookup complete",
+        );
+        const spoken =
+          sources.length > 0
+            ? `${data.answer} I put the source links on your screen so you can check details before you go.`
+            : data.answer;
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        schedulePromptBrain(query);
+        return true;
+      } catch (error) {
+        console.error("Online lookup failed:", error);
+        const spoken =
+          "I had trouble looking that up online. Try telling me the city or ZIP code again.";
+        setOnlineLookupNotice("Online lookup needs location");
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      } finally {
+        setIsOnlineLookupLoading(false);
+      }
+    },
+    [isOnlineLookupLoading, repeat, schedulePromptBrain],
+  );
+
+  const requestSharedLocation = useCallback(async () => {
+    if (!onlineLookupPendingQueryRef.current) return;
+    if (!navigator.geolocation) {
+      const spoken =
+        "This browser is not letting me ask for location. Tell me your city or ZIP code and I'll look from there.";
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      lastVisionResponseTimeRef.current = Date.now();
+      return;
+    }
+
+    setOnlineLookupNotice("Waiting for location permission...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const location = `${position.coords.latitude.toFixed(2)},${position.coords.longitude.toFixed(2)}`;
+        onlineLookupLocationRef.current = location;
+        setOnlineLookupNotice("Using shared location");
+        const query = onlineLookupPendingQueryRef.current;
+        onlineLookupPendingQueryRef.current = null;
+        if (query) void performOnlineLookup(query, location);
+      },
+      async () => {
+        const spoken =
+          "No problem. Tell me your city or ZIP code instead, and I'll search around there.";
+        setOnlineLookupNotice("Tell 6 your city or ZIP");
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+      },
+      { enableHighAccuracy: false, maximumAge: 1000 * 60 * 10, timeout: 12000 },
+    );
+  }, [performOnlineLookup, repeat]);
+
+  const handleOnlineLookupSpeech = useCallback(
+    async (userText: string) => {
+      const text = userText.trim();
+      const pendingQuery = onlineLookupPendingQueryRef.current;
+      if (pendingQuery) {
+        const location =
+          extractLocationHint(text) ?? (isLikelyTypedLocation(text) ? text : null);
+        if (!location) return false;
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = location;
+        return performOnlineLookup(pendingQuery, location);
+      }
+
+      if (!isOnlineLookupIntent(text)) return false;
+
+      const location = extractLocationHint(text) ?? onlineLookupLocationRef.current;
+      if (location) {
+        onlineLookupLocationRef.current = location;
+        return performOnlineLookup(text, location);
+      }
+
+      onlineLookupPendingQueryRef.current = text;
+      setOnlineLookupSources([]);
+      setOnlineLookupNotice("Share location or tell 6 a city/ZIP");
+      const spoken =
+        "I can look that up online. Tell me your city or ZIP code, or tap Share Location and I'll search near you.";
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      lastVisionResponseTimeRef.current = Date.now();
+      setThoughtPrompts(
+        normalizeThoughtPrompts([
+          "Share Location",
+          "Enter City or ZIP",
+          "Plan This Weekend",
+          CHANGE_SUBJECT_PROMPT,
+        ]),
+      );
+      return true;
+    },
+    [performOnlineLookup, repeat],
+  );
+
   const handleThoughtPromptTap = useCallback(
     async (prompt: string) => {
       if (
@@ -1294,6 +1563,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (listIntent) {
         ensureAssistantList(listIntent);
       }
+      const isChangeSubject = prompt === CHANGE_SUBJECT_PROMPT;
 
       setDissolvingPrompt(prompt);
 
@@ -1303,7 +1573,7 @@ const LiveAvatarSessionComponent: React.FC<{
           const refillPrompts = DEFAULT_THOUGHT_PROMPTS.filter(
             (item) => item !== prompt && !nextPrompts.includes(item),
           );
-          return [...nextPrompts, ...refillPrompts].slice(0, 4);
+          return normalizeThoughtPrompts([...nextPrompts, ...refillPrompts]);
         });
         setDissolvingPrompt(null);
       }, 620);
@@ -1311,8 +1581,33 @@ const LiveAvatarSessionComponent: React.FC<{
       try {
         await ensureAudioOutputReady();
         await interrupt();
+        if (prompt === "Share Location") {
+          await requestSharedLocation();
+          return;
+        }
+        if (prompt === "Enter City or ZIP") {
+          const spoken =
+            "Tell me the city or ZIP code, and I'll look online around there.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return;
+        }
+        if (isChangeSubject) {
+          const spoken = "Sure. New subject. What are we working on now?";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
+          return;
+        }
+        if (isOnlineLookupIntent(prompt)) {
+          const handledLookup = await handleOnlineLookupSpeech(prompt);
+          if (handledLookup) return;
+        }
         await sendMessage(`Let's work on this next: ${prompt}`);
         schedulePromptBrain(prompt);
+        if (listIntent) void offerAccountSetupForMemory();
       } catch (error) {
         console.error("Failed to send thought prompt:", error);
       }
@@ -1322,7 +1617,11 @@ const LiveAvatarSessionComponent: React.FC<{
       ensureAudioOutputReady,
       ensureAssistantList,
       interrupt,
+      handleOnlineLookupSpeech,
       isStreamReady,
+      offerAccountSetupForMemory,
+      repeat,
+      requestSharedLocation,
       schedulePromptBrain,
       sendMessage,
       sessionState,
@@ -2114,6 +2413,20 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
+      if (
+        !isShoppingMode &&
+        ACCOUNT_SETUP_NATURAL_MOMENT_RE.test(userText) &&
+        (await offerAccountSetupForMemory())
+      ) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      if (await handleOnlineLookupSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
       if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
         setIsShoppingMode(false);
         schedulePromptBrain(userText);
@@ -2401,6 +2714,7 @@ const LiveAvatarSessionComponent: React.FC<{
     ensureAssistantList,
     fileBugReport,
     handleAccountSetupSpeech,
+    handleOnlineLookupSpeech,
     moveActiveList,
     offerAccountSetupForMemory,
     removeItemsFromList,
@@ -3111,6 +3425,56 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
+      {onlineLookupNotice && !isShoppingMode && (
+        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+4.7rem)] z-[74] rounded-lg border border-white/12 bg-black/78 px-4 py-3 text-white shadow-2xl backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">{onlineLookupNotice}</p>
+              {onlineLookupSources.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {onlineLookupSources.map((source) => (
+                    <a
+                      key={source.url}
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="max-w-[13rem] truncate rounded-full bg-white/12 px-3 py-1 text-[0.78rem] font-semibold text-[#e0aa62] underline-offset-2 hover:underline"
+                    >
+                      {source.title}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {onlineLookupPendingQueryRef.current && (
+                <button
+                  type="button"
+                  onClick={() => void requestSharedLocation()}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-xs font-bold text-black"
+                >
+                  <MapPin className="h-3.5 w-3.5" aria-hidden />
+                  Share Location
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label="Dismiss online lookup"
+                title="Dismiss online lookup"
+                onClick={() => {
+                  onlineLookupPendingQueryRef.current = null;
+                  setOnlineLookupNotice(null);
+                  setOnlineLookupSources([]);
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Analyzing popup overlay - only show for snapshot mode, not streaming mode */}
       {(isAnalyzingImage || isAnalyzingVideo) && visionMode !== "streaming" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
@@ -3587,16 +3951,17 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             isActive &&
             !activeList && (
-              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.9rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-2 text-center pointer-events-none">
+              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.15rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none">
                 {thoughtPrompts.slice(0, 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
+                  const compactPrompt = prompt.length > 18;
                   return (
                     <button
                       type="button"
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.4rem] w-[min(100%,20.8rem)] rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2 text-balance text-[1.35rem] sm:text-[1.62rem] font-semibold leading-[1.05] text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_28px_rgba(0,0,0,0.34)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.05rem] w-[min(100%,21rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-1.5 ${compactPrompt ? "text-[0.96rem] sm:text-[1.12rem]" : "text-[1.08rem] sm:text-[1.24rem]"} whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
