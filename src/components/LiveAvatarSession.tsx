@@ -19,10 +19,10 @@ const VOICE_START_GREETING =
   "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Tell me what you want handled first",
-  "Set a reminder before it slips",
-  "Turn this into a quick list",
-  "Save a follow-up for later",
+  "Start a grocery list",
+  "Remember a birthday",
+  "Plan this weekend",
+  "Don't forget something",
 ];
 
 const getThoughtPrompts = (text: string): string[] => {
@@ -30,19 +30,19 @@ const getThoughtPrompts = (text: string): string[] => {
 
   if (value.includes("birthday")) {
     return [
-      "Save the birthday with the right date",
-      "Add a yearly reminder",
-      "Plan a gift idea",
-      "Remember who else should know",
+      "Remember the birthday",
+      "Add yearly reminder",
+      "Plan a gift",
+      "Invite the right people",
     ];
   }
 
   if (value.includes("anniversary")) {
     return [
-      "Save the anniversary date",
-      "Add a yearly reminder",
-      "Plan a thoughtful gift",
-      "Set a note for next year",
+      "Remember the anniversary",
+      "Add yearly reminder",
+      "Plan a gift",
+      "Save next year's note",
     ];
   }
 
@@ -55,10 +55,10 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("list")
   ) {
     return [
-      "Add the next item to the list",
-      "Group it by store or errand",
-      "Make this list reusable",
-      "Remind me before I leave",
+      "Start a grocery list",
+      "Add the next item",
+      "Sort by store",
+      "Remind me before leaving",
     ];
   }
 
@@ -69,10 +69,10 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("build")
   ) {
     return [
-      "Pick the most useful next step",
-      "Turn this into a simple plan",
-      "List the people who can help",
-      "Save the idea for later",
+      "Pick the next step",
+      "Make a simple plan",
+      "Find helpful people",
+      "Save this idea",
     ];
   }
 
@@ -159,6 +159,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const [hasUserPressedVoiceStart, setHasUserPressedVoiceStart] = useState(false);
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
   const [thoughtPrompts, setThoughtPrompts] = useState(DEFAULT_THOUGHT_PROMPTS);
+  const [dissolvingPrompt, setDissolvingPrompt] = useState<string | null>(null);
   const promptBrainHistoryRef = useRef<string[]>([]);
   const promptBrainSeqRef = useRef(0);
   const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -489,6 +490,49 @@ const LiveAvatarSessionComponent: React.FC<{
     }
     await ensureAudioOutputReady();
   }, [ensureAudioOutputReady]);
+
+  const handleThoughtPromptTap = useCallback(
+    async (prompt: string) => {
+      if (
+        dissolvingPrompt ||
+        sessionState !== SessionState.CONNECTED ||
+        !isStreamReady
+      ) {
+        return;
+      }
+
+      setDissolvingPrompt(prompt);
+
+      setTimeout(() => {
+        setThoughtPrompts((currentPrompts) => {
+          const nextPrompts = currentPrompts.filter((item) => item !== prompt);
+          const refillPrompts = DEFAULT_THOUGHT_PROMPTS.filter(
+            (item) => item !== prompt && !nextPrompts.includes(item),
+          );
+          return [...nextPrompts, ...refillPrompts].slice(0, 4);
+        });
+        setDissolvingPrompt(null);
+      }, 620);
+
+      try {
+        await ensureAudioOutputReady();
+        await interrupt();
+        await sendMessage(`Let's work on this next: ${prompt}`);
+        schedulePromptBrain(prompt);
+      } catch (error) {
+        console.error("Failed to send thought prompt:", error);
+      }
+    },
+    [
+      dissolvingPrompt,
+      ensureAudioOutputReady,
+      interrupt,
+      isStreamReady,
+      schedulePromptBrain,
+      sendMessage,
+      sessionState,
+    ],
+  );
 
   const handleVoiceStartStop = useCallback(async () => {
     if (isActive) {
@@ -2082,15 +2126,12 @@ const LiveAvatarSessionComponent: React.FC<{
       {/* Text overlays at the top */}
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
-          <div className="flex items-start justify-center gap-2">
-            <h1 className="inline-block text-[#d7a05a] text-[2.15rem] sm:text-[2.85rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+          <div className="flex items-start justify-center">
+            <h1 className="inline-block text-[#d7a05a] text-[1.95rem] sm:text-[2.55rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
-            <span className="mt-1.5 rounded-full border border-[#d7a05a]/60 bg-black/35 px-2 py-0.5 text-[0.62rem] sm:text-xs font-semibold uppercase tracking-normal text-[#d7a05a] backdrop-blur-sm">
-              beta
-            </span>
           </div>
-          <p className="mx-auto mt-0.5 max-w-[18rem] text-[1.15rem] sm:text-[1.35rem] font-medium text-[#d7a05a] leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
+          <p className="mx-auto mt-1 w-[14.5rem] sm:w-[20rem] text-[1.45rem] sm:text-[1.85rem] font-semibold text-[#d7a05a] leading-snug drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
         </div>
@@ -2417,29 +2458,37 @@ const LiveAvatarSessionComponent: React.FC<{
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             isActive && (
-              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+8.25rem)] left-1/2 z-30 flex w-[92%] max-w-[30rem] -translate-x-1/2 flex-col items-center gap-2 text-center pointer-events-none">
+              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+6.75rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-2.5 text-center pointer-events-none">
                 {thoughtPrompts.slice(0, 4).map((prompt, index) => {
+                  const isDissolving = dissolvingPrompt === prompt;
                   return (
-                    <p
+                    <button
+                      type="button"
                       key={prompt}
-                      className="max-w-[24rem] text-balance text-[1.18rem] sm:text-[1.34rem] font-semibold leading-[1.12] text-[#d7a05a] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                      onClick={() => void handleThoughtPromptTap(prompt)}
+                      disabled={Boolean(dissolvingPrompt)}
+                      className={`pointer-events-auto min-h-[3rem] w-[min(100%,26rem)] rounded-full border border-white/10 bg-neutral-600/35 px-5 py-2.5 text-balance text-[1.35rem] sm:text-[1.62rem] font-semibold leading-[1.05] text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_28px_rgba(0,0,0,0.34)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                        isDissolving
+                          ? "animate-prompt-dissolve"
+                          : "animate-prompt-float"
+                      }`}
                       style={{
-                        animation: `idea-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) ${
+                        animationDelay: `${
                           index * 80
-                        }ms both`,
+                        }ms, ${index * -820}ms`,
                         fontFamily:
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
                       }}
                     >
                       {prompt}
-                    </p>
+                    </button>
                   );
                 })}
               </div>
             )}
 
           {visionMode !== "streaming" && !isCameraActive && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.35rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
               <Link
                 href="/terms"
                 target="_blank"
@@ -2493,6 +2542,49 @@ const LiveAvatarSessionComponent: React.FC<{
             opacity: 1;
             transform: translateY(0) scale(1);
           }
+        }
+
+        @keyframes prompt-float {
+          0%,
+          100% {
+            transform: translateY(0) scale(1);
+          }
+          35% {
+            transform: translateY(-0.42rem) scale(1.012);
+          }
+          70% {
+            transform: translateY(0.28rem) scale(0.996);
+          }
+        }
+
+        @keyframes prompt-dissolve {
+          0% {
+            opacity: 1;
+            filter: blur(0);
+            transform: translateY(0) scale(1);
+          }
+          42% {
+            opacity: 0.68;
+            filter: blur(1.5px);
+            transform: translateY(-0.45rem) scale(1.025);
+          }
+          100% {
+            opacity: 0;
+            filter: blur(12px);
+            transform: translateY(-1.35rem) scale(1.09);
+          }
+        }
+
+        .animate-prompt-float {
+          animation-name: idea-rise, prompt-float;
+          animation-duration: 520ms, 5.2s;
+          animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1), ease-in-out;
+          animation-fill-mode: both, both;
+          animation-iteration-count: 1, infinite;
+        }
+
+        .animate-prompt-dissolve {
+          animation: prompt-dissolve 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
         }
       `}</style>
     </div>

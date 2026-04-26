@@ -12,10 +12,10 @@ const OPENAI_MODEL =
   "gpt-4.1-mini";
 
 const FALLBACK_PROMPTS = [
-  "Tell me what matters most",
-  "Set a reminder for this",
-  "Turn this into a list",
-  "Save a follow-up for later",
+  "Start a grocery list",
+  "Remember a birthday",
+  "Plan this weekend",
+  "Don't forget something",
 ];
 
 function cleanPrompt(value: unknown): string | null {
@@ -26,7 +26,9 @@ function cleanPrompt(value: unknown): string | null {
     .replace(/\s+/g, " ")
     .trim();
 
-  if (cleaned.length < 3 || cleaned.length > 72) return null;
+  const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+  if (wordCount < 3 || wordCount > 4) return null;
+  if (cleaned.length < 3 || cleaned.length > 42) return null;
   return cleaned;
 }
 
@@ -89,7 +91,7 @@ export async function POST(request: Request) {
       {
         role: "system",
         content:
-          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four short conversation prompts ranked from most useful to least useful for what the user is discussing now. They are not buttons. They are gentle ideas for where 6 can help next. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt 3 to 8 words. Prefer concrete, helpful, low-friction next steps. If the conversation changed, replace stale ideas with new relevant ones.",
+          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts ranked from most useful to least useful for what the user is discussing now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt exactly 3 or 4 words. Prefer concrete, practical help that improves daily life: reminders, lists, plans, errands, birthdays, follow-ups, small next steps, and useful personal organization. Avoid vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
       },
       {
         role: "user",
