@@ -29,7 +29,10 @@ if (-not $allowedIds) {
   throw "TELEGRAM_ALLOWED_USER_IDS is missing in .env"
 }
 
-$chatId = ($allowedIds -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })[0]
+$chatIds = @(
+  $allowedIds -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+)
+$chatId = $chatIds[0]
 if (-not $chatId) {
   throw "No Telegram chat id found in TELEGRAM_ALLOWED_USER_IDS"
 }
@@ -38,13 +41,13 @@ $message = "aiASAP build $Commit`n$Url"
 $body = @{
   chat_id = $chatId
   text = $message
-  disable_web_page_preview = $false
+  disable_web_page_preview = "false"
 }
 
 Invoke-RestMethod `
   -Uri "https://api.telegram.org/bot$token/sendMessage" `
   -Method Post `
-  -ContentType "application/json" `
-  -Body ($body | ConvertTo-Json -Compress) | Out-Null
+  -ContentType "application/x-www-form-urlencoded" `
+  -Body $body | Out-Null
 
 Write-Host "Sent Telegram smoke test link."
