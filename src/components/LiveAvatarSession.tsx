@@ -30,7 +30,14 @@ const AIASAP_FOUNDER_TITLE =
   "Creator/Builder/Founder/Financier/CEO aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your personal assistant and buddy. You know why they call me 6? Because I got your back. If you've got a phone, you've got a friend. a-i-asap is here to make AI easy, just by talking to me. What should I call you?";
+  "Hi, I'm 6, your AI buddy. You know why they call me 6? 'Cuz I got your back. So what you got going on today?";
+
+const RETURNING_GREETING_OPTIONS = [
+  "Hey{name}, good to see you. What are we working on today?",
+  "Welcome back{name}. What's going on today?",
+  "{namePrefix}I'm here. What do you want to tackle first?",
+  "Good to see you{name}. Where should we pick up?",
+];
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Start a Grocery List",
@@ -162,12 +169,19 @@ type AssistantList = {
   updatedAt: number;
 };
 
+type DeviceProfile = {
+  name: string | null;
+  greetingCount: number;
+  updatedAt: number;
+};
+
 type OnlineLookupSource = {
   title: string;
   url: string;
 };
 
 const ASSISTANT_LISTS_STORAGE_KEY = "aiasap.assistantLists.v1";
+const DEVICE_PROFILE_STORAGE_KEY = "aiasap.deviceProfile.v1";
 const MAX_LIST_ITEMS = 80;
 const MAX_ONLINE_LOOKUP_SOURCE_COUNT = 3;
 const MAX_PROMPT_SIZE_LEVEL = 3;
@@ -340,6 +354,46 @@ function loadAssistantLists(): AssistantList[] {
   return [];
 }
 
+function emptyDeviceProfile(): DeviceProfile {
+  return { name: null, greetingCount: 0, updatedAt: Date.now() };
+}
+
+function loadDeviceProfile(): DeviceProfile {
+  if (typeof window === "undefined") return emptyDeviceProfile();
+  try {
+    const raw = window.localStorage.getItem(DEVICE_PROFILE_STORAGE_KEY);
+    if (!raw) return emptyDeviceProfile();
+    const parsed = JSON.parse(raw) as Partial<DeviceProfile>;
+    const name =
+      typeof parsed.name === "string" && parsed.name.trim()
+        ? parsed.name.trim().slice(0, 40)
+        : null;
+    const greetingCount =
+      typeof parsed.greetingCount === "number" && Number.isFinite(parsed.greetingCount)
+        ? Math.max(0, Math.floor(parsed.greetingCount))
+        : 0;
+    const updatedAt =
+      typeof parsed.updatedAt === "number" && Number.isFinite(parsed.updatedAt)
+        ? parsed.updatedAt
+        : Date.now();
+    return { name, greetingCount, updatedAt };
+  } catch {
+    return emptyDeviceProfile();
+  }
+}
+
+function storeDeviceProfile(profile: DeviceProfile) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      DEVICE_PROFILE_STORAGE_KEY,
+      JSON.stringify(profile),
+    );
+  } catch {
+    // Device memory is best-effort only.
+  }
+}
+
 function isInternalSignal(text: string): boolean {
   return INTERNAL_SIGNAL_RE.test(text.trim());
 }
@@ -347,6 +401,101 @@ function isInternalSignal(text: string): boolean {
 function correctListItem(item: string): string {
   if (/^unions$/i.test(item)) return "Onions";
   return item;
+}
+
+const DEVICE_NAME_STOP_WORDS = new Set([
+  "yes",
+  "no",
+  "okay",
+  "ok",
+  "grocery",
+  "groceries",
+  "list",
+  "todo",
+  "to-do",
+  "walmart",
+  "shopping",
+  "store",
+  "at",
+  "in",
+  "on",
+  "to",
+  "for",
+  "from",
+  "going",
+  "looking",
+  "trying",
+  "working",
+  "doing",
+  "having",
+  "making",
+  "building",
+  "planning",
+  "here",
+  "back",
+  "ready",
+  "fine",
+  "good",
+  "reminder",
+  "birthday",
+  "weekend",
+  "hike",
+  "hikes",
+  "hiking",
+  "email",
+  "phone",
+  "help",
+  "nothing",
+  "later",
+  "cancel",
+]);
+
+function cleanDeviceName(value: string): string | null {
+  let name = value
+    .replace(/\b(?:the\s+letter|letter)\s+([a-z])\b/i, "$1")
+    .replace(/^(?:is|it's|its|this is)\s+/i, "")
+    .replace(/[.,!?;:]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!name || name.length > 40 || /[@\d?]/.test(name)) return null;
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length > 3) return null;
+  if (words.some((word) => DEVICE_NAME_STOP_WORDS.has(word.toLowerCase()))) {
+    return null;
+  }
+  if (!words.every((word) => /^[a-z][a-z'.-]*$/i.test(word))) return null;
+
+  name = words
+    .map((word) =>
+      word.length === 1
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1),
+    )
+    .join(" ");
+  return name;
+}
+
+function extractDeviceNameCandidate(text: string, allowPlainAnswer: boolean): string | null {
+  const explicit =
+    text.match(/\bmy name is\s+([^,.!?]{1,40})/i)?.[1] ??
+    text.match(/\b(?:you can )?call me\s+([^,.!?]{1,40})/i)?.[1] ??
+    text.match(/\b(?:i am|i'm|im)\s+([^,.!?]{1,40})/i)?.[1] ??
+    null;
+  if (explicit) return cleanDeviceName(explicit);
+  if (!allowPlainAnswer) return null;
+  if (text.length > 40 || /[?@]/.test(text)) return null;
+  return cleanDeviceName(text);
+}
+
+function buildReturningGreeting(profile: DeviceProfile): string {
+  const template =
+    RETURNING_GREETING_OPTIONS[
+      profile.greetingCount % RETURNING_GREETING_OPTIONS.length
+    ];
+  const name = profile.name ? `, ${profile.name}` : "";
+  const namePrefix = profile.name ? `${profile.name}, ` : "";
+  return template.replace("{name}", name).replace("{namePrefix}", namePrefix);
 }
 
 function cleanListItem(
@@ -784,6 +933,8 @@ const LiveAvatarSessionComponent: React.FC<{
     useState<AssistantList[]>(loadAssistantLists);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [isShoppingMode, setIsShoppingMode] = useState(false);
+  const [deviceProfile, setDeviceProfile] =
+    useState<DeviceProfile>(loadDeviceProfile);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
@@ -815,6 +966,7 @@ const LiveAvatarSessionComponent: React.FC<{
     item: string | null;
     action: "add" | "remove" | "mention";
   } | null>(null);
+  const deviceProfileRef = useRef(deviceProfile);
   const postVerifyGreetingSpokenRef = useRef(false);
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
@@ -831,6 +983,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const activeListTheme = activeList
     ? LIST_ACCENT_COLORS[activeList.accentColor]
     : LIST_ACCENT_COLORS.amber;
+
+  useEffect(() => {
+    deviceProfileRef.current = deviceProfile;
+    storeDeviceProfile(deviceProfile);
+  }, [deviceProfile]);
 
   useEffect(() => {
     if (!activeList) return;
@@ -1962,7 +2119,21 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
       await start();
-      await repeat(VOICE_START_GREETING);
+      const profile = deviceProfileRef.current;
+      const isReturning = Boolean(accountEmail || profile.name);
+      const greeting = isReturning
+        ? buildReturningGreeting(profile)
+        : VOICE_START_GREETING;
+      if (isReturning) {
+        setDeviceProfile((current) => ({
+          ...current,
+          greetingCount: current.greetingCount + 1,
+          updatedAt: Date.now(),
+        }));
+      }
+      await repeat(greeting);
+      lastAvatarResponseRef.current = greeting;
+      lastVisionResponseTimeRef.current = Date.now();
       if (mode === "FULL") {
         startListening();
       }
@@ -1982,6 +2153,7 @@ const LiveAvatarSessionComponent: React.FC<{
     sessionState,
     isStreamReady,
     ensureAudioOutputReady,
+    accountEmail,
   ]);
 
   const shouldShowBeginSurface =
@@ -2717,6 +2889,29 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
       lastUserTextRef.current = userText;
+
+      const lastAssistantText = lastAvatarResponseRef.current.toLowerCase();
+      const isAnsweringNamePrompt =
+        /\b(?:what should i call you|what'?s your name|your name|full name|call you)\b/i.test(
+          lastAssistantText,
+        ) &&
+        !activeListId &&
+        !LIST_TRIGGER_RE.test(userText);
+      const deviceNameCandidate = extractDeviceNameCandidate(
+        userText,
+        isAnsweringNamePrompt,
+      );
+      if (
+        deviceNameCandidate &&
+        (isAnsweringNamePrompt ||
+          /\b(?:my name is|call me|i am|i'm|im)\b/i.test(userText))
+      ) {
+        setDeviceProfile((current) => ({
+          ...current,
+          name: deviceNameCandidate,
+          updatedAt: Date.now(),
+        }));
+      }
 
       if (isAvatarTalking) {
         void interrupt();
