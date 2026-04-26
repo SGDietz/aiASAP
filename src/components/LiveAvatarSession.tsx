@@ -30,7 +30,7 @@ const AIASAP_FOUNDER_TITLE =
   "Creator/Builder/Founder/Financier/CEO aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. What should I call you?";
+  "Hi, I'm 6, your personal assistant and buddy. You know why they call me 6? Because I got your back. If you've got a phone, you've got a friend. a-i-ASAP is here to make AI easy, just by talking to me. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Start a Grocery List",
