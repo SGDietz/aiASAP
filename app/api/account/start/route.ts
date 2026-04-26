@@ -7,6 +7,7 @@ import {
   createPendingAccountLink,
   newToken,
   normalizeEmail,
+  sanitizeAccountResumeState,
   sanitizeAssistantLists,
   sendAccountEmail,
 } from "../../../../src/lib/accountPersistence";
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
         ? body.sessionId.trim()
         : null;
     const lists = sanitizeAssistantLists(body.lists);
+    const resumeState = sanitizeAccountResumeState(body.resumeState);
     const token = newToken();
     const tokenHash = hashToken(token);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString();
@@ -56,6 +58,7 @@ export async function POST(request: Request) {
       sessionId,
       tokenHash,
       lists,
+      resumeState,
       expiresAt,
     });
 

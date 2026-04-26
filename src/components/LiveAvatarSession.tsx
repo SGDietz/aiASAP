@@ -30,16 +30,17 @@ const AIASAP_FOUNDER_TITLE =
   "Creator/Builder/Founder/Financier/CEO aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your personal assistant and buddy. You know why they call me 6? Because I got your back. If you've got a phone, you've got a friend. a-i-ASAP is here to make AI easy, just by talking to me. What should I call you?";
+  "Hi, I'm 6, your personal assistant and buddy. You know why they call me 6? Because I got your back. a-i-asap is here to make AI easy, just by talking to me. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Start a Grocery List",
   "Create To Do List",
   "Plan This Weekend",
-  "Change Subject",
+  "Remember a Birthday",
 ];
 
-const CHANGE_SUBJECT_PROMPT = "Change Subject";
+const PROMPT_SIZE_REQUEST_RE =
+  /\b(?:make|show|turn)\s+(?:the\s+)?prompts?\s+(?:bigger|larger|easier to read)|\b(?:bigger|larger)\s+prompts?\b|\breading glasses\b/i;
 
 const getThoughtPrompts = (text: string): string[] => {
   const value = text.toLowerCase();
@@ -54,7 +55,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Create To Do List",
       "Open Work To Do",
       "Open Family To Do",
-      CHANGE_SUBJECT_PROMPT,
+      "Add a Reminder",
     ];
   }
 
@@ -63,7 +64,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Remember the Birthday",
       "Add Yearly Reminder",
       "Plan a Gift",
-      CHANGE_SUBJECT_PROMPT,
+      "Add a Reminder",
     ];
   }
 
@@ -72,7 +73,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Remember the Anniversary",
       "Add Yearly Reminder",
       "Plan a Gift",
-      CHANGE_SUBJECT_PROMPT,
+      "Plan This Weekend",
     ];
   }
 
@@ -88,7 +89,7 @@ const getThoughtPrompts = (text: string): string[] => {
       value.includes("walmart") ? "Open Walmart List" : "Add to Grocery List",
       "Create To Do List",
       "Add the Next Item",
-      CHANGE_SUBJECT_PROMPT,
+      "Open Another List",
     ];
   }
 
@@ -105,7 +106,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Find Local Hikes",
       "Plan This Weekend",
       "Check the Weather",
-      CHANGE_SUBJECT_PROMPT,
+      "Share My Interests",
     ];
   }
 
@@ -119,7 +120,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Pick the Next Step",
       "Make a Simple Plan",
       "Find Helpful People",
-      CHANGE_SUBJECT_PROMPT,
+      "Make Money Ideas",
     ];
   }
 
@@ -132,13 +133,12 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
     .filter(Boolean)
     .filter((prompt) => !/\b(?:contact|named g|for g|call g|text g|email g)\b/i.test(prompt))
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
-    .filter((prompt) => prompt !== CHANGE_SUBJECT_PROMPT)
-    .slice(0, 3);
+    .filter((prompt) => !/^change subject$/i.test(prompt))
+    .slice(0, 4);
   return [...cleaned, ...DEFAULT_THOUGHT_PROMPTS]
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
-    .filter((prompt) => prompt !== CHANGE_SUBJECT_PROMPT)
-    .slice(0, 3)
-    .concat(CHANGE_SUBJECT_PROMPT);
+    .filter((prompt) => !/^change subject$/i.test(prompt))
+    .slice(0, 4);
 }
 
 type AssistantListKind = "grocery" | "shopping" | "todo" | "custom";
@@ -170,6 +170,7 @@ type OnlineLookupSource = {
 const ASSISTANT_LISTS_STORAGE_KEY = "aiasap.assistantLists.v1";
 const MAX_LIST_ITEMS = 80;
 const MAX_ONLINE_LOOKUP_SOURCE_COUNT = 3;
+const MAX_PROMPT_SIZE_LEVEL = 3;
 const INTERNAL_SIGNAL_RE =
   /^\s*\[(?:USER HAS BEEN SILENT|SILENT|OBJECT_NOT_VISIBLE)[^\]]*\]/i;
 const LIST_TRIGGER_RE =
@@ -197,15 +198,17 @@ const ACCOUNT_READY_YES_RE =
 const ACCOUNT_READY_NO_RE = /\b(?:no|not now|later|stop|never mind|cancel)\b/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const ONLINE_LOOKUP_TOPIC_RE =
-  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|weekend|weekend activities|things to do|places to go|place to go|weather|forecast)\b/i;
+  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|weekend|weekend activities|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
 const ONLINE_LOOKUP_ACTION_RE =
-  /\b(?:find|look up|search|show me|where|nearby|near me|plan|check|help me find)\b/i;
+  /\b(?:find|look up|search|show me|where|nearby|near me|check|help me find)\b/i;
+const ONLINE_LOOKUP_DIRECT_RE =
+  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|concert|concerts|show|shows|events?|restaurants?)\b/i;
 const LOCATION_HINT_RE =
   /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
 const LOCATION_SHARE_CHOICE_RE =
   /\b(?:share (?:my )?location|use (?:my )?location|current location|where i am|near me|around me)\b/i;
 const SHOPPING_MODE_OPEN_RE =
-  /\b(?:shopping mode|store mode|in the store|at the store|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
+  /\b(?:shopping mode|store mode|in the store|at the store|in the grocery store|at the grocery store|at walmart|in walmart|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
 const SHOPPING_MODE_CLOSE_RE =
   /\b(?:close|exit|leave|stop)\s+(?:shopping|store|full screen)\s*mode\b/i;
 const LIST_MUTATION_SIGNAL_RE =
@@ -213,7 +216,7 @@ const LIST_MUTATION_SIGNAL_RE =
 const LIST_CONVERSATION_FRAGMENT_RE =
   /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
@@ -330,28 +333,11 @@ function cleanStoredListItems(items: string[]): string[] {
 function loadAssistantLists(): AssistantList[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.localStorage.getItem(ASSISTANT_LISTS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isAssistantList).map((list) => ({
-      ...list,
-      kind: list.kind || "custom",
-      displayStyle:
-        list.displayStyle === "bulleted" || list.displayStyle === "numbered"
-          ? list.displayStyle
-          : "numbered",
-      accentColor:
-        list.accentColor && list.accentColor in LIST_ACCENT_COLORS
-          ? list.accentColor
-          : "amber",
-      createdAt: Number.isFinite(list.createdAt) ? list.createdAt : Date.now(),
-      updatedAt: Number.isFinite(list.updatedAt) ? list.updatedAt : Date.now(),
-      items: cleanStoredListItems(list.items),
-    }));
+    window.localStorage.removeItem(ASSISTANT_LISTS_STORAGE_KEY);
   } catch {
-    return [];
+    // Ignore storage failures. Anonymous sessions should still start clean.
   }
+  return [];
 }
 
 function isInternalSignal(text: string): boolean {
@@ -373,6 +359,7 @@ function cleanListItem(
 
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
+    .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
     .replace(/\b(?:um|uh|like|please)\b/gi, " ")
     .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|list|my list|the list)\b/gi, " ")
     .replace(LIST_ITEM_PREFIX_RE, "")
@@ -416,10 +403,10 @@ function canInferListItems(
 }
 
 function isOnlineLookupIntent(text: string): boolean {
-  return (
-    ONLINE_LOOKUP_TOPIC_RE.test(text) &&
-    (ONLINE_LOOKUP_ACTION_RE.test(text) || /\b(?:weekend|hike|hiking)\b/i.test(text))
-  );
+  if (!ONLINE_LOOKUP_TOPIC_RE.test(text)) return false;
+  if (ONLINE_LOOKUP_ACTION_RE.test(text)) return true;
+  if (ONLINE_LOOKUP_DIRECT_RE.test(text)) return true;
+  return false;
 }
 
 function extractLocationHint(text: string): string | null {
@@ -533,6 +520,41 @@ function detectListIntent(text: string): {
   return null;
 }
 
+function itemKeysMatch(a: string, b: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\b(?:a|an|the|some)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/s\b/g, "");
+  const left = normalize(a);
+  const right = normalize(b);
+  return Boolean(
+    left &&
+      right &&
+      (left === right || left.includes(right) || right.includes(left)),
+  );
+}
+
+function findMentionedListItem(
+  list: AssistantList | null,
+  text: string,
+): string | null {
+  if (!list) return null;
+  const value = text.toLowerCase();
+  return (
+    list.items.find((item) => {
+      const escaped = item
+        .toLowerCase()
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`\\b${escaped}\\b`, "i").test(value)) return true;
+      return itemKeysMatch(item, text);
+    }) ?? null
+  );
+}
+
 function hasBugReportIntent(text: string): boolean {
   return !isInternalSignal(text) && BUG_REPORT_TRIGGER_RE.test(text);
 }
@@ -620,6 +642,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const fallbackImageInputRef = useRef<HTMLInputElement>(null);
   const isDebugProcessingRef = useRef<boolean>(false);
   const lastAvatarResponseRef = useRef<string>("");
+  const lastUserTextRef = useRef<string>("");
   const lastVisionResponseTimeRef = useRef<number>(0);
   const hasAutoAnalyzedRef = useRef<boolean>(false);
   // Tracks the specific problem the user is trying to fix (persists across vision calls so
@@ -665,6 +688,8 @@ const LiveAvatarSessionComponent: React.FC<{
   const [postVerifyGreeting, setPostVerifyGreeting] = useState<string | null>(
     null,
   );
+  const [promptSizeLevel, setPromptSizeLevel] = useState(0);
+  const [listFocusNonce, setListFocusNonce] = useState(0);
   const promptBrainHistoryRef = useRef<string[]>([]);
   const promptBrainSeqRef = useRef(0);
   const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -672,6 +697,13 @@ const LiveAvatarSessionComponent: React.FC<{
   );
   const onlineLookupLocationRef = useRef<string | null>(null);
   const onlineLookupPendingQueryRef = useRef<string | null>(null);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const shoppingListScrollRef = useRef<HTMLDivElement | null>(null);
+  const latestListMutationRef = useRef<{
+    listId: string;
+    item: string | null;
+    action: "add" | "remove" | "mention";
+  } | null>(null);
   const postVerifyGreetingSpokenRef = useRef(false);
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
@@ -687,6 +719,38 @@ const LiveAvatarSessionComponent: React.FC<{
   const activeListTheme = activeList
     ? LIST_ACCENT_COLORS[activeList.accentColor]
     : LIST_ACCENT_COLORS.amber;
+
+  useEffect(() => {
+    if (!activeList) return;
+    const container = isShoppingMode
+      ? shoppingListScrollRef.current
+      : listScrollRef.current;
+    if (!container) return;
+
+    const focus = latestListMutationRef.current;
+    requestAnimationFrame(() => {
+      if (
+        focus?.listId === activeList.id &&
+        focus.item &&
+        (focus.action === "add" || focus.action === "mention")
+      ) {
+        const itemIndex = activeList.items.findIndex((item) =>
+          itemKeysMatch(item, focus.item ?? ""),
+        );
+        const row =
+          itemIndex >= 0
+            ? container.querySelector<HTMLElement>(
+                `[data-list-index="${itemIndex}"]`,
+              )
+            : null;
+        if (row) {
+          row.scrollIntoView({ block: "center", behavior: "smooth" });
+          return;
+        }
+      }
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+    });
+  }, [activeList, isShoppingMode, listFocusNonce]);
 
   // Vision mode state: 'streaming' for Go Live, 'snapshot' for Camera button, null for inactive
   const [visionMode, setVisionMode] = useState<"streaming" | "snapshot" | null>(
@@ -772,10 +836,7 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   useEffect(() => {
-    window.localStorage.setItem(
-      ASSISTANT_LISTS_STORAGE_KEY,
-      JSON.stringify(assistantLists),
-    );
+    window.localStorage.removeItem(ASSISTANT_LISTS_STORAGE_KEY);
   }, [assistantLists]);
 
   useEffect(() => {
@@ -799,22 +860,39 @@ const LiveAvatarSessionComponent: React.FC<{
             }));
           if (cleanedLists.length > 0) {
             setAssistantLists(cleanedLists);
+            const resumeListId =
+              typeof data.resumeState?.activeListId === "string" &&
+              cleanedLists.some(
+                (list: AssistantList) => list.id === data.resumeState.activeListId,
+              )
+                ? data.resumeState.activeListId
+                : null;
             setActiveListId(
-              (current) => current ?? cleanedLists[0]?.id ?? null,
+              (current) => current ?? resumeListId ?? cleanedLists[0]?.id ?? null,
             );
+            if (resumeListId && data.resumeState?.isShoppingMode === true) {
+              setIsShoppingMode(true);
+            }
           }
         }
         const accountStatus = new URLSearchParams(window.location.search).get(
           "account",
         );
         if (accountStatus === "verified") {
-          const firstListTitle =
-            Array.isArray(data.lists) && data.lists[0]?.title
-              ? String(data.lists[0].title)
+          const resumeTitle =
+            typeof data.resumeState?.activeListTitle === "string"
+              ? data.resumeState.activeListTitle
               : null;
+          const firstListTitle =
+            resumeTitle ||
+            (Array.isArray(data.lists) && data.lists[0]?.title
+              ? String(data.lists[0].title)
+              : null);
           setPostVerifyGreeting(
-            firstListTitle
-              ? `You're back. Account is set, and I remember your ${firstListTitle}. Let's pick up right there.`
+            resumeTitle && data.resumeState?.isShoppingMode === true
+              ? `You're back. Account is set. I remember we were shopping with your ${resumeTitle}. I'll keep that list open and stay quiet until you need me.`
+              : firstListTitle
+                ? `You're back. Account is set, and I remember your ${firstListTitle}. Let's pick up right there.`
               : "You're back. Account is set, and I'll remember what you ask me to remember.",
           );
           window.history.replaceState(
@@ -857,10 +935,20 @@ const LiveAvatarSessionComponent: React.FC<{
       void fetch("/api/account/lists", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lists: assistantLists }),
+        body: JSON.stringify({
+          lists: assistantLists,
+          resumeState: {
+            activeListId,
+            activeListTitle: activeList?.title ?? null,
+            isShoppingMode,
+            lastUserText: lastUserTextRef.current || null,
+            lastAssistantText: lastAvatarResponseRef.current || null,
+            updatedAt: new Date().toISOString(),
+          },
+        }),
       }).catch((error) => console.warn("Account list save failed:", error));
     }, 900);
-  }, [accountEmail, assistantLists]);
+  }, [accountEmail, activeList, activeListId, assistantLists, isShoppingMode]);
 
   const ensureAssistantList = useCallback(
     (intent: { title: string; kind: AssistantListKind }): string => {
@@ -906,6 +994,11 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const addItemsToList = useCallback((listId: string, items: string[]) => {
     if (items.length === 0) return false;
+    latestListMutationRef.current = {
+      listId,
+      item: items[items.length - 1] ?? null,
+      action: "add",
+    };
     let changed = false;
     setAssistantLists((currentLists) =>
       currentLists.map((list) => {
@@ -930,23 +1023,29 @@ const LiveAvatarSessionComponent: React.FC<{
           : list;
       }),
     );
+    setListFocusNonce((value) => value + 1);
     return changed;
   }, []);
 
   const removeItemsFromList = useCallback((listId: string, items: string[]) => {
     if (items.length === 0) return false;
+    latestListMutationRef.current = {
+      listId,
+      item: items[0] ?? null,
+      action: "remove",
+    };
     let changed = false;
     setAssistantLists((currentLists) =>
       currentLists.map((list) => {
         if (list.id !== listId) return list;
-        const removeSet = new Set(items.map((item) => item.toLowerCase()));
         const nextItems = list.items.filter(
-          (item) => !removeSet.has(item.toLowerCase()),
+          (item) => !items.some((removeItem) => itemKeysMatch(item, removeItem)),
         );
         changed = nextItems.length !== list.items.length;
         return changed ? { ...list, items: nextItems, updatedAt: Date.now() } : list;
       }),
     );
+    setListFocusNonce((value) => value + 1);
     return changed;
   }, []);
 
@@ -955,6 +1054,11 @@ const LiveAvatarSessionComponent: React.FC<{
       setAssistantLists((currentLists) =>
         currentLists.map((list) => {
           if (list.id !== listId) return list;
+          latestListMutationRef.current = {
+            listId,
+            item: list.items[itemIndex] ?? null,
+            action: "remove",
+          };
           return {
             ...list,
             items: list.items.filter((_, index) => index !== itemIndex),
@@ -962,6 +1066,7 @@ const LiveAvatarSessionComponent: React.FC<{
           };
         }),
       );
+      setListFocusNonce((value) => value + 1);
     },
     [],
   );
@@ -1063,6 +1168,14 @@ const LiveAvatarSessionComponent: React.FC<{
             email: normalizedEmail,
             sessionId: dbSessionIdRef.current,
             lists: assistantLists,
+            resumeState: {
+              activeListId,
+              activeListTitle: activeList?.title ?? null,
+              isShoppingMode,
+              lastUserText: lastUserTextRef.current || null,
+              lastAssistantText: lastAvatarResponseRef.current || null,
+              updatedAt: new Date().toISOString(),
+            },
           }),
         });
         const data = await response.json().catch(() => null);
@@ -1100,7 +1213,7 @@ const LiveAvatarSessionComponent: React.FC<{
         return true;
       }
     },
-    [assistantLists, repeat],
+    [activeList, activeListId, assistantLists, isShoppingMode, repeat],
   );
 
   const offerAccountSetupForMemory = useCallback(async () => {
@@ -1172,6 +1285,28 @@ const LiveAvatarSessionComponent: React.FC<{
       return false;
     },
     [repeat, startAccountSetup],
+  );
+
+  const handlePromptSizeSpeech = useCallback(
+    async (userText: string) => {
+      if (!PROMPT_SIZE_REQUEST_RE.test(userText)) return false;
+      let reachedMax = false;
+      setPromptSizeLevel((current) => {
+        if (current >= MAX_PROMPT_SIZE_LEVEL) {
+          reachedMax = true;
+          return current;
+        }
+        return current + 1;
+      });
+      const spoken = reachedMax
+        ? "That's as big as I can make the prompts without crowding my face or the Terms line."
+        : "I made the prompts a little bigger. Is that enough?";
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [repeat],
   );
 
   useEffect(() => {
@@ -1454,7 +1589,7 @@ const LiveAvatarSessionComponent: React.FC<{
         );
         const spoken =
           sources.length > 0
-            ? `${data.answer} I put the source links on your screen so you can check details before you go.`
+            ? `${data.answer} Source links are on your screen.`
             : data.answer;
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
@@ -1548,7 +1683,7 @@ const LiveAvatarSessionComponent: React.FC<{
           "Give ZIP Code",
           "Share Location",
           "Plan This Weekend",
-          CHANGE_SUBJECT_PROMPT,
+          "Check the Weather",
         ]),
       );
       return true;
@@ -1570,8 +1705,6 @@ const LiveAvatarSessionComponent: React.FC<{
       if (listIntent) {
         ensureAssistantList(listIntent);
       }
-      const isChangeSubject = prompt === CHANGE_SUBJECT_PROMPT;
-
       setDissolvingPrompt(prompt);
 
       setTimeout(() => {
@@ -1598,14 +1731,6 @@ const LiveAvatarSessionComponent: React.FC<{
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
-          return;
-        }
-        if (isChangeSubject) {
-          const spoken = "Sure. New subject. What are we working on now?";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
-          setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
           return;
         }
         if (isOnlineLookupIntent(prompt)) {
@@ -2409,6 +2534,16 @@ const LiveAvatarSessionComponent: React.FC<{
       if (isInternalSignal(userText)) {
         return;
       }
+      lastUserTextRef.current = userText;
+
+      if (isAvatarTalking) {
+        void interrupt();
+      }
+
+      if (await handlePromptSizeSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
 
       if (hasBugReportIntent(userText)) {
         const didFileBug = await fileBugReport(userText);
@@ -2462,6 +2597,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
         if (enteringShoppingMode) {
           setIsShoppingMode(true);
+          void interrupt();
         }
 
         const displayStyle = detectListDisplayStyle(userText);
@@ -2482,6 +2618,16 @@ const LiveAvatarSessionComponent: React.FC<{
           removeItemsFromList(targetListId, removeItems);
         } else if (addItems.length > 0) {
           addItemsToList(targetListId, addItems);
+        } else {
+          const mentionedItem = findMentionedListItem(activeList, userText);
+          if (mentionedItem) {
+            latestListMutationRef.current = {
+              listId: targetListId,
+              item: mentionedItem,
+              action: "mention",
+            };
+            setListFocusNonce((value) => value + 1);
+          }
         }
 
         const changedListByVoice =
@@ -2712,16 +2858,19 @@ const LiveAvatarSessionComponent: React.FC<{
     processCameraQuestion,
     isRecording,
     isShoppingMode,
+    isAvatarTalking,
     interrupt,
     mode,
     repeat,
     isProcessingCameraQuestion,
+    activeList,
     activeListId,
     addItemsToList,
     ensureAssistantList,
     fileBugReport,
     handleAccountSetupSpeech,
     handleOnlineLookupSpeech,
+    handlePromptSizeSpeech,
     moveActiveList,
     offerAccountSetupForMemory,
     removeItemsFromList,
@@ -3433,7 +3582,7 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {onlineLookupNotice && !isShoppingMode && (
-        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+4.7rem)] z-[74] rounded-lg border border-white/12 bg-black/78 px-4 py-3 text-white shadow-2xl backdrop-blur">
+        <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+13.6rem)] z-[74] mx-auto max-w-[28rem] rounded-lg border border-[#e0aa62]/25 bg-black/78 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold">{onlineLookupNotice}</p>
@@ -3458,7 +3607,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 <button
                   type="button"
                   onClick={() => void requestSharedLocation()}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-xs font-bold text-black"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#e0aa62] px-3 text-xs font-bold text-black"
                 >
                   <MapPin className="h-3.5 w-3.5" aria-hidden />
                   Share Location
@@ -3473,7 +3622,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   setOnlineLookupNotice(null);
                   setOnlineLookupSources([]);
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -3497,7 +3646,7 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="relative top-[0.28rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="relative top-[0.28rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
@@ -3737,11 +3886,13 @@ const LiveAvatarSessionComponent: React.FC<{
                 !isAvatarTalking &&
                 isStreamReady && (
                   <div className="w-full flex items-center justify-center text-center">
-                    <p className="text-inset drop-shadow-lg px-1 w-full max-w-none text-[1.45rem] sm:text-[1.85rem] font-semibold leading-tight text-balance">
+                    <p className="px-1 w-full max-w-none text-balance">
                       {voiceStartAwaitingReady ? (
                         <span className="block">Starting…</span>
                       ) : (
-                        <span className="block">Tap Anywhere to Begin</span>
+                        <span className="inline-flex min-h-[3.45rem] items-center justify-center rounded-full border border-[#e0aa62]/30 bg-black/35 px-8 text-[1.32rem] font-bold leading-none text-[#e0aa62] shadow-[inset_0_1px_16px_rgba(255,255,255,0.06),0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-[3px]">
+                          Tap Anywhere to Begin
+                        </span>
                       )}
                     </p>
                   </div>
@@ -3853,12 +4004,13 @@ const LiveAvatarSessionComponent: React.FC<{
                 style={{ backgroundColor: activeListTheme.foreground }}
               />
 
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div ref={shoppingListScrollRef} className="min-h-0 flex-1 overflow-y-auto">
                 {activeList.items.length > 0 ? (
                   <ol className="space-y-4 text-2xl font-bold leading-tight">
                     {activeList.items.map((item, index) => (
                       <li
                         key={`${item}-${index}`}
+                        data-list-index={index}
                         className="grid min-h-[3.75rem] grid-cols-[2.4rem_1fr_3rem] items-center gap-3 border-b border-current/10 pb-3"
                       >
                         <span
@@ -3915,12 +4067,13 @@ const LiveAvatarSessionComponent: React.FC<{
                     </span>
                   </div>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
                   {activeList.items.length > 0 ? (
                     <ol className="space-y-2.5 text-[1.12rem] font-semibold leading-tight">
                       {activeList.items.map((item, index) => (
                         <li
                           key={`${item}-${index}`}
+                          data-list-index={index}
                           className="grid grid-cols-[2rem_1fr_2.25rem] items-start gap-2"
                         >
                           <span className="text-right opacity-65">
@@ -3958,23 +4111,29 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             isActive &&
             !activeList && (
-              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.15rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none">
+              <div
+                className="fixed left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none"
+                style={{
+                  bottom: `calc(env(safe-area-inset-bottom) + ${2.75 + promptSizeLevel * 0.25}rem)`,
+                }}
+              >
                 {thoughtPrompts.slice(0, 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
-                  const compactPrompt = prompt.length > 18;
+                  const compactPrompt = prompt.length > 25;
                   return (
                     <button
                       type="button"
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.05rem] w-[min(100%,21rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-1.5 ${compactPrompt ? "text-[0.96rem] sm:text-[1.12rem]" : "text-[1.08rem] sm:text-[1.24rem]"} whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.05rem] w-[min(100%,18.5rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-1.5 whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
                       }`}
                       style={{
                         animationDelay: `${index * 80}ms`,
+                        fontSize: `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
                         fontFamily:
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
                       }}

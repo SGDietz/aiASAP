@@ -3,8 +3,10 @@ import {
   getAccountCookieName,
   getStorageAccountFromSessionToken,
   parseCookie,
+  sanitizeAccountResumeState,
   sanitizeAssistantLists,
   saveStorageUserLists,
+  saveStorageUserResume,
 } from "../../../../src/lib/accountPersistence";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 
@@ -26,7 +28,9 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const lists = sanitizeAssistantLists(body.lists);
+    const resumeState = sanitizeAccountResumeState(body.resumeState);
     await saveStorageUserLists(user.id, lists);
+    await saveStorageUserResume(user.id, resumeState);
 
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,

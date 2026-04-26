@@ -3,6 +3,7 @@ import {
   getAccountCookieName,
   getStorageAccountFromSessionToken,
   loadStorageUserLists,
+  loadStorageUserResume,
   parseCookie,
 } from "../../../../src/lib/accountPersistence";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
@@ -24,11 +25,13 @@ export async function GET(request: Request) {
     }
 
     const lists = await loadStorageUserLists(user.id);
+    const resumeState = await loadStorageUserResume(user.id);
     return new Response(
       JSON.stringify({
         authenticated: true,
         user: { email: user.email, fullName: user.full_name },
         lists,
+        resumeState,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );

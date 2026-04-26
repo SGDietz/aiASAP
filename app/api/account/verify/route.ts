@@ -4,6 +4,7 @@ import {
   consumePendingAccountLink,
   createStorageAccountSession,
   saveStorageUserLists,
+  saveStorageUserResume,
 } from "../../../../src/lib/accountPersistence";
 
 function redirectHome(request: Request, status: "verified" | "expired" | "error") {
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
 
     const { user, sessionToken } = await createStorageAccountSession(link.email);
     if (link.lists.length > 0) await saveStorageUserLists(user.id, link.lists);
+    await saveStorageUserResume(user.id, link.resumeState);
 
     const response = NextResponse.redirect(redirectHome(request, "verified"));
     response.headers.append("Set-Cookie", accountCookieHeader(sessionToken));

@@ -18,6 +18,15 @@ export type AccountUser = {
   full_name: string | null;
 };
 
+export type AccountResumeState = {
+  activeListId: string | null;
+  activeListTitle: string | null;
+  isShoppingMode: boolean;
+  lastUserText: string | null;
+  lastAssistantText: string | null;
+  updatedAt: string;
+};
+
 const ACCOUNT_COOKIE = "aiasap_session";
 const ACCOUNT_BUCKET = process.env.AIASAP_ACCOUNT_BUCKET || "aiasap-accounts";
 const MAX_LISTS = 30;
@@ -29,7 +38,7 @@ const VALID_LIST_COLOR = new Set(["amber", "blue", "green", "rose", "purple", "w
 const LIST_ITEM_CHATTER_RE =
   /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|you mean|what are you|what is|what's)\b/i;
 const LIST_ITEM_FILLER_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got)$/i;
 const LIST_ITEM_VAGUE_RE = /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
 function supabaseHeaders(serviceRoleKey: string) {
@@ -174,6 +183,20 @@ export function sanitizeAssistantLists(value: unknown): StoredAssistantList[] {
   });
 }
 
+export function sanitizeAccountResumeState(value: unknown): AccountResumeState | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const updatedAt = cleanText(raw.updatedAt, 40) ?? new Date().toISOString();
+  return {
+    activeListId: cleanText(raw.activeListId, 80),
+    activeListTitle: cleanText(raw.activeListTitle, 120),
+    isShoppingMode: raw.isShoppingMode === true,
+    lastUserText: cleanText(raw.lastUserText, 280),
+    lastAssistantText: cleanText(raw.lastAssistantText, 280),
+    updatedAt,
+  };
+}
+
 export async function sendAccountEmail(args: {
   to: string;
   verificationUrl: string;
@@ -189,7 +212,7 @@ export async function sendAccountEmail(args: {
     "",
     args.verificationUrl,
     "",
-    "After that, 6 can remember your lists and what you need to remember.",
+    "After that, 6 can remember your lists and pick up the same task where you left off.",
   ].join("\n");
 
   try {
@@ -223,6 +246,7 @@ export async function createPendingAccountLink(args: {
   tokenHash: string;
   sessionId: string | null;
   lists: StoredAssistantList[];
+  resumeState: AccountResumeState | null;
   expiresAt: string;
 }) {
   await putAccountJson(`pending/${args.tokenHash}.json`, {
@@ -230,6 +254,7 @@ export async function createPendingAccountLink(args: {
     token_hash: args.tokenHash,
     session_id: args.sessionId,
     captured_lists: args.lists,
+    resume_state: args.resumeState,
     expires_at: args.expiresAt,
     created_at: new Date().toISOString(),
   });
@@ -238,11 +263,13 @@ export async function createPendingAccountLink(args: {
 export async function consumePendingAccountLink(token: string): Promise<{
   email: string;
   lists: StoredAssistantList[];
+  resumeState: AccountResumeState | null;
 } | null> {
   const tokenHash = hashToken(token);
   const pending = await getAccountJson<{
     email?: string;
     captured_lists?: unknown;
+    resume_state?: unknown;
     expires_at?: string;
     used_at?: string | null;
   }>(`pending/${tokenHash}.json`);
@@ -251,11 +278,12 @@ export async function consumePendingAccountLink(token: string): Promise<{
     return null;
   }
   const lists = sanitizeAssistantLists(pending.captured_lists);
+  const resumeState = sanitizeAccountResumeState(pending.resume_state);
   await putAccountJson(`pending/${tokenHash}.json`, {
     ...pending,
     used_at: new Date().toISOString(),
   });
-  return { email: pending.email.toLowerCase(), lists };
+  return { email: pending.email.toLowerCase(), lists, resumeState };
 }
 
 export async function createStorageAccountSession(email: string): Promise<{
@@ -321,6 +349,26 @@ export async function loadStorageUserLists(
     `users/${userId}/lists.json`,
   );
   return sanitizeAssistantLists(data?.lists);
+}
+
+export async function saveStorageUserResume(
+  userId: string,
+  resumeState: AccountResumeState | null,
+) {
+  if (!resumeState) return;
+  await putAccountJson(`users/${userId}/resume.json`, {
+    resumeState,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function loadStorageUserResume(
+  userId: string,
+): Promise<AccountResumeState | null> {
+  const data = await getAccountJson<{ resumeState?: unknown }>(
+    `users/${userId}/resume.json`,
+  );
+  return sanitizeAccountResumeState(data?.resumeState);
 }
 
 export async function findOrCreateUser(email: string): Promise<AccountUser> {
