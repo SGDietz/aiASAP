@@ -30,7 +30,7 @@ const AIASAP_FOUNDER_TITLE =
   "Creator/Builder/Founder/Financier/CEO aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your personal assistant and buddy. You know why they call me 6? Because I got your back. a-i-asap is here to make AI easy, just by talking to me. What should I call you?";
+  "Hi, I'm 6, your personal assistant and buddy. You know why they call me 6? Because I got your back. If you've got a phone, you've got a friend. a-i-asap is here to make AI easy, just by talking to me. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Start a Grocery List",
@@ -180,11 +180,11 @@ const LIST_ITEM_PREFIX_RE =
 const LIST_COMMAND_ONLY_RE =
   /\b(?:make|create|start|open|show|switch to|pull up|go to|toggle|another|new)\b.*\b(?:list|todo|to-do|to do)\b/i;
 const REMOVE_COMMAND_RE =
-  /\b(?:remove|delete|cross off|check off|mark off|i got|got|grabbed|picked up)\b/i;
+  /\b(?:remove|delete|get rid of|take off|take out|cross off|cross out|check off|mark off|i got|got|grabbed|picked up)\b/i;
 const LIST_NAV_NEXT_RE = /\b(?:next|another|toggle|switch)\s+list\b/i;
 const LIST_NAV_PREV_RE = /\b(?:previous|prior|last|back)\s+list\b/i;
 const LIST_CLOSE_RE =
-  /\b(?:close|hide|dismiss|put away|minimize)\s+(?:the|my|this|that)?\s*(?:list|lists)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+disappear\b/i;
+  /\b(?:close|hide|dismiss|put away|minimize)\s+(?:the|my|this|that)?\s*(?:list|lists)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+disappear\b|\b(?:take|remove)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\s+(?:off|from)\s+(?:the\s+)?screen\b/i;
 const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
 const BUG_REPORT_TRIGGER_RE =
@@ -216,7 +216,7 @@ const LIST_MUTATION_SIGNAL_RE =
 const LIST_CONVERSATION_FRAGMENT_RE =
   /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got|well|so|you|letter g|i have a grocery|take i have a grocery)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
@@ -360,6 +360,7 @@ function cleanListItem(
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
     .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
+    .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
     .replace(/\b(?:um|uh|like|please)\b/gi, " ")
     .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|list|my list|the list)\b/gi, " ")
     .replace(LIST_ITEM_PREFIX_RE, "")
@@ -454,17 +455,36 @@ function extractListItems(
     .filter((item): item is string => Boolean(item));
 }
 
+function cleanRemoveListItem(value: string): string | null {
+  const item = value
+    .replace(/\b(?:from|off|the|my|this|that|list|got it|i got it)\b/gi, " ")
+    .replace(/\b(?:um|uh|like|please|okay|ok)\b/gi, " ")
+    .replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, "")
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (item.length < 2 || item.length > 60) return null;
+  if (/^(?:it|that|this|them|they|those|these|nothing|anything else)$/i.test(item)) {
+    return null;
+  }
+  return correctListItem(item.charAt(0).toUpperCase() + item.slice(1));
+}
+
 function extractRemoveItems(text: string): string[] {
   if (isInternalSignal(text) || !REMOVE_COMMAND_RE.test(text)) return [];
 
   const normalized = text
-    .replace(REMOVE_COMMAND_RE, ",")
+    .replace(
+      /\b(?:remove|delete|get rid of|take off|take out|cross off|cross out|check off|mark off|i got|got|grabbed|picked up)\b/gi,
+      ",",
+    )
     .replace(/\b(?:from|off|the|my|this|that|list|i got it|got it)\b/gi, " ")
     .replace(/\s+/g, " ");
 
   return normalized
     .split(/[,.;\n]|\band\b/gi)
-    .map((item) => cleanListItem(item, { fromExplicitCommand: true }))
+    .map(cleanRemoveListItem)
     .filter((item): item is string => Boolean(item));
 }
 
@@ -583,6 +603,97 @@ function detectListAccentColor(text: string): ListAccentColor | null {
   if (/\b(?:purple|violet)\b/.test(value)) return "purple";
   if (/\b(?:white|plain|light)\b/.test(value)) return "white";
   return null;
+}
+
+function speakEmailAddress(email: string): string {
+  return email
+    .replace(/@/g, " at ")
+    .replace(/\./g, " dot ")
+    .replace(/_/g, " underscore ")
+    .replace(/-/g, " dash ")
+    .replace(/\+/g, " plus ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const SPOKEN_EMAIL_NOISE_WORDS = new Set([
+  "email",
+  "e",
+  "mail",
+  "address",
+  "is",
+  "its",
+  "it",
+  "my",
+  "the",
+  "send",
+  "link",
+  "to",
+]);
+
+function isValidEmailCandidate(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
+}
+
+function extractSpokenEmailCandidate(text: string): string | null {
+  const direct = text.match(EMAIL_RE)?.[0]?.trim().toLowerCase();
+  if (direct && isValidEmailCandidate(direct)) return direct;
+
+  const normalized = text
+    .toLowerCase()
+    .replace(/[']/g, "")
+    .replace(/[\u2013\u2014]+/g, " ")
+    .replace(/\b(?:at sign|at)\b/g, " @ ")
+    .replace(/\b(?:dot|period|point)\b/g, " . ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const atIndex = normalized.indexOf("@");
+  if (atIndex < 1) return null;
+
+  const localTokens = normalized
+    .slice(0, atIndex)
+    .split(/[^a-z0-9._%+-]+/g)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => !SPOKEN_EMAIL_NOISE_WORDS.has(token));
+  const local = localTokens
+    .slice(-6)
+    .join("")
+    .replace(/[^a-z0-9._%+-]/g, "");
+  if (local.length < 2) return null;
+
+  const domainWords = normalized
+    .slice(atIndex + 1)
+    .replace(/\s*\.\s*/g, ".")
+    .replace(/[^a-z0-9.\s-]/g, " ")
+    .split(/\s+/g)
+    .map((word) => word.trim())
+    .filter(Boolean);
+  let domain: string | null = null;
+  for (let count = 1; count <= Math.min(domainWords.length, 5); count += 1) {
+    const candidate = domainWords
+      .slice(0, count)
+      .join("")
+      .replace(/[^a-z0-9.-]/g, "");
+    if (/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(candidate)) {
+      const tld = candidate.split(".").at(-1) ?? "";
+      if (tld.length >= 2) {
+        domain = candidate;
+        break;
+      }
+    }
+  }
+  if (!domain) return null;
+
+  const candidate = `${local}@${domain}`;
+  return isValidEmailCandidate(candidate) ? candidate : null;
+}
+
+function extractAccountEmailCandidate(
+  text: string,
+  fallbackEmail: string | null,
+): string | null {
+  return extractSpokenEmailCandidate(text) ?? fallbackEmail?.trim().toLowerCase() ?? null;
 }
 
 const LiveAvatarSessionComponent: React.FC<{
@@ -707,6 +818,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const postVerifyGreetingSpokenRef = useRef(false);
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
+  const accountSetupPendingEmailRef = useRef<string | null>(null);
   const accountSetupOfferMadeRef = useRef(false);
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -1229,6 +1341,7 @@ const LiveAvatarSessionComponent: React.FC<{
     accountSetupOfferMadeRef.current = true;
     accountSetupAwaitingReadyRef.current = true;
     accountSetupAwaitingEmailRef.current = false;
+    accountSetupPendingEmailRef.current = null;
     const spoken =
       "Let's get that account set up. It's just a quick email click. Then next time I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
     await repeat(spoken);
@@ -1240,18 +1353,75 @@ const LiveAvatarSessionComponent: React.FC<{
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
       const contact = extractContactDetails(userText);
-      const directEmail = contact.email ?? userText.match(EMAIL_RE)?.[0] ?? null;
+      const directEmail = extractAccountEmailCandidate(userText, contact.email);
+
+      if (accountSetupPendingEmailRef.current) {
+        if (
+          directEmail &&
+          directEmail !== accountSetupPendingEmailRef.current
+        ) {
+          const normalizedEmail = directEmail.trim().toLowerCase();
+          accountSetupPendingEmailRef.current = normalizedEmail;
+          accountSetupAwaitingEmailRef.current = false;
+          accountSetupAwaitingReadyRef.current = false;
+          const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        if (ACCOUNT_READY_YES_RE.test(userText)) {
+          const emailToSend = accountSetupPendingEmailRef.current;
+          accountSetupPendingEmailRef.current = null;
+          accountSetupAwaitingEmailRef.current = false;
+          accountSetupAwaitingReadyRef.current = false;
+          return await startAccountSetup(emailToSend);
+        }
+        if (ACCOUNT_READY_NO_RE.test(userText)) {
+          accountSetupPendingEmailRef.current = null;
+          accountSetupAwaitingEmailRef.current = true;
+          accountSetupAwaitingReadyRef.current = false;
+          const spoken =
+            "Okay, I will not send it. Tell me the email address again, and I'll read it back before I send anything.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        const spoken =
+          "Before I send the account email, I need a yes or no. Is that email address correct?";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
 
       if (accountSetupAwaitingEmailRef.current && directEmail) {
+        const normalizedEmail = directEmail.trim().toLowerCase();
+        accountSetupPendingEmailRef.current = normalizedEmail;
         accountSetupAwaitingEmailRef.current = false;
         accountSetupAwaitingReadyRef.current = false;
-        return await startAccountSetup(directEmail);
+        const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+
+      if (accountSetupAwaitingEmailRef.current) {
+        const spoken =
+          "I did not catch a complete email address. No rush. Say it slowly, like name at domain dot com, and I will read it back before I send anything. If you do not know it, we can keep going, and you can ask a child or grandchild for help later.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
       }
 
       if (accountSetupAwaitingReadyRef.current) {
         if (ACCOUNT_READY_NO_RE.test(userText)) {
           accountSetupAwaitingReadyRef.current = false;
           accountSetupAwaitingEmailRef.current = false;
+          accountSetupPendingEmailRef.current = null;
           const spoken =
             "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
           await repeat(spoken);
@@ -1262,6 +1432,7 @@ const LiveAvatarSessionComponent: React.FC<{
         if (ACCOUNT_READY_YES_RE.test(userText)) {
           accountSetupAwaitingReadyRef.current = false;
           accountSetupAwaitingEmailRef.current = true;
+          accountSetupPendingEmailRef.current = null;
           const spoken = "Great. What email address should I send the link to?";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -1271,9 +1442,20 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (ACCOUNT_SETUP_TRIGGER_RE.test(userText)) {
-        if (directEmail) return await startAccountSetup(directEmail);
+        if (directEmail) {
+          const normalizedEmail = directEmail.trim().toLowerCase();
+          accountSetupPendingEmailRef.current = normalizedEmail;
+          accountSetupAwaitingReadyRef.current = false;
+          accountSetupAwaitingEmailRef.current = false;
+          const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
         accountSetupAwaitingReadyRef.current = true;
         accountSetupAwaitingEmailRef.current = false;
+        accountSetupPendingEmailRef.current = null;
         const spoken =
           "You can use the site right now, but if you want me to remember everything next time, let's get that account set up. It's just a quick email click. Then when you come back, I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
         await repeat(spoken);
@@ -2571,6 +2753,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
         setIsShoppingMode(false);
+        void interrupt();
         schedulePromptBrain(userText);
         return;
       }
@@ -2578,6 +2761,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (LIST_CLOSE_RE.test(userText)) {
         setActiveListId(null);
         setIsShoppingMode(false);
+        void interrupt();
         schedulePromptBrain(userText);
         return;
       }
@@ -3990,9 +4174,12 @@ const LiveAvatarSessionComponent: React.FC<{
                 </div>
                 <button
                   type="button"
-                  aria-label="Exit shopping mode"
-                  title="Exit shopping mode"
-                  onClick={() => setIsShoppingMode(false)}
+                  aria-label="Close list"
+                  title="Close list"
+                  onClick={() => {
+                    setIsShoppingMode(false);
+                    setActiveListId(null);
+                  }}
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-current/15"
                 >
                   <X className="h-5 w-5" aria-hidden />
@@ -4065,6 +4252,18 @@ const LiveAvatarSessionComponent: React.FC<{
                     >
                       {activeList.items.length || 0}
                     </span>
+                    <button
+                      type="button"
+                      aria-label="Close list"
+                      title="Close list"
+                      onClick={() => {
+                        setIsShoppingMode(false);
+                        setActiveListId(null);
+                      }}
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/24 opacity-85 transition hover:bg-black/38 hover:opacity-100"
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </button>
                   </div>
                 </div>
                 <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
@@ -4126,7 +4325,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.05rem] w-[min(100%,18.5rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-1.5 whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.45rem] w-[min(100%,18.5rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2 whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
