@@ -19,10 +19,10 @@ const VOICE_START_GREETING =
   "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Start a grocery list",
-  "Remember a birthday",
-  "Plan this weekend",
-  "Don't forget something",
+  "Start a Grocery List",
+  "Remember a Birthday",
+  "Plan this Weekend",
+  "Don't Forget Something",
 ];
 
 const getThoughtPrompts = (text: string): string[] => {
@@ -30,19 +30,19 @@ const getThoughtPrompts = (text: string): string[] => {
 
   if (value.includes("birthday")) {
     return [
-      "Remember the birthday",
-      "Add yearly reminder",
-      "Plan a gift",
-      "Invite the right people",
+      "Remember the Birthday",
+      "Add Yearly Reminder",
+      "Plan a Gift",
+      "Invite the Right People",
     ];
   }
 
   if (value.includes("anniversary")) {
     return [
-      "Remember the anniversary",
-      "Add yearly reminder",
-      "Plan a gift",
-      "Save next year's note",
+      "Remember the Anniversary",
+      "Add Yearly Reminder",
+      "Plan a Gift",
+      "Save Next Year's Note",
     ];
   }
 
@@ -55,10 +55,10 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("list")
   ) {
     return [
-      "Start a grocery list",
-      "Add the next item",
-      "Sort by store",
-      "Remind me before leaving",
+      "Add to Grocery List",
+      "Add the Next Item",
+      "Sort by Store",
+      "Remind Me Before Leaving",
     ];
   }
 
@@ -69,10 +69,10 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("build")
   ) {
     return [
-      "Pick the next step",
-      "Make a simple plan",
-      "Find helpful people",
-      "Save this idea",
+      "Pick the Next Step",
+      "Make a Simple Plan",
+      "Find Helpful People",
+      "Save This Idea",
     ];
   }
 
@@ -2127,7 +2127,7 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="inline-block text-[#d7a05a] text-[1.95rem] sm:text-[2.55rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="relative top-[0.18rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[1.95rem] sm:text-[2.55rem] font-bold tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
@@ -2458,7 +2458,7 @@ const LiveAvatarSessionComponent: React.FC<{
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             isActive && (
-              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+6.75rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-2.5 text-center pointer-events-none">
+              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.9rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-2 text-center pointer-events-none">
                 {thoughtPrompts.slice(0, 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
                   return (
@@ -2467,7 +2467,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[3rem] w-[min(100%,26rem)] rounded-full border border-white/10 bg-neutral-600/35 px-5 py-2.5 text-balance text-[1.35rem] sm:text-[1.62rem] font-semibold leading-[1.05] text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_28px_rgba(0,0,0,0.34)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.4rem] w-[min(100%,20.8rem)] rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2 text-balance text-[1.35rem] sm:text-[1.62rem] font-semibold leading-[1.05] text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_28px_rgba(0,0,0,0.34)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-float"
@@ -2488,7 +2488,7 @@ const LiveAvatarSessionComponent: React.FC<{
             )}
 
           {visionMode !== "streaming" && !isCameraActive && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.35rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
               <Link
                 href="/terms"
                 target="_blank"

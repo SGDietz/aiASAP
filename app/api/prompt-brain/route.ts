@@ -12,11 +12,43 @@ const OPENAI_MODEL =
   "gpt-4.1-mini";
 
 const FALLBACK_PROMPTS = [
-  "Start a grocery list",
-  "Remember a birthday",
-  "Plan this weekend",
-  "Don't forget something",
+  "Start a Grocery List",
+  "Remember a Birthday",
+  "Plan this Weekend",
+  "Don't Forget Something",
 ];
+
+const LOWERCASE_TITLE_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "at",
+  "but",
+  "by",
+  "for",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "this",
+  "to",
+  "with",
+]);
+
+function toPromptTitleCase(value: string): string {
+  return value
+    .split(" ")
+    .map((word, index) => {
+      const lower = word.toLowerCase();
+      if (index > 0 && LOWERCASE_TITLE_WORDS.has(lower)) {
+        return lower;
+      }
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(" ");
+}
 
 function cleanPrompt(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -29,7 +61,7 @@ function cleanPrompt(value: unknown): string | null {
   const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
   if (wordCount < 3 || wordCount > 4) return null;
   if (cleaned.length < 3 || cleaned.length > 42) return null;
-  return cleaned;
+  return toPromptTitleCase(cleaned);
 }
 
 function normalizePrompts(value: unknown): string[] {
@@ -91,7 +123,7 @@ export async function POST(request: Request) {
       {
         role: "system",
         content:
-          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts ranked from most useful to least useful for what the user is discussing now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt exactly 3 or 4 words. Prefer concrete, practical help that improves daily life: reminders, lists, plans, errands, birthdays, follow-ups, small next steps, and useful personal organization. Avoid vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
+          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts ranked from most useful to least useful for what the user is discussing now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt exactly 3 or 4 words. Use title case, but keep small connector words lowercase, such as a, an, and, for, of, the, this, and to. Prefer concrete, practical help that improves daily life: reminders, lists, plans, errands, birthdays, follow-ups, small next steps, and useful personal organization. If the user already has or is building a grocery list, prefer Add to Grocery List over Start a Grocery List. Avoid vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
       },
       {
         role: "user",
