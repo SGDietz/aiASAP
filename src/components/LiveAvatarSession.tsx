@@ -79,6 +79,39 @@ const getThoughtPrompts = (text: string): string[] => {
   return DEFAULT_THOUGHT_PROMPTS;
 };
 
+const LIST_TRIGGER_RE = /\b(grocery|groceries|shopping|store|list)\b/i;
+const LIST_ITEM_PREFIX_RE =
+  /^(?:and\s+)?(?:(?:i\s+)?(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+|some\s+|a\s+|an\s+|the\s+)/i;
+
+function cleanListItem(value: string): string | null {
+  const item = value
+    .replace(/\b(?:um|uh|like|please)\b/gi, " ")
+    .replace(/\b(?:okay|ok|the things that|things that|things|are)\b/gi, " ")
+    .replace(LIST_ITEM_PREFIX_RE, "")
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (item.length < 2 || item.length > 42) return null;
+  if (/^(?:no|nothing|that's all|that is all|anything else)$/i.test(item)) {
+    return null;
+  }
+
+  return item.charAt(0).toUpperCase() + item.slice(1);
+}
+
+function extractGroceryItems(text: string): string[] {
+  const normalized = text
+    .replace(/\b(?:and then|also)\b/gi, ",")
+    .replace(/\b(?:i need|i want|add|grab|buy|pick up)\b/gi, ", $&")
+    .replace(/\s+/g, " ");
+
+  return normalized
+    .split(/[,.;\n]|\band\b/gi)
+    .map(cleanListItem)
+    .filter((item): item is string => Boolean(item));
+}
+
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
   onSessionStopped: (opts?: SessionStoppedReason) => void;
@@ -160,6 +193,8 @@ const LiveAvatarSessionComponent: React.FC<{
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
   const [thoughtPrompts, setThoughtPrompts] = useState(DEFAULT_THOUGHT_PROMPTS);
   const [dissolvingPrompt, setDissolvingPrompt] = useState<string | null>(null);
+  const [isGroceryListMode, setIsGroceryListMode] = useState(false);
+  const [groceryListItems, setGroceryListItems] = useState<string[]>([]);
   const promptBrainHistoryRef = useRef<string[]>([]);
   const promptBrainSeqRef = useRef(0);
   const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -499,6 +534,10 @@ const LiveAvatarSessionComponent: React.FC<{
         !isStreamReady
       ) {
         return;
+      }
+
+      if (/grocery list/i.test(prompt)) {
+        setIsGroceryListMode(true);
       }
 
       setDissolvingPrompt(prompt);
@@ -1268,6 +1307,25 @@ const LiveAvatarSessionComponent: React.FC<{
 
     const handleUserTranscription = async (event: { text: string }) => {
       const userText = event.text.trim();
+      if (LIST_TRIGGER_RE.test(userText) || isGroceryListMode) {
+        setIsGroceryListMode(true);
+        const items = extractGroceryItems(userText);
+        if (items.length > 0) {
+          setGroceryListItems((currentItems) => {
+            const nextItems = [...currentItems];
+            for (const item of items) {
+              if (
+                !nextItems.some(
+                  (existing) => existing.toLowerCase() === item.toLowerCase(),
+                )
+              ) {
+                nextItems.push(item);
+              }
+            }
+            return nextItems.slice(0, 12);
+          });
+        }
+      }
       schedulePromptBrain(userText);
       console.log(
         "User transcription received:",
@@ -1477,6 +1535,7 @@ const LiveAvatarSessionComponent: React.FC<{
     mode,
     repeat,
     isProcessingCameraQuestion,
+    isGroceryListMode,
     schedulePromptBrain,
   ]);
 
@@ -2457,7 +2516,44 @@ const LiveAvatarSessionComponent: React.FC<{
             !isCameraActive &&
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
-            isActive && (
+            isActive &&
+            isGroceryListMode && (
+              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col rounded-[2.75rem] border border-white/10 bg-neutral-700/42 px-7 py-5 text-[#e8b46b] shadow-[inset_0_1px_18px_rgba(255,255,255,0.06),0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur-[4px]">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h2 className="text-[1.55rem] font-bold leading-none drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)]">
+                    Grocery List
+                  </h2>
+                  <span className="rounded-full bg-black/20 px-3 py-1 text-[0.78rem] font-semibold uppercase text-[#e8b46b]/75">
+                    {groceryListItems.length || 0}
+                  </span>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  {groceryListItems.length > 0 ? (
+                    <ol className="space-y-2.5 text-[1.2rem] font-semibold leading-tight">
+                      {groceryListItems.map((item, index) => (
+                        <li key={`${item}-${index}`} className="flex gap-3">
+                          <span className="w-6 shrink-0 text-right text-[#e8b46b]/65">
+                            {index + 1}.
+                          </span>
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="pt-6 text-center text-[1.2rem] font-semibold leading-snug text-[#e8b46b]/78">
+                      Say what you need
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+          {visionMode !== "streaming" &&
+            !isCameraActive &&
+            sessionState !== SessionState.DISCONNECTED &&
+            isStreamReady &&
+            isActive &&
+            !isGroceryListMode && (
               <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.9rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-2 text-center pointer-events-none">
                 {thoughtPrompts.slice(0, 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
