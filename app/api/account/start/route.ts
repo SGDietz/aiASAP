@@ -7,6 +7,7 @@ import {
   createPendingAccountLink,
   newToken,
   normalizeEmail,
+  sanitizeAccountFullName,
   sanitizeAccountResumeState,
   sanitizeAssistantLists,
   sendAccountEmail,
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       isSafeTranscriptionSessionId(body.sessionId)
         ? body.sessionId.trim()
         : null;
+    const fullName = sanitizeAccountFullName(body.fullName);
     const lists = sanitizeAssistantLists(body.lists);
     const resumeState = sanitizeAccountResumeState(body.resumeState);
     const token = newToken();
@@ -55,6 +57,7 @@ export async function POST(request: Request) {
 
     await createPendingAccountLink({
       email,
+      fullName,
       sessionId,
       tokenHash,
       lists,

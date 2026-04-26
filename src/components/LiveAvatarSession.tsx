@@ -975,6 +975,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const accountProfileSaveTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const accountListsLoadedRef = useRef(false);
   const activeList = useMemo(
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
@@ -1120,6 +1123,21 @@ const LiveAvatarSessionComponent: React.FC<{
         if (typeof data.user?.email === "string") {
           setAccountEmail(data.user.email);
         }
+        const accountFullName =
+          typeof data.user?.fullName === "string"
+            ? cleanDeviceName(data.user.fullName)
+            : null;
+        if (accountFullName) {
+          setDeviceProfile((current) =>
+            current.name === accountFullName
+              ? current
+              : {
+                  ...current,
+                  name: accountFullName,
+                  updatedAt: Date.now(),
+                },
+          );
+        }
         if (Array.isArray(data.lists) && data.lists.length > 0) {
           const cleanedLists = data.lists
             .filter(isAssistantList)
@@ -1218,6 +1236,51 @@ const LiveAvatarSessionComponent: React.FC<{
       }).catch((error) => console.warn("Account list save failed:", error));
     }, 900);
   }, [accountEmail, activeList, activeListId, assistantLists, isShoppingMode]);
+
+  useEffect(() => {
+    if (
+      !accountEmail ||
+      !accountListsLoadedRef.current ||
+      !deviceProfile.name
+    ) {
+      return;
+    }
+
+    if (accountProfileSaveTimeoutRef.current) {
+      clearTimeout(accountProfileSaveTimeoutRef.current);
+    }
+
+    const fullName = deviceProfile.name;
+    accountProfileSaveTimeoutRef.current = setTimeout(() => {
+      void fetch("/api/account/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName }),
+      })
+        .then(async (response) => {
+          if (!response.ok) return;
+          const data = await response.json().catch(() => null);
+          const savedName =
+            typeof data?.user?.fullName === "string"
+              ? cleanDeviceName(data.user.fullName)
+              : null;
+          if (savedName && savedName !== deviceProfileRef.current.name) {
+            setDeviceProfile((current) => ({
+              ...current,
+              name: savedName,
+              updatedAt: Date.now(),
+            }));
+          }
+        })
+        .catch((error) => console.warn("Account profile save failed:", error));
+    }, 700);
+
+    return () => {
+      if (accountProfileSaveTimeoutRef.current) {
+        clearTimeout(accountProfileSaveTimeoutRef.current);
+      }
+    };
+  }, [accountEmail, deviceProfile.name]);
 
   const ensureAssistantList = useCallback(
     (intent: { title: string; kind: AssistantListKind }): string => {
@@ -1435,6 +1498,7 @@ const LiveAvatarSessionComponent: React.FC<{
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email: normalizedEmail,
+            fullName: deviceProfileRef.current.name,
             sessionId: dbSessionIdRef.current,
             lists: assistantLists,
             resumeState: {

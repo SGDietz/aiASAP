@@ -27,6 +27,15 @@ export type AccountResumeState = {
   updatedAt: string;
 };
 
+type StoredUserProfile = {
+  id?: string;
+  email?: string;
+  full_name?: unknown;
+  email_verified_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 const ACCOUNT_COOKIE = "aiasap_session";
 const ACCOUNT_BUCKET = process.env.AIASAP_ACCOUNT_BUCKET || "aiasap-accounts";
 const MAX_LISTS = 30;
@@ -78,6 +87,26 @@ export function normalizeEmail(value: unknown): string | null {
   if (!email) return null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return null;
   return email;
+}
+
+export function sanitizeAccountFullName(value: unknown): string | null {
+  const cleaned = cleanText(value, 80)
+    ?.replace(/\b(?:the\s+letter|letter)\s+([a-z])\b/i, "$1")
+    .replace(/[.,!?;:]+$/g, "")
+    .trim();
+  if (!cleaned || /[@\d?]/.test(cleaned)) return null;
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 4) return null;
+  if (!words.every((word) => /^[a-z][a-z'.-]*$/i.test(word))) return null;
+
+  return words
+    .map((word) =>
+      word.length === 1
+        ? word.toUpperCase()
+        : word.charAt(0).toUpperCase() + word.slice(1),
+    )
+    .join(" ");
 }
 
 export function newToken(): string {
@@ -260,6 +289,7 @@ export async function sendAccountEmail(args: {
 
 export async function createPendingAccountLink(args: {
   email: string;
+  fullName: string | null;
   tokenHash: string;
   sessionId: string | null;
   lists: StoredAssistantList[];
@@ -268,6 +298,7 @@ export async function createPendingAccountLink(args: {
 }) {
   await putAccountJson(`pending/${args.tokenHash}.json`, {
     email: args.email,
+    full_name: args.fullName,
     token_hash: args.tokenHash,
     session_id: args.sessionId,
     captured_lists: args.lists,
@@ -279,12 +310,14 @@ export async function createPendingAccountLink(args: {
 
 export async function consumePendingAccountLink(token: string): Promise<{
   email: string;
+  fullName: string | null;
   lists: StoredAssistantList[];
   resumeState: AccountResumeState | null;
 } | null> {
   const tokenHash = hashToken(token);
   const pending = await getAccountJson<{
     email?: string;
+    full_name?: unknown;
     captured_lists?: unknown;
     resume_state?: unknown;
     expires_at?: string;
@@ -296,14 +329,60 @@ export async function consumePendingAccountLink(token: string): Promise<{
   }
   const lists = sanitizeAssistantLists(pending.captured_lists);
   const resumeState = sanitizeAccountResumeState(pending.resume_state);
+  const fullName = sanitizeAccountFullName(pending.full_name);
   await putAccountJson(`pending/${tokenHash}.json`, {
     ...pending,
     used_at: new Date().toISOString(),
   });
-  return { email: pending.email.toLowerCase(), lists, resumeState };
+  return { email: pending.email.toLowerCase(), fullName, lists, resumeState };
 }
 
-export async function createStorageAccountSession(email: string): Promise<{
+export async function loadStorageUserProfile(
+  userId: string,
+  fallbackEmail: string,
+): Promise<AccountUser> {
+  const profile = await getAccountJson<StoredUserProfile>(
+    `users/${userId}/profile.json`,
+  );
+  const email =
+    normalizeEmail(profile?.email) ?? normalizeEmail(fallbackEmail) ?? fallbackEmail;
+  return {
+    id: userId,
+    email,
+    full_name: sanitizeAccountFullName(profile?.full_name),
+  };
+}
+
+export async function saveStorageUserProfile(args: {
+  userId: string;
+  email: string;
+  fullName: unknown;
+}): Promise<AccountUser> {
+  const now = new Date().toISOString();
+  const path = `users/${args.userId}/profile.json`;
+  const existing = await getAccountJson<StoredUserProfile>(path);
+  const email =
+    normalizeEmail(existing?.email) ?? normalizeEmail(args.email) ?? args.email;
+  const fullName =
+    sanitizeAccountFullName(args.fullName) ??
+    sanitizeAccountFullName(existing?.full_name);
+
+  const profile: StoredUserProfile = {
+    ...(existing ?? {}),
+    id: args.userId,
+    email,
+    full_name: fullName,
+    email_verified_at: existing?.email_verified_at ?? now,
+    updated_at: now,
+  };
+  await putAccountJson(path, profile);
+  return { id: args.userId, email, full_name: fullName };
+}
+
+export async function createStorageAccountSession(
+  email: string,
+  fullName?: unknown,
+): Promise<{
   user: AccountUser;
   sessionToken: string;
 }> {
@@ -314,10 +393,20 @@ export async function createStorageAccountSession(email: string): Promise<{
   const sessionHash = hashToken(sessionToken);
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 180).toISOString();
-  const user = { id, email: normalizedEmail, full_name: null };
+  const existing = await getAccountJson<StoredUserProfile>(
+    `users/${id}/profile.json`,
+  );
+  const user = {
+    id,
+    email: normalizedEmail,
+    full_name:
+      sanitizeAccountFullName(fullName) ??
+      sanitizeAccountFullName(existing?.full_name),
+  };
   await putAccountJson(`users/${id}/profile.json`, {
+    ...(existing ?? {}),
     ...user,
-    email_verified_at: now,
+    email_verified_at: existing?.email_verified_at ?? now,
     updated_at: now,
   });
   await putAccountJson(`sessions/${sessionHash}.json`, {
@@ -346,7 +435,7 @@ export async function getStorageAccountFromSessionToken(
     ...session,
     last_seen_at: new Date().toISOString(),
   });
-  return { id: session.user_id, email: session.email, full_name: null };
+  return loadStorageUserProfile(session.user_id, session.email);
 }
 
 export async function saveStorageUserLists(

@@ -24,7 +24,10 @@ export async function GET(request: Request) {
     const link = await consumePendingAccountLink(token);
     if (!link) return NextResponse.redirect(redirectHome(request, "expired"));
 
-    const { user, sessionToken } = await createStorageAccountSession(link.email);
+    const { user, sessionToken } = await createStorageAccountSession(
+      link.email,
+      link.fullName,
+    );
     if (link.lists.length > 0) await saveStorageUserLists(user.id, link.lists);
     await saveStorageUserResume(user.id, link.resumeState);
 
