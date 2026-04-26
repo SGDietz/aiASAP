@@ -202,6 +202,8 @@ const ONLINE_LOOKUP_ACTION_RE =
   /\b(?:find|look up|search|show me|where|nearby|near me|plan|check|help me find)\b/i;
 const LOCATION_HINT_RE =
   /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
+const LOCATION_SHARE_CHOICE_RE =
+  /\b(?:share (?:my )?location|use (?:my )?location|current location|where i am|near me|around me)\b/i;
 const SHOPPING_MODE_OPEN_RE =
   /\b(?:shopping mode|store mode|in the store|at the store|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
 const SHOPPING_MODE_CLOSE_RE =
@@ -440,6 +442,7 @@ function isLikelyTypedLocation(text: string): boolean {
   const value = text.trim();
   if (value.length < 2 || value.length > 80) return false;
   if (/[?]/.test(value)) return false;
+  if (LOCATION_SHARE_CHOICE_RE.test(value)) return false;
   if (ACCOUNT_READY_YES_RE.test(value) || ACCOUNT_READY_NO_RE.test(value)) {
     return false;
   }
@@ -1512,6 +1515,10 @@ const LiveAvatarSessionComponent: React.FC<{
       const text = userText.trim();
       const pendingQuery = onlineLookupPendingQueryRef.current;
       if (pendingQuery) {
+        if (LOCATION_SHARE_CHOICE_RE.test(text)) {
+          await requestSharedLocation();
+          return true;
+        }
         const location =
           extractLocationHint(text) ?? (isLikelyTypedLocation(text) ? text : null);
         if (!location) return false;
@@ -1530,16 +1537,16 @@ const LiveAvatarSessionComponent: React.FC<{
 
       onlineLookupPendingQueryRef.current = text;
       setOnlineLookupSources([]);
-      setOnlineLookupNotice("Share location or tell 6 a city/ZIP");
+      setOnlineLookupNotice("Give ZIP code or share location");
       const spoken =
-        "I can look that up online. Tell me your city or ZIP code, or tap Share Location and I'll search near you.";
+        "I can look that up online. Do you want to give me your ZIP code, or share your location? If you choose Share Location, your phone or browser will ask permission first.";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
       setThoughtPrompts(
         normalizeThoughtPrompts([
+          "Give ZIP Code",
           "Share Location",
-          "Enter City or ZIP",
           "Plan This Weekend",
           CHANGE_SUBJECT_PROMPT,
         ]),
@@ -1585,9 +1592,9 @@ const LiveAvatarSessionComponent: React.FC<{
           await requestSharedLocation();
           return;
         }
-        if (prompt === "Enter City or ZIP") {
+        if (prompt === "Give ZIP Code" || prompt === "Enter City or ZIP") {
           const spoken =
-            "Tell me the city or ZIP code, and I'll look online around there.";
+            "Tell me your ZIP code, and I'll look online around there.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
