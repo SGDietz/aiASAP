@@ -2470,12 +2470,10 @@ const LiveAvatarSessionComponent: React.FC<{
                       className={`pointer-events-auto min-h-[2.4rem] w-[min(100%,20.8rem)] rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2 text-balance text-[1.35rem] sm:text-[1.62rem] font-semibold leading-[1.05] text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_28px_rgba(0,0,0,0.34)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
-                          : "animate-prompt-float"
+                          : "animate-prompt-enter"
                       }`}
                       style={{
-                        animationDelay: `${
-                          index * 80
-                        }ms, ${index * -820}ms`,
+                        animationDelay: `${index * 80}ms`,
                         fontFamily:
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
                       }}
@@ -2544,19 +2542,6 @@ const LiveAvatarSessionComponent: React.FC<{
           }
         }
 
-        @keyframes prompt-float {
-          0%,
-          100% {
-            transform: translateY(0) scale(1);
-          }
-          35% {
-            transform: translateY(-0.42rem) scale(1.012);
-          }
-          70% {
-            transform: translateY(0.28rem) scale(0.996);
-          }
-        }
-
         @keyframes prompt-dissolve {
           0% {
             opacity: 1;
@@ -2575,12 +2560,8 @@ const LiveAvatarSessionComponent: React.FC<{
           }
         }
 
-        .animate-prompt-float {
-          animation-name: idea-rise, prompt-float;
-          animation-duration: 520ms, 5.2s;
-          animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1), ease-in-out;
-          animation-fill-mode: both, both;
-          animation-iteration-count: 1, infinite;
+        .animate-prompt-enter {
+          animation: idea-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
         }
 
         .animate-prompt-dissolve {
