@@ -11,6 +11,8 @@ import {
 import Link from "next/link";
 import { SessionState, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
+import { captureMedia } from "../lib/captureMedia";
+import { extractContactDetails } from "../lib/contactExtraction";
 import {
   Radio,
   Camera,
@@ -145,6 +147,20 @@ const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
 const BUG_REPORT_TRIGGER_RE =
   /\b(?:report (?:a )?bug|file (?:a )?bug|bug report|this (?:is|looks) broken|the app (?:is|seems|looks) broken|something (?:is|went) wrong|this is not working|that did not work|issue with (?:the )?app)\b/i;
+const ACCOUNT_SETUP_TRIGGER_RE =
+  /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
+const ACCOUNT_READY_YES_RE =
+  /\b(?:yes|yeah|yep|sure|ready|ok|okay|do it|let'?s do it|set it up|send it)\b/i;
+const ACCOUNT_READY_NO_RE = /\b(?:no|not now|later|stop|never mind|cancel)\b/i;
+const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const SHOPPING_MODE_OPEN_RE =
+  /\b(?:shopping mode|store mode|in the store|at the store|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
+const SHOPPING_MODE_CLOSE_RE =
+  /\b(?:close|exit|leave|stop)\s+(?:shopping|store|full screen)\s*mode\b/i;
+const LIST_MUTATION_SIGNAL_RE =
+  /\b(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up|also)\b/i;
+const LIST_CONVERSATION_FRAGMENT_RE =
+  /\b(?:i mean|all those|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|not on|put them on|that'?s what|you mean)\b/i;
 
 const LIST_ACCENT_COLORS: Record<
   ListAccentColor,
@@ -279,6 +295,10 @@ function correctListItem(item: string): string {
 }
 
 function cleanListItem(value: string): string | null {
+  if (/[?]/.test(value) || LIST_CONVERSATION_FRAGMENT_RE.test(value)) {
+    return null;
+  }
+
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
     .replace(/\b(?:um|uh|like|please)\b/gi, " ")
@@ -290,9 +310,17 @@ function cleanListItem(value: string): string | null {
 
   if (item.length < 2 || item.length > 42) return null;
   if (
-    /^(?:no|nothing|that's all|that is all|anything else|it|that|this|them)$/i.test(
+    /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|all those|it|that|this|them|they|those|these)$/i.test(
       item,
     )
+  ) {
+    return null;
+  }
+  if (
+    /\b(?:am|are|is|was|were|did|do|does|mean|ready|checkout|check out)\b/i.test(
+      item,
+    ) &&
+    !LIST_MUTATION_SIGNAL_RE.test(value)
   ) {
     return null;
   }
@@ -302,8 +330,19 @@ function cleanListItem(value: string): string | null {
   return corrected.charAt(0).toUpperCase() + corrected.slice(1);
 }
 
+function canInferListItems(text: string): boolean {
+  if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return false;
+  if (REMOVE_COMMAND_RE.test(text)) return false;
+  if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return false;
+  if (LIST_MUTATION_SIGNAL_RE.test(text)) return true;
+  if (/[,;\n]|\band\b/i.test(text)) return true;
+  const cleaned = cleanListItem(text);
+  if (!cleaned) return false;
+  return cleaned.split(/\s+/).length <= 3;
+}
+
 function extractListItems(text: string): string[] {
-  if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return [];
+  if (!canInferListItems(text)) return [];
 
   const normalized = text
     .replace(/\b(?:and then|also)\b/gi, ",")
@@ -496,11 +535,23 @@ const LiveAvatarSessionComponent: React.FC<{
   const [assistantLists, setAssistantLists] =
     useState<AssistantList[]>(loadAssistantLists);
   const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [isShoppingMode, setIsShoppingMode] = useState(false);
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [accountNotice, setAccountNotice] = useState<string | null>(null);
+  const [accountVerificationUrl, setAccountVerificationUrl] = useState<
+    string | null
+  >(null);
   const promptBrainHistoryRef = useRef<string[]>([]);
   const promptBrainSeqRef = useRef(0);
   const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const accountSetupAwaitingReadyRef = useRef(false);
+  const accountSetupAwaitingEmailRef = useRef(false);
+  const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const accountListsLoadedRef = useRef(false);
   const activeList = useMemo(
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
     [activeListId, assistantLists],
@@ -595,6 +646,44 @@ const LiveAvatarSessionComponent: React.FC<{
       JSON.stringify(assistantLists),
     );
   }, [assistantLists]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/account/me")
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then((data) => {
+        if (cancelled || !data?.authenticated) return;
+        if (typeof data.user?.email === "string") {
+          setAccountEmail(data.user.email);
+        }
+        if (Array.isArray(data.lists) && data.lists.length > 0) {
+          setAssistantLists(data.lists);
+          setActiveListId((current) => current ?? data.lists[0]?.id ?? null);
+        }
+        accountListsLoadedRef.current = true;
+      })
+      .catch((error) => console.warn("Account load failed:", error));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!accountEmail || !accountListsLoadedRef.current) return;
+    if (accountSaveTimeoutRef.current) {
+      clearTimeout(accountSaveTimeoutRef.current);
+    }
+    accountSaveTimeoutRef.current = setTimeout(() => {
+      void fetch("/api/account/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lists: assistantLists }),
+      }).catch((error) => console.warn("Account list save failed:", error));
+    }, 900);
+  }, [accountEmail, assistantLists]);
 
   const ensureAssistantList = useCallback(
     (intent: { title: string; kind: AssistantListKind }): string => {
@@ -782,6 +871,105 @@ const LiveAvatarSessionComponent: React.FC<{
       }
     },
     [activeList, repeat],
+  );
+
+  const startAccountSetup = useCallback(
+    async (email: string) => {
+      const normalizedEmail = email.trim().toLowerCase();
+      setAccountNotice(`Sending account link to ${normalizedEmail}`);
+      setAccountVerificationUrl(null);
+      try {
+        const response = await fetch("/api/account/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: normalizedEmail,
+            sessionId: dbSessionIdRef.current,
+            lists: assistantLists,
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(data?.error || "Failed to send account link");
+        }
+
+        const spoken = data?.emailSent
+          ? "Done. I sent you an email. Click that link, and when you come back, I'll remember your lists and what you need to remember."
+          : "I saved your email, but the email sender is not finished yet. I put the sign-in link on your screen for this test.";
+        setAccountNotice(
+          data?.emailSent
+            ? `Account link sent to ${normalizedEmail}`
+            : "Account link ready for this test",
+        );
+        setAccountVerificationUrl(
+          typeof data?.verificationUrl === "string" ? data.verificationUrl : null,
+        );
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      } catch (error) {
+        console.error("Account setup failed:", error);
+        const spoken =
+          "I had trouble setting up that email link. I made a note for G to fix account setup.";
+        setAccountNotice("Account setup needs attention");
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+    },
+    [assistantLists, repeat],
+  );
+
+  const handleAccountSetupSpeech = useCallback(
+    async (userText: string) => {
+      const contact = extractContactDetails(userText);
+      const directEmail = contact.email ?? userText.match(EMAIL_RE)?.[0] ?? null;
+
+      if (accountSetupAwaitingEmailRef.current && directEmail) {
+        accountSetupAwaitingEmailRef.current = false;
+        accountSetupAwaitingReadyRef.current = false;
+        return await startAccountSetup(directEmail);
+      }
+
+      if (accountSetupAwaitingReadyRef.current) {
+        if (ACCOUNT_READY_NO_RE.test(userText)) {
+          accountSetupAwaitingReadyRef.current = false;
+          accountSetupAwaitingEmailRef.current = false;
+          const spoken =
+            "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        if (ACCOUNT_READY_YES_RE.test(userText)) {
+          accountSetupAwaitingReadyRef.current = false;
+          accountSetupAwaitingEmailRef.current = true;
+          const spoken = "Great. What email address should I send the link to?";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+      }
+
+      if (ACCOUNT_SETUP_TRIGGER_RE.test(userText)) {
+        if (directEmail) return await startAccountSetup(directEmail);
+        accountSetupAwaitingReadyRef.current = true;
+        accountSetupAwaitingEmailRef.current = false;
+        const spoken =
+          "You can use the site right now, but if you don't create an account, next time you open me up I'll be like, who are you? Have we met? Sorry, I can't place your face. Set up an account, and I'll remember your lists and what you need to remember. It's as easy as me sending you an email and you clicking the link. You ready?";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+
+      return false;
+    },
+    [repeat, startAccountSetup],
   );
 
   useEffect(() => {
@@ -1461,13 +1649,14 @@ const LiveAvatarSessionComponent: React.FC<{
       return;
     }
 
+    let frameFile: File | null = null;
     try {
       setIsAnalyzingImage(true);
       // Show "Analyzing" immediately (not "Loading")
       setIsProcessingCameraQuestion(true);
 
       // Capture frame from camera or use fallback image
-      const frameFile = await captureCameraFrame();
+      frameFile = await captureCameraFrame();
 
       if (!frameFile) {
         console.error("Failed to capture camera frame");
@@ -1519,6 +1708,13 @@ const LiveAvatarSessionComponent: React.FC<{
       const data = await response.json();
       const analysis = data.analysis;
       setImageAnalysis(analysis);
+      void captureMedia({
+        file: frameFile,
+        source: "camera_snapshot",
+        sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+        geminiAnalysis: analysis,
+        problem: currentProblemRef.current || null,
+      });
 
       // Store analysis as context for future questions (no scripted repeat prompt)
       if (mode === "FULL" && sessionRef.current) {
@@ -1529,6 +1725,15 @@ const LiveAvatarSessionComponent: React.FC<{
       setIsAnalyzingImage(false);
     } catch (error) {
       console.error("Error capturing and analyzing photo:", error);
+      if (frameFile) {
+        void captureMedia({
+          file: frameFile,
+          source: "camera_snapshot",
+          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          problem: currentProblemRef.current || null,
+          error: error instanceof Error ? error.message : "Failed to analyze photo",
+        });
+      }
       if (mode === "FULL") {
         await repeat(
           "Oops! I had a little trouble analyzing the photo. Could you try again?",
@@ -1607,10 +1812,11 @@ const LiveAvatarSessionComponent: React.FC<{
       // Removed setShowVisionLoading(true) to prevent flashing text
       lastProcessedQuestionRef.current = userText;
 
+      let frameFile: File | null = null;
       try {
         // Capture frame from camera or use fallback image
         console.log("Capturing camera frame or using fallback image...");
-        const frameFile = await captureCameraFrame();
+        frameFile = await captureCameraFrame();
 
         if (!frameFile) {
           console.error("Failed to capture camera frame or no fallback image");
@@ -1676,6 +1882,13 @@ const LiveAvatarSessionComponent: React.FC<{
         const data = await response.json();
         const analysis: string = (data.analysis ?? "").toString();
         console.log("Analysis received:", analysis.substring(0, 100) + "...");
+        void captureMedia({
+          file: frameFile,
+          source: "go_live_frame",
+          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          geminiAnalysis: analysis,
+          problem: currentProblemRef.current || null,
+        });
 
         // Silent-first: Grok outputs [SILENT] when nothing meaningful has changed.
         // Keep the avatar quiet entirely — no repeat(), no state churn.
@@ -1728,6 +1941,18 @@ const LiveAvatarSessionComponent: React.FC<{
         }, 5000);
       } catch (error) {
         console.error("Error processing camera question:", error);
+        if (frameFile) {
+          void captureMedia({
+            file: frameFile,
+            source: "go_live_frame",
+            sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+            problem: currentProblemRef.current || null,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to analyze camera frame",
+          });
+        }
         // Send a friendly error message - use repeat() to speak directly
         if (mode === "FULL") {
           await repeat(
@@ -1821,8 +2046,20 @@ const LiveAvatarSessionComponent: React.FC<{
         if (didFileBug) return;
       }
 
+      if (await handleAccountSetupSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
+        setIsShoppingMode(false);
+        schedulePromptBrain(userText);
+        return;
+      }
+
       if (LIST_CLOSE_RE.test(userText)) {
         setActiveListId(null);
+        setIsShoppingMode(false);
         schedulePromptBrain(userText);
         return;
       }
@@ -1837,8 +2074,13 @@ const LiveAvatarSessionComponent: React.FC<{
       const targetListId = listIntent
         ? ensureAssistantList(listIntent)
         : activeListId;
+      const enteringShoppingMode = SHOPPING_MODE_OPEN_RE.test(userText);
 
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
+        if (enteringShoppingMode) {
+          setIsShoppingMode(true);
+        }
+
         const displayStyle = detectListDisplayStyle(userText);
         if (displayStyle) {
           setListDisplayStyle(targetListId, displayStyle);
@@ -1854,6 +2096,12 @@ const LiveAvatarSessionComponent: React.FC<{
           removeItemsFromList(targetListId, removeItems);
         } else {
           addItemsToList(targetListId, extractListItems(userText));
+        }
+
+        if (isShoppingMode || enteringShoppingMode) {
+          void interrupt();
+          schedulePromptBrain(userText);
+          return;
         }
       }
       schedulePromptBrain(userText);
@@ -2061,6 +2309,7 @@ const LiveAvatarSessionComponent: React.FC<{
     visionMode,
     processCameraQuestion,
     isRecording,
+    isShoppingMode,
     interrupt,
     mode,
     repeat,
@@ -2069,6 +2318,7 @@ const LiveAvatarSessionComponent: React.FC<{
     addItemsToList,
     ensureAssistantList,
     fileBugReport,
+    handleAccountSetupSpeech,
     moveActiveList,
     removeItemsFromList,
     schedulePromptBrain,
@@ -2400,11 +2650,12 @@ const LiveAvatarSessionComponent: React.FC<{
       setFallbackImagePreview(null);
 
       setIsAnalyzingVideo(true);
+      let recordedVideoFile: File | null = null;
       try {
-        const videoFile = new File([blob], "recorded-video.webm", {
+        recordedVideoFile = new File([blob], "recorded-video.webm", {
           type: "video/webm",
         });
-        const frames = await extractVideoFrames(videoFile, 5);
+        const frames = await extractVideoFrames(recordedVideoFile, 5);
 
         const response = await fetch("/api/analyze-video", {
           method: "POST",
@@ -2423,6 +2674,13 @@ const LiveAvatarSessionComponent: React.FC<{
         console.log("Video analyzed successfully");
 
         setVideoAnalysis(data.analysis);
+        void captureMedia({
+          file: recordedVideoFile,
+          source: "video_recording",
+          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          geminiAnalysis: data.analysis,
+          problem: currentProblemRef.current || null,
+        });
 
         if (mode === "FULL" && sessionRef.current) {
           const contextMessage = `You are directly viewing a video. Here's what you see: ${data.analysis}. When the user asks about the video, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the video, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this video. When user asks about the video, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this footage.`;
@@ -2432,6 +2690,15 @@ const LiveAvatarSessionComponent: React.FC<{
         setIsAnalyzingVideo(false);
       } catch (error) {
         console.error("Error analyzing video:", error);
+        if (recordedVideoFile) {
+          void captureMedia({
+            file: recordedVideoFile,
+            source: "video_recording",
+            sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+            problem: currentProblemRef.current || null,
+            error: error instanceof Error ? error.message : "Failed to analyze video",
+          });
+        }
         alert("Failed to analyze video. Please try again.");
         setIsAnalyzingVideo(false);
       }
@@ -2627,6 +2894,13 @@ const LiveAvatarSessionComponent: React.FC<{
 
         const data = await response.json();
         setImageAnalysis(data.analysis);
+        void captureMedia({
+          file,
+          source: "gallery_image",
+          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          geminiAnalysis: data.analysis,
+          problem: currentProblemRef.current || null,
+        });
         console.log("Image analyzed successfully");
 
         // For FULL mode, send the analysis as context to the AI (no scripted repeat prompt)
@@ -2636,6 +2910,13 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       } catch (error) {
         console.error("Error analyzing image:", error);
+        void captureMedia({
+          file,
+          source: "gallery_image",
+          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          problem: currentProblemRef.current || null,
+          error: error instanceof Error ? error.message : "Failed to analyze image",
+        });
         alert("Failed to analyze image. Please try again.");
       } finally {
         setIsAnalyzingImage(false);
@@ -2665,6 +2946,13 @@ const LiveAvatarSessionComponent: React.FC<{
 
         // Store video analysis in state so it persists even after closing video button
         setVideoAnalysis(data.analysis);
+        void captureMedia({
+          file,
+          source: "gallery_video",
+          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          geminiAnalysis: data.analysis,
+          problem: currentProblemRef.current || null,
+        });
 
         // For FULL mode, send the analysis as context to the AI (no scripted repeat prompt)
         if (mode === "FULL" && sessionRef.current) {
@@ -2673,6 +2961,13 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       } catch (error) {
         console.error("Error analyzing video:", error);
+        void captureMedia({
+          file,
+          source: "gallery_video",
+          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          problem: currentProblemRef.current || null,
+          error: error instanceof Error ? error.message : "Failed to analyze video",
+        });
         alert("Failed to analyze video. Please try again.");
       } finally {
         setIsAnalyzingVideo(false);
@@ -2704,6 +2999,31 @@ const LiveAvatarSessionComponent: React.FC<{
             >
               Back
             </button>
+          )}
+        </div>
+      )}
+
+      {accountNotice && !isShoppingMode && (
+        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[75] rounded-lg border border-white/12 bg-black/82 px-4 py-3 text-white shadow-2xl backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 text-sm font-semibold">{accountNotice}</p>
+            <button
+              type="button"
+              aria-label="Dismiss account notice"
+              title="Dismiss account notice"
+              onClick={() => setAccountNotice(null)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+          {accountVerificationUrl && (
+            <a
+              href={accountVerificationUrl}
+              className="mt-2 block rounded-md bg-white px-3 py-2 text-center text-sm font-bold text-black"
+            >
+              Finish Account Setup
+            </a>
           )}
         </div>
       )}
@@ -3046,11 +3366,83 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
+          {activeList && isShoppingMode && (
+            <div
+              className="fixed inset-0 z-[80] flex flex-col px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)]"
+              style={{ backgroundColor: "Canvas", color: "CanvasText", colorScheme: "light dark" }}
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p
+                    className="text-xs font-bold uppercase tracking-[0.16em]"
+                    style={{ color: activeListTheme.foreground }}
+                  >
+                    6 Listening
+                  </p>
+                  <h2 className="truncate text-3xl font-black leading-tight">
+                    {activeList.title}
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Exit shopping mode"
+                  title="Exit shopping mode"
+                  onClick={() => setIsShoppingMode(false)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-current/15"
+                >
+                  <X className="h-5 w-5" aria-hidden />
+                </button>
+              </div>
+
+              <div
+                className="mb-5 h-1.5 w-full rounded-full"
+                style={{ backgroundColor: activeListTheme.foreground }}
+              />
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {activeList.items.length > 0 ? (
+                  <ol className="space-y-4 text-2xl font-bold leading-tight">
+                    {activeList.items.map((item, index) => (
+                      <li
+                        key={`${item}-${index}`}
+                        className="grid min-h-[3.75rem] grid-cols-[2.4rem_1fr_3rem] items-center gap-3 border-b border-current/10 pb-3"
+                      >
+                        <span
+                          className="text-right text-xl"
+                          style={{ color: activeListTheme.foreground }}
+                        >
+                          {activeList.displayStyle === "numbered"
+                            ? `${index + 1}.`
+                            : "•"}
+                        </span>
+                        <span className="min-w-0 break-words">{item}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${item}`}
+                          title={`Remove ${item}`}
+                          onClick={() => removeListItemAtIndex(activeList.id, index)}
+                          className="flex h-11 w-11 items-center justify-center rounded-full border border-current/15"
+                        >
+                          <X className="h-5 w-5" aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="pt-16 text-center text-2xl font-bold opacity-70">
+                    Say what you need
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           {visionMode !== "streaming" &&
             !isCameraActive &&
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             isActive &&
+            !isShoppingMode &&
             activeList && (
               <div
                 className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col rounded-[2.75rem] border border-white/10 bg-neutral-700/42 px-6 py-5 shadow-[inset_0_1px_18px_rgba(255,255,255,0.06),0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur-[4px]"
@@ -3139,7 +3531,7 @@ const LiveAvatarSessionComponent: React.FC<{
               </div>
             )}
 
-          {visionMode !== "streaming" && !isCameraActive && (
+          {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
             <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
               <Link
                 href="/terms"

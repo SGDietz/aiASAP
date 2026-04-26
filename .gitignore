@@ -3,6 +3,7 @@
 node_modules/
 .next/
 next-env.d.ts
+*.tsbuildinfo
 __pycache__/
 *.pyc
 telegram_conversations.json

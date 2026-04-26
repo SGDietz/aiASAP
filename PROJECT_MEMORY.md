@@ -13,7 +13,7 @@
 - Use the 95% rule: ask questions until at least 95% sure what the user wants, but keep questions concise.
 - Absolute workflow rule: ask questions first; when ready to act on meaningful product/code/database changes, ask the user for permission and wait for explicit permission before acting.
 - Default posture: do things for the user, ask for permissions when needed, and keep the computer/browser tidy by closing anything that does not need to stay open.
-- Supabase rule: aiASAP must use its own Supabase project/database, never the iSolve database. Current project URL starts with `https://wqszxsqzkaatghyrqviv.supabase.co`.
+- Supabase rule: aiASAP must use its own Supabase project/database and storage, never the iSolve database or buckets. Current project URL starts with `https://wqszxsqzkaatghyrqviv.supabase.co`; aiASAP media belongs in the private `aiasap-media` bucket.
 - Audit rule for product changes and auto-debug: audit first, give G a plan, get approval, then build/fix/deploy. Send G operational alerts through Telegram first.
 - Release gate: build until G is happy first. Do not send aiASAP to friends, family, landscaping clients, or other outside testers until G explicitly says he is happy with the smoke test and ready to share it.
 - aiASAP vision: a voice-first, self-learning AI company and product that helps people adopt AI with minimal mental friction.
@@ -26,8 +26,8 @@
 - Future feedback/monetization behavior: 6 should occasionally ask, naturally and not too often, how users are liking aiASAP. Before a future usage/rate limit or tier upgrade, 6 should first ask how they are liking the app, listen to the answer, then ask whether they would pay more for more usage and record the response. No upgrade should happen without clear user approval.
 - Future fair-billing behavior: paid tiers should be able to move users down automatically when usage drops, not only up when usage rises. After two months with no use, aiASAP should drop the user to the free tier automatically, keep their info, and let them restart or pick up right where they left off. 6 can say: "The subscription will drop automatically when you use less. Go two months with no use at all, and it can drop you to the free tier, keep your info, and let you pick up right where you left off. You ever heard of that before? This entire system is built for you." Tie this to 6 having their back in every way.
 - App-store commerce rule: play by Apple/Google rules; if in-app digital credits are consumed inside mobile apps, plan for Apple/Google in-app purchase requirements.
-- Founder/business direction: SG Dietz is the Creator/Founder/Builder/CEO of iSolveUrProblems.ai & aiASAP. He is self-funding early aiASAP as much as possible and prefers retaining ownership if feasible. Be open, publish cost/usage analyses where practical, and position aiASAP as helping people first.
-- Company structure direction: DietzX is the intended parent/umbrella company for aiASAP and iSolveUrProblems.ai. The earlier separate-company mention from voice dictation was an error; treat that as DietzX.
+- Founder/business direction: SG Dietz is the Creator/Builder/Founder/Financier/CEO aiASAP. He is self-funding early aiASAP as much as possible and prefers retaining ownership if feasible. Be open, publish cost/usage analyses where practical, and position aiASAP as helping people first.
+- Company separation rule: aiASAP and iSolveUrProblems.ai are two different companies/projects. Keep code, Supabase, buckets, branding, data, and product direction separate unless G explicitly asks for a shared parent-company or cross-project integration.
 - Name rule: `G` is the user's personal name/nickname only. Do not use `G` as a generic user placeholder or public founder label.
 - LiveAvatar is intended as the front-facing natural-language avatar layer, including a digital copy of the user where appropriate.
 - Codex is intended to be the operating brain for building aiASAP and coordinating implementation.
@@ -60,9 +60,12 @@
 - Notification provider defaults: aiASAP inbox/push first, Telnyx for SMS/voice later, Mailgun for email later, Telegram for G's internal alerts.
 - Users interact primarily by voice; voice is transcribed, understood, confirmed, stored, and turned into reminders/lists/follow-ups.
 - `6` should confirm important captured details by reading them back, especially emails letter-by-letter, phone numbers digit-by-digit, and lists item-by-item.
+- `6` should coordinate lists by colors when it helps the user scan them, offer colors naturally, ask what colors/styles make the user happy, and adapt to what would make aiASAP easier for that specific person.
+- Store-mode direction: when people are shopping, the active list should be able to fill the phone screen with the phone's light/dark background. 6 should stay quiet unless needed, keep listening for list commands, and use as little data as the current architecture allows.
 - `6` should usually ask when something is due or when the user needs it by.
 - `6` should ask for the user's name naturally and use the name naturally, without overdoing it.
-- Users can talk before creating an account. When saving persistent memory, `6` should say: if you want me to remember who you are next time, I need you to set up an account.
+- Users can talk before creating an account. Lists/reminders can work for one session, but when saving persistent memory, `6` can explain with light humor: "You can use the site right now, but if you don't create an account, next time you open me up I'll be like, who are you? Have we met? Sorry, I can't place your face. Set up an account, and I'll remember your lists and what you need to remember." Account setup should be positioned as easy: 6 sends an email link, the user clicks it, and then 6 can remember and pick up where they left off.
+- `6` should ask "You ready?" before collecting an email for account setup. Only if the user answers yes or seems positive should 6 ask for the email address.
 - Account capture should include name, email, and phone number.
 - Memory/data direction: use Supabase or similar for accounts, persistent user memory, reminders, lists, and notification preferences.
 - Reminder channel priority: SMS/text first, email second, phone calls third for urgent/escalated reminders, then app push, Telegram, Messenger where feasible.
