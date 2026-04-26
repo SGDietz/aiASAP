@@ -160,7 +160,11 @@ const SHOPPING_MODE_CLOSE_RE =
 const LIST_MUTATION_SIGNAL_RE =
   /\b(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up|also)\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
-  /\b(?:i mean|all those|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|not on|put them on|that'?s what|you mean)\b/i;
+  /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|that'?s what|you mean|what are you|what is|what's)\b/i;
+const LIST_FILLER_ITEM_RE =
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these)$/i;
+const LIST_VAGUE_BARE_ITEM_RE =
+  /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
 const LIST_ACCENT_COLORS: Record<
   ListAccentColor,
@@ -258,6 +262,20 @@ function isAssistantList(value: unknown): value is AssistantList {
   );
 }
 
+function cleanStoredListItems(items: string[]): string[] {
+  const seen = new Set<string>();
+  return items
+    .map((item) => cleanListItem(item))
+    .filter((item): item is string => Boolean(item))
+    .filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, MAX_LIST_ITEMS);
+}
+
 function loadAssistantLists(): AssistantList[] {
   if (typeof window === "undefined") return [];
   try {
@@ -278,7 +296,7 @@ function loadAssistantLists(): AssistantList[] {
           : "amber",
       createdAt: Number.isFinite(list.createdAt) ? list.createdAt : Date.now(),
       updatedAt: Number.isFinite(list.updatedAt) ? list.updatedAt : Date.now(),
-      items: list.items.slice(0, MAX_LIST_ITEMS),
+      items: cleanStoredListItems(list.items),
     }));
   } catch {
     return [];
@@ -294,7 +312,10 @@ function correctListItem(item: string): string {
   return item;
 }
 
-function cleanListItem(value: string): string | null {
+function cleanListItem(
+  value: string,
+  options: { fromExplicitCommand?: boolean } = {},
+): string | null {
   if (/[?]/.test(value) || LIST_CONVERSATION_FRAGMENT_RE.test(value)) {
     return null;
   }
@@ -309,11 +330,8 @@ function cleanListItem(value: string): string | null {
     .trim();
 
   if (item.length < 2 || item.length > 42) return null;
-  if (
-    /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|all those|it|that|this|them|they|those|these)$/i.test(
-      item,
-    )
-  ) {
+  if (LIST_FILLER_ITEM_RE.test(item)) return null;
+  if (!options.fromExplicitCommand && LIST_VAGUE_BARE_ITEM_RE.test(item)) {
     return null;
   }
   if (
@@ -330,19 +348,28 @@ function cleanListItem(value: string): string | null {
   return corrected.charAt(0).toUpperCase() + corrected.slice(1);
 }
 
-function canInferListItems(text: string): boolean {
+function canInferListItems(
+  text: string,
+  options: { allowBareItems?: boolean } = {},
+): boolean {
   if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return false;
   if (REMOVE_COMMAND_RE.test(text)) return false;
   if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return false;
-  if (LIST_MUTATION_SIGNAL_RE.test(text)) return true;
+  const hasExplicitMutation = LIST_MUTATION_SIGNAL_RE.test(text);
+  if (hasExplicitMutation) return true;
+  if (!options.allowBareItems) return false;
   if (/[,;\n]|\band\b/i.test(text)) return true;
   const cleaned = cleanListItem(text);
   if (!cleaned) return false;
   return cleaned.split(/\s+/).length <= 3;
 }
 
-function extractListItems(text: string): string[] {
-  if (!canInferListItems(text)) return [];
+function extractListItems(
+  text: string,
+  options: { allowBareItems?: boolean } = {},
+): string[] {
+  if (!canInferListItems(text, options)) return [];
+  const fromExplicitCommand = LIST_MUTATION_SIGNAL_RE.test(text);
 
   const normalized = text
     .replace(/\b(?:and then|also)\b/gi, ",")
@@ -351,7 +378,7 @@ function extractListItems(text: string): string[] {
 
   return normalized
     .split(/[,.;\n]|\band\b/gi)
-    .map(cleanListItem)
+    .map((item) => cleanListItem(item, { fromExplicitCommand }))
     .filter((item): item is string => Boolean(item));
 }
 
@@ -365,7 +392,7 @@ function extractRemoveItems(text: string): string[] {
 
   return normalized
     .split(/[,.;\n]|\band\b/gi)
-    .map(cleanListItem)
+    .map((item) => cleanListItem(item, { fromExplicitCommand: true }))
     .filter((item): item is string => Boolean(item));
 }
 
@@ -548,6 +575,7 @@ const LiveAvatarSessionComponent: React.FC<{
   );
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
+  const accountSetupOfferMadeRef = useRef(false);
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -660,8 +688,18 @@ const LiveAvatarSessionComponent: React.FC<{
           setAccountEmail(data.user.email);
         }
         if (Array.isArray(data.lists) && data.lists.length > 0) {
-          setAssistantLists(data.lists);
-          setActiveListId((current) => current ?? data.lists[0]?.id ?? null);
+          const cleanedLists = data.lists
+            .filter(isAssistantList)
+            .map((list: AssistantList) => ({
+              ...list,
+              items: cleanStoredListItems(list.items),
+            }));
+          if (cleanedLists.length > 0) {
+            setAssistantLists(cleanedLists);
+            setActiveListId(
+              (current) => current ?? cleanedLists[0]?.id ?? null,
+            );
+          }
         }
         accountListsLoadedRef.current = true;
       })
@@ -893,17 +931,21 @@ const LiveAvatarSessionComponent: React.FC<{
           throw new Error(data?.error || "Failed to send account link");
         }
 
+        const verificationUrl =
+          typeof data?.verificationUrl === "string" ? data.verificationUrl : null;
         const spoken = data?.emailSent
-          ? "Done. I sent you an email. Click that link, and when you come back, I'll remember your lists and what you need to remember."
-          : "I saved your email, but the email sender is not finished yet. I put the sign-in link on your screen for this test.";
+          ? "Done. I sent you an email. Click that link, and when you come back, I'll be like, hey, how's it going? I'll remember your lists and we'll pick up right where we left off."
+          : verificationUrl
+            ? "I saved your email, but the email sender is not finished yet. I put the sign-in link on your screen for this test."
+            : "I saved your email, but the email sender is not fully connected yet. I made a note for G to finish account email before this goes live.";
         setAccountNotice(
           data?.emailSent
             ? `Account link sent to ${normalizedEmail}`
-            : "Account link ready for this test",
+            : verificationUrl
+              ? "Account link ready for this test"
+              : "Account email needs setup",
         );
-        setAccountVerificationUrl(
-          typeof data?.verificationUrl === "string" ? data.verificationUrl : null,
-        );
+        setAccountVerificationUrl(verificationUrl);
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -921,6 +963,27 @@ const LiveAvatarSessionComponent: React.FC<{
     },
     [assistantLists, repeat],
   );
+
+  const offerAccountSetupForMemory = useCallback(async () => {
+    if (
+      accountEmail ||
+      accountSetupOfferMadeRef.current ||
+      accountSetupAwaitingReadyRef.current ||
+      accountSetupAwaitingEmailRef.current
+    ) {
+      return false;
+    }
+
+    accountSetupOfferMadeRef.current = true;
+    accountSetupAwaitingReadyRef.current = true;
+    accountSetupAwaitingEmailRef.current = false;
+    const spoken =
+      "Let's get that account set up. It's just a quick email click. Then next time I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
+    await repeat(spoken);
+    lastAvatarResponseRef.current = spoken;
+    lastVisionResponseTimeRef.current = Date.now();
+    return true;
+  }, [accountEmail, repeat]);
 
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
@@ -960,7 +1023,7 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupAwaitingReadyRef.current = true;
         accountSetupAwaitingEmailRef.current = false;
         const spoken =
-          "You can use the site right now, but if you don't create an account, next time you open me up I'll be like, who are you? Have we met? Sorry, I can't place your face. Set up an account, and I'll remember your lists and what you need to remember. It's as easy as me sending you an email and you clicking the link. You ready?";
+          "You can use the site right now, but if you want me to remember everything next time, let's get that account set up. It's just a quick email click. Then when you come back, I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -2092,10 +2155,29 @@ const LiveAvatarSessionComponent: React.FC<{
         }
 
         const removeItems = extractRemoveItems(userText);
+        const addItems = extractListItems(userText, {
+          allowBareItems: Boolean(activeListId || listIntent),
+        });
         if (removeItems.length > 0) {
           removeItemsFromList(targetListId, removeItems);
-        } else {
-          addItemsToList(targetListId, extractListItems(userText));
+        } else if (addItems.length > 0) {
+          addItemsToList(targetListId, addItems);
+        }
+
+        const changedListByVoice =
+          Boolean(listIntent) ||
+          Boolean(displayStyle) ||
+          Boolean(accentColor) ||
+          removeItems.length > 0 ||
+          addItems.length > 0;
+        if (
+          changedListByVoice &&
+          !isShoppingMode &&
+          !enteringShoppingMode &&
+          (await offerAccountSetupForMemory())
+        ) {
+          schedulePromptBrain(userText);
+          return;
         }
 
         if (isShoppingMode || enteringShoppingMode) {
@@ -2320,6 +2402,7 @@ const LiveAvatarSessionComponent: React.FC<{
     fileBugReport,
     handleAccountSetupSpeech,
     moveActiveList,
+    offerAccountSetupForMemory,
     removeItemsFromList,
     schedulePromptBrain,
     setListAccentColor,

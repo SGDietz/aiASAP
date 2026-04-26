@@ -25,6 +25,13 @@ function Read-DotEnv([string]$Path) {
 
 $envMap = Read-DotEnv ".env"
 $requiredKeys = @("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY")
+$optionalKeys = @(
+  "NEXT_PUBLIC_SITE_URL",
+  "RESEND_API_KEY",
+  "ACCOUNT_LINK_FROM_EMAIL",
+  "BUG_REPORT_FROM_EMAIL",
+  "AIASAP_FOUNDER_REPORT_EMAIL"
+)
 foreach ($key in $requiredKeys) {
   if (!$envMap.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($envMap[$key])) {
     throw "$key missing from .env"
@@ -52,7 +59,14 @@ $projectId = $project.id
 $baseUri = "https://api.vercel.com/v10/projects/$projectId/env?teamId=$teamId"
 
 $existing = Invoke-RestMethod -Method GET -Uri $baseUri -Headers $headers
-foreach ($key in $requiredKeys) {
+$keysToSet = @($requiredKeys)
+foreach ($key in $optionalKeys) {
+  if ($envMap.ContainsKey($key) -and ![string]::IsNullOrWhiteSpace($envMap[$key])) {
+    $keysToSet += $key
+  }
+}
+
+foreach ($key in $keysToSet) {
   $matches = @($existing.envs | Where-Object { $_.key -eq $key })
   foreach ($item in $matches) {
     $deleteUri = "https://api.vercel.com/v9/projects/$projectId/env/$($item.id)?teamId=$teamId"

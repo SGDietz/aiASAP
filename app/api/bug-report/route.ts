@@ -101,6 +101,7 @@ async function emailBugReport(report: {
       headers: {
         Authorization: `Bearer ${resendApiKey}`,
         "Content-Type": "application/json",
+        "User-Agent": "aiASAP/1.0",
       },
       body: JSON.stringify({
         from,

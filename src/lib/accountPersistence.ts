@@ -26,6 +26,11 @@ const MAX_ITEM_CHARS = 80;
 const VALID_LIST_KIND = new Set(["grocery", "shopping", "todo", "custom"]);
 const VALID_LIST_STYLE = new Set(["numbered", "bulleted"]);
 const VALID_LIST_COLOR = new Set(["amber", "blue", "green", "rose", "purple", "white"]);
+const LIST_ITEM_CHATTER_RE =
+  /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|you mean|what are you|what is|what's)\b/i;
+const LIST_ITEM_FILLER_RE =
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these)$/i;
+const LIST_ITEM_VAGUE_RE = /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
 function supabaseHeaders(serviceRoleKey: string) {
   return {
@@ -40,6 +45,23 @@ function cleanText(value: unknown, max: number): string | null {
   const cleaned = value.replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
   return cleaned.slice(0, max);
+}
+
+function cleanStoredListItem(value: unknown): string | null {
+  const cleaned = cleanText(value, MAX_ITEM_CHARS);
+  if (!cleaned) return null;
+  if (/[?]/.test(cleaned)) return null;
+  if (LIST_ITEM_CHATTER_RE.test(cleaned)) return null;
+  if (LIST_ITEM_FILLER_RE.test(cleaned)) return null;
+  if (LIST_ITEM_VAGUE_RE.test(cleaned)) return null;
+  if (
+    /\b(?:am|are|is|was|were|did|do|does|mean|ready|checkout|check out)\b/i.test(
+      cleaned,
+    )
+  ) {
+    return null;
+  }
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 export function normalizeEmail(value: unknown): string | null {
@@ -124,9 +146,16 @@ export function sanitizeAssistantLists(value: unknown): StoredAssistantList[] {
         ? list.updatedAt
         : Date.now();
     const rawItems = Array.isArray(list.items) ? list.items : [];
+    const seenItems = new Set<string>();
     const items = rawItems
-      .map((item) => cleanText(item, MAX_ITEM_CHARS))
+      .map(cleanStoredListItem)
       .filter((item): item is string => Boolean(item))
+      .filter((item) => {
+        const key = item.toLowerCase();
+        if (seenItems.has(key)) return false;
+        seenItems.add(key);
+        return true;
+      })
       .slice(0, MAX_ITEMS_PER_LIST);
     return [
       {
@@ -169,6 +198,7 @@ export async function sendAccountEmail(args: {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        "User-Agent": "aiASAP/1.0",
       },
       body: JSON.stringify({
         from,
