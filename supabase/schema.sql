@@ -109,6 +109,22 @@ create table if not exists public.notification_preferences (
   unique (user_id, channel, destination)
 );
 
+create table if not exists public.bug_reports (
+  id uuid primary key default gen_random_uuid(),
+  session_id text,
+  summary text not null,
+  transcript text,
+  page_url text,
+  active_list jsonb,
+  recipient_title text not null default 'Creator/Builder/Founder/Financier/CEO aiASAP',
+  email_to text,
+  source text not null default 'six_voice',
+  status text not null default 'new'
+    check (status in ('new', 'triaged', 'fixed', 'closed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists idx_conversation_messages_session_id
   on public.conversation_messages (session_id);
 
@@ -130,6 +146,12 @@ create index if not exists idx_reminders_user_due
 create index if not exists idx_reminders_session_id
   on public.reminders (session_id);
 
+create index if not exists idx_bug_reports_created_at
+  on public.bug_reports (created_at desc);
+
+create index if not exists idx_bug_reports_session_id
+  on public.bug_reports (session_id);
+
 alter table public.ai_users enable row level security;
 alter table public.conversation_sessions enable row level security;
 alter table public.conversation_messages enable row level security;
@@ -139,5 +161,6 @@ alter table public.lead_sessions enable row level security;
 alter table public.memory_notes enable row level security;
 alter table public.reminders enable row level security;
 alter table public.notification_preferences enable row level security;
+alter table public.bug_reports enable row level security;
 
 -- No public RLS policies yet. The app writes through server routes using SUPABASE_SERVICE_ROLE_KEY.

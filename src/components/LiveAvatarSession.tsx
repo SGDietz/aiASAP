@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   LiveAvatarContextProvider,
   useSession,
@@ -11,22 +11,49 @@ import {
 import Link from "next/link";
 import { SessionState, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
-import { Radio, Camera, Images, Video, Play, Square } from "lucide-react";
+import {
+  Radio,
+  Camera,
+  Images,
+  Video,
+  Play,
+  Square,
+  X,
+  List as ListIcon,
+  ListOrdered,
+} from "lucide-react";
 
 export type SessionStoppedReason = { reason?: "inactivity" };
 
+const AIASAP_FOUNDER_TITLE =
+  "Creator/Builder/Founder/Financier/CEO aiASAP";
+
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. If you can talk to me, I can help do it for you. What should I call you?";
+  "Hi, I'm 6, your AI buddy. You know why they call me 6? Because I got your back. a-i-ASAP is here to make AI easy, just by talking to me. This is the MVP, the minimum viable product. The full build is coming, and G is building it as we speak. Someday, folks will build whole companies inside aiASAP just by talking to me. And later, when the subscription system is ready, it can drop automatically when you use less. Go two months with no use at all, and it can drop you to the free tier, keep your info, and let you pick up right where you left off. You ever heard of that before? This whole system is built for you. You can customize most of this place and how we work together, but I'm always your guide. What should I call you?";
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Start a Grocery List",
+  "Create ToDo",
   "Remember a Birthday",
   "Plan this Weekend",
-  "Don't Forget Something",
 ];
 
 const getThoughtPrompts = (text: string): string[] => {
   const value = text.toLowerCase();
+
+  if (
+    value.includes("todo") ||
+    value.includes("to-do") ||
+    value.includes("to do") ||
+    value.includes("task")
+  ) {
+    return [
+      "Create ToDo",
+      "Open Work ToDo",
+      "Open Family ToDo",
+      "Add Next Task",
+    ];
+  }
 
   if (value.includes("birthday")) {
     return [
@@ -55,10 +82,10 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("list")
   ) {
     return [
-      "Add to Grocery List",
+      value.includes("walmart") ? "Open Walmart List" : "Add to Grocery List",
+      "Create ToDo",
       "Add the Next Item",
       "Sort by Store",
-      "Remind Me Before Leaving",
     ];
   }
 
@@ -79,28 +106,208 @@ const getThoughtPrompts = (text: string): string[] => {
   return DEFAULT_THOUGHT_PROMPTS;
 };
 
-const LIST_TRIGGER_RE = /\b(grocery|groceries|shopping|store|list)\b/i;
+type AssistantListKind = "grocery" | "shopping" | "todo" | "custom";
+type ListDisplayStyle = "numbered" | "bulleted";
+type ListAccentColor =
+  | "amber"
+  | "blue"
+  | "green"
+  | "rose"
+  | "purple"
+  | "white";
+
+type AssistantList = {
+  id: string;
+  title: string;
+  kind: AssistantListKind;
+  items: string[];
+  displayStyle: ListDisplayStyle;
+  accentColor: ListAccentColor;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const ASSISTANT_LISTS_STORAGE_KEY = "aiasap.assistantLists.v1";
+const MAX_LIST_ITEMS = 80;
+const INTERNAL_SIGNAL_RE =
+  /^\s*\[(?:USER HAS BEEN SILENT|SILENT|OBJECT_NOT_VISIBLE)[^\]]*\]/i;
+const LIST_TRIGGER_RE =
+  /\b(grocery|groceries|shopping|store|walmart|list|todo|to-do|to do|task)\b/i;
 const LIST_ITEM_PREFIX_RE =
   /^(?:and\s+)?(?:(?:i\s+)?(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+|some\s+|a\s+|an\s+|the\s+)/i;
+const LIST_COMMAND_ONLY_RE =
+  /\b(?:make|create|start|open|show|switch to|pull up|go to|toggle|another|new)\b.*\b(?:list|todo|to-do|to do)\b/i;
+const REMOVE_COMMAND_RE =
+  /\b(?:remove|delete|cross off|check off|mark off|i got|got|grabbed|picked up)\b/i;
+const LIST_NAV_NEXT_RE = /\b(?:next|another|toggle|switch)\s+list\b/i;
+const LIST_NAV_PREV_RE = /\b(?:previous|prior|last|back)\s+list\b/i;
+const LIST_CLOSE_RE =
+  /\b(?:close|hide|dismiss|put away|minimize)\s+(?:the|my|this|that)?\s*(?:list|lists)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+disappear\b/i;
+const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
+const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
+const BUG_REPORT_TRIGGER_RE =
+  /\b(?:report (?:a )?bug|file (?:a )?bug|bug report|this (?:is|looks) broken|the app (?:is|seems|looks) broken|something (?:is|went) wrong|this is not working|that did not work|issue with (?:the )?app)\b/i;
+
+const LIST_ACCENT_COLORS: Record<
+  ListAccentColor,
+  { label: string; foreground: string; solid: string; soft: string }
+> = {
+  amber: {
+    label: "Amber",
+    foreground: "#e8b46b",
+    solid: "#e8b46b",
+    soft: "rgba(232, 180, 107, 0.2)",
+  },
+  blue: {
+    label: "Blue",
+    foreground: "#8ec5ff",
+    solid: "#8ec5ff",
+    soft: "rgba(142, 197, 255, 0.2)",
+  },
+  green: {
+    label: "Green",
+    foreground: "#86efac",
+    solid: "#86efac",
+    soft: "rgba(134, 239, 172, 0.2)",
+  },
+  rose: {
+    label: "Rose",
+    foreground: "#fda4af",
+    solid: "#fda4af",
+    soft: "rgba(253, 164, 175, 0.2)",
+  },
+  purple: {
+    label: "Purple",
+    foreground: "#c4b5fd",
+    solid: "#c4b5fd",
+    soft: "rgba(196, 181, 253, 0.2)",
+  },
+  white: {
+    label: "White",
+    foreground: "#f8fafc",
+    solid: "#f8fafc",
+    soft: "rgba(248, 250, 252, 0.18)",
+  },
+};
+
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/\bto[-\s]?do\b/gi, "ToDo")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => {
+      if (word === "ToDo") return word;
+      if (/^walmart$/i.test(word)) return "Walmart";
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function normalizeListTitle(value: string, kind: AssistantListKind): string {
+  const cleaned = value
+    .replace(/[^\w\s'-]/g, " ")
+    .replace(/\b(?:the|my|a|an)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (kind === "grocery") return "Grocery List";
+  if (kind === "shopping") {
+    return /^walmart\b/i.test(cleaned) ? "Walmart List" : "Shopping List";
+  }
+  if (kind === "todo") {
+    const scope = cleaned
+      .replace(/\b(?:todo|to-do|to do|task|tasks|list)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return scope ? `${titleCaseWords(scope)} ToDo` : "ToDo";
+  }
+
+  const withoutList = cleaned.replace(/\blist\b/gi, " ").trim();
+  return withoutList ? `${titleCaseWords(withoutList)} List` : "New List";
+}
+
+function listIdForTitle(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "new-list";
+}
+
+function isAssistantList(value: unknown): value is AssistantList {
+  if (!value || typeof value !== "object") return false;
+  const maybe = value as AssistantList;
+  return (
+    typeof maybe.id === "string" &&
+    typeof maybe.title === "string" &&
+    Array.isArray(maybe.items) &&
+    maybe.items.every((item) => typeof item === "string")
+  );
+}
+
+function loadAssistantLists(): AssistantList[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(ASSISTANT_LISTS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isAssistantList).map((list) => ({
+      ...list,
+      kind: list.kind || "custom",
+      displayStyle:
+        list.displayStyle === "bulleted" || list.displayStyle === "numbered"
+          ? list.displayStyle
+          : "numbered",
+      accentColor:
+        list.accentColor && list.accentColor in LIST_ACCENT_COLORS
+          ? list.accentColor
+          : "amber",
+      createdAt: Number.isFinite(list.createdAt) ? list.createdAt : Date.now(),
+      updatedAt: Number.isFinite(list.updatedAt) ? list.updatedAt : Date.now(),
+      items: list.items.slice(0, MAX_LIST_ITEMS),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function isInternalSignal(text: string): boolean {
+  return INTERNAL_SIGNAL_RE.test(text.trim());
+}
+
+function correctListItem(item: string): string {
+  if (/^unions$/i.test(item)) return "Onions";
+  return item;
+}
 
 function cleanListItem(value: string): string | null {
   const item = value
+    .replace(/^let'?s work on this next:\s*/i, "")
     .replace(/\b(?:um|uh|like|please)\b/gi, " ")
-    .replace(/\b(?:okay|ok|the things that|things that|things|are)\b/gi, " ")
+    .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|list|my list|the list)\b/gi, " ")
     .replace(LIST_ITEM_PREFIX_RE, "")
     .replace(/[.!?]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
   if (item.length < 2 || item.length > 42) return null;
-  if (/^(?:no|nothing|that's all|that is all|anything else)$/i.test(item)) {
+  if (
+    /^(?:no|nothing|that's all|that is all|anything else|it|that|this|them)$/i.test(
+      item,
+    )
+  ) {
     return null;
   }
+  if (LIST_COMMAND_ONLY_RE.test(item)) return null;
 
-  return item.charAt(0).toUpperCase() + item.slice(1);
+  const corrected = correctListItem(item);
+  return corrected.charAt(0).toUpperCase() + corrected.slice(1);
 }
 
-function extractGroceryItems(text: string): string[] {
+function extractListItems(text: string): string[] {
+  if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return [];
+
   const normalized = text
     .replace(/\b(?:and then|also)\b/gi, ",")
     .replace(/\b(?:i need|i want|add|grab|buy|pick up)\b/gi, ", $&")
@@ -110,6 +317,102 @@ function extractGroceryItems(text: string): string[] {
     .split(/[,.;\n]|\band\b/gi)
     .map(cleanListItem)
     .filter((item): item is string => Boolean(item));
+}
+
+function extractRemoveItems(text: string): string[] {
+  if (isInternalSignal(text) || !REMOVE_COMMAND_RE.test(text)) return [];
+
+  const normalized = text
+    .replace(REMOVE_COMMAND_RE, ",")
+    .replace(/\b(?:from|off|the|my|this|that|list|i got it|got it)\b/gi, " ")
+    .replace(/\s+/g, " ");
+
+  return normalized
+    .split(/[,.;\n]|\band\b/gi)
+    .map(cleanListItem)
+    .filter((item): item is string => Boolean(item));
+}
+
+function detectListIntent(text: string): {
+  title: string;
+  kind: AssistantListKind;
+} | null {
+  if (isInternalSignal(text)) return null;
+  const value = text.toLowerCase();
+
+  if (/\bgrocer(?:y|ies)\b/.test(value)) {
+    return { title: "Grocery List", kind: "grocery" };
+  }
+
+  if (/\bwalmart\b/.test(value)) {
+    return { title: "Walmart List", kind: "shopping" };
+  }
+
+  const todoScope =
+    text.match(/\b(?:to[-\s]?do|todo|task)s?\s+(?:list\s+)?([a-z][a-z0-9'-]{1,24})\b/i)?.[1] ??
+    text.match(/\b([a-z][a-z0-9'-]{1,24})\s+(?:to[-\s]?do|todo|tasks?)\b/i)?.[1] ??
+    null;
+
+  if (/\b(?:to[-\s]?do|todo|tasks?)\b/i.test(text)) {
+    return {
+      title: todoScope ? `${todoScope} ToDo` : "ToDo",
+      kind: "todo",
+    };
+  }
+
+  const ordinalList = text.match(
+    /\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+list\b/i,
+  )?.[1];
+  if (ordinalList) {
+    return { title: `${ordinalList} List`, kind: "custom" };
+  }
+
+  const namedList = text.match(
+    /\b(?:open|show|switch to|pull up|go to|create|make|start|new)\s+(?:a|an|the|my|another)?\s*([a-z][a-z0-9' -]{1,28})\s+list\b/i,
+  )?.[1];
+  if (namedList) {
+    return { title: `${namedList} List`, kind: "custom" };
+  }
+
+  if (/\banother\s+list\b/i.test(text)) {
+    return { title: "New List", kind: "custom" };
+  }
+
+  if (/\bshopping\s+list\b/i.test(text)) {
+    return { title: "Shopping List", kind: "shopping" };
+  }
+
+  return null;
+}
+
+function hasBugReportIntent(text: string): boolean {
+  return !isInternalSignal(text) && BUG_REPORT_TRIGGER_RE.test(text);
+}
+
+function summarizeBugReport(text: string): string {
+  return text
+    .replace(/^let'?s work on this next:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
+}
+
+function detectListDisplayStyle(text: string): ListDisplayStyle | null {
+  if (LIST_STYLE_BULLET_RE.test(text)) return "bulleted";
+  if (LIST_STYLE_NUMBER_RE.test(text)) return "numbered";
+  return null;
+}
+
+function detectListAccentColor(text: string): ListAccentColor | null {
+  const value = text.toLowerCase();
+  if (!/\b(?:color|colour|make|turn|change)\b/.test(value)) return null;
+  if (/\b(?:gold|golden|yellow|orange|amber)\b/.test(value)) return "amber";
+  if (/\bblue\b/.test(value)) return "blue";
+  if (/\bgreen\b/.test(value)) return "green";
+  if (/\b(?:pink|rose|red)\b/.test(value)) return "rose";
+  if (/\b(?:purple|violet)\b/.test(value)) return "purple";
+  if (/\b(?:white|plain|light)\b/.test(value)) return "white";
+  return null;
 }
 
 const LiveAvatarSessionComponent: React.FC<{
@@ -193,13 +496,21 @@ const LiveAvatarSessionComponent: React.FC<{
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
   const [thoughtPrompts, setThoughtPrompts] = useState(DEFAULT_THOUGHT_PROMPTS);
   const [dissolvingPrompt, setDissolvingPrompt] = useState<string | null>(null);
-  const [isGroceryListMode, setIsGroceryListMode] = useState(false);
-  const [groceryListItems, setGroceryListItems] = useState<string[]>([]);
+  const [assistantLists, setAssistantLists] =
+    useState<AssistantList[]>(loadAssistantLists);
+  const [activeListId, setActiveListId] = useState<string | null>(null);
   const promptBrainHistoryRef = useRef<string[]>([]);
   const promptBrainSeqRef = useRef(0);
   const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const activeList = useMemo(
+    () => assistantLists.find((list) => list.id === activeListId) ?? null,
+    [activeListId, assistantLists],
+  );
+  const activeListTheme = activeList
+    ? LIST_ACCENT_COLORS[activeList.accentColor]
+    : LIST_ACCENT_COLORS.amber;
 
   // Vision mode state: 'streaming' for Go Live, 'snapshot' for Camera button, null for inactive
   const [visionMode, setVisionMode] = useState<"streaming" | "snapshot" | null>(
@@ -279,6 +590,229 @@ const LiveAvatarSessionComponent: React.FC<{
       }, 600);
     },
     [runPromptBrain],
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      ASSISTANT_LISTS_STORAGE_KEY,
+      JSON.stringify(assistantLists),
+    );
+  }, [assistantLists]);
+
+  const ensureAssistantList = useCallback(
+    (intent: { title: string; kind: AssistantListKind }): string => {
+      const now = Date.now();
+      const normalizedTitle =
+        intent.title === "New List"
+          ? `List ${assistantLists.length + 1}`
+          : normalizeListTitle(intent.title, intent.kind);
+      const existing = assistantLists.find(
+        (list) => list.title.toLowerCase() === normalizedTitle.toLowerCase(),
+      );
+
+      if (existing) {
+        setActiveListId(existing.id);
+        return existing.id;
+      }
+
+      const baseId = listIdForTitle(normalizedTitle);
+      let id = baseId;
+      let suffix = 2;
+      while (assistantLists.some((list) => list.id === id)) {
+        id = `${baseId}-${suffix}`;
+        suffix += 1;
+      }
+
+      const newList: AssistantList = {
+        id,
+        title: normalizedTitle,
+        kind: intent.kind,
+        items: [],
+        displayStyle: "numbered",
+        accentColor: "amber",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      setAssistantLists((currentLists) => [...currentLists, newList]);
+      setActiveListId(id);
+      return id;
+    },
+    [assistantLists],
+  );
+
+  const addItemsToList = useCallback((listId: string, items: string[]) => {
+    if (items.length === 0) return false;
+    let changed = false;
+    setAssistantLists((currentLists) =>
+      currentLists.map((list) => {
+        if (list.id !== listId) return list;
+        const nextItems = [...list.items];
+        for (const item of items) {
+          if (
+            !nextItems.some(
+              (existing) => existing.toLowerCase() === item.toLowerCase(),
+            )
+          ) {
+            nextItems.push(item);
+            changed = true;
+          }
+        }
+        return changed
+          ? {
+              ...list,
+              items: nextItems.slice(0, MAX_LIST_ITEMS),
+              updatedAt: Date.now(),
+            }
+          : list;
+      }),
+    );
+    return changed;
+  }, []);
+
+  const removeItemsFromList = useCallback((listId: string, items: string[]) => {
+    if (items.length === 0) return false;
+    let changed = false;
+    setAssistantLists((currentLists) =>
+      currentLists.map((list) => {
+        if (list.id !== listId) return list;
+        const removeSet = new Set(items.map((item) => item.toLowerCase()));
+        const nextItems = list.items.filter(
+          (item) => !removeSet.has(item.toLowerCase()),
+        );
+        changed = nextItems.length !== list.items.length;
+        return changed ? { ...list, items: nextItems, updatedAt: Date.now() } : list;
+      }),
+    );
+    return changed;
+  }, []);
+
+  const removeListItemAtIndex = useCallback(
+    (listId: string, itemIndex: number) => {
+      setAssistantLists((currentLists) =>
+        currentLists.map((list) => {
+          if (list.id !== listId) return list;
+          return {
+            ...list,
+            items: list.items.filter((_, index) => index !== itemIndex),
+            updatedAt: Date.now(),
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  const setActiveListDisplayStyle = useCallback(
+    (style: ListDisplayStyle) => {
+      if (!activeListId) return;
+      setAssistantLists((currentLists) =>
+        currentLists.map((list) =>
+          list.id === activeListId
+            ? { ...list, displayStyle: style, updatedAt: Date.now() }
+            : list,
+        ),
+      );
+    },
+    [activeListId],
+  );
+
+  const setListDisplayStyle = useCallback(
+    (listId: string, style: ListDisplayStyle) => {
+      setAssistantLists((currentLists) =>
+        currentLists.map((list) =>
+          list.id === listId
+            ? { ...list, displayStyle: style, updatedAt: Date.now() }
+            : list,
+        ),
+      );
+    },
+    [],
+  );
+
+  const setActiveListAccentColor = useCallback(
+    (accentColor: ListAccentColor) => {
+      if (!activeListId) return;
+      setAssistantLists((currentLists) =>
+        currentLists.map((list) =>
+          list.id === activeListId
+            ? { ...list, accentColor, updatedAt: Date.now() }
+            : list,
+        ),
+      );
+    },
+    [activeListId],
+  );
+
+  const setListAccentColor = useCallback(
+    (listId: string, accentColor: ListAccentColor) => {
+      setAssistantLists((currentLists) =>
+        currentLists.map((list) =>
+          list.id === listId
+            ? { ...list, accentColor, updatedAt: Date.now() }
+            : list,
+        ),
+      );
+    },
+    [],
+  );
+
+  const moveActiveList = useCallback(
+    (direction: 1 | -1) => {
+      if (assistantLists.length === 0) return null;
+      const currentIndex = Math.max(
+        0,
+        assistantLists.findIndex((list) => list.id === activeListId),
+      );
+      const nextIndex =
+        (currentIndex + direction + assistantLists.length) %
+        assistantLists.length;
+      const nextList = assistantLists[nextIndex];
+      setActiveListId(nextList.id);
+      return nextList;
+    },
+    [activeListId, assistantLists],
+  );
+
+  const fileBugReport = useCallback(
+    async (rawText: string) => {
+      const summary = summarizeBugReport(rawText);
+      if (!summary) return false;
+      try {
+        const response = await fetch("/api/bug-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: dbSessionIdRef.current,
+            summary,
+            transcript: rawText,
+            pageUrl: window.location.href,
+            activeList: activeList
+              ? {
+                  title: activeList.title,
+                  items: activeList.items,
+                  displayStyle: activeList.displayStyle,
+                  accentColor: activeList.accentColor,
+                }
+              : null,
+          }),
+        });
+
+        if (!response.ok) return false;
+        const data = await response.json();
+        const spoken = data?.emailSent
+          ? `I made a bug report and sent it to the ${AIASAP_FOUNDER_TITLE}.`
+          : `I made a bug report for the ${AIASAP_FOUNDER_TITLE}.`;
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      } catch (error) {
+        console.error("Failed to file bug report:", error);
+        return false;
+      }
+    },
+    [activeList, repeat],
   );
 
   useEffect(() => {
@@ -536,8 +1070,9 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      if (/grocery list/i.test(prompt)) {
-        setIsGroceryListMode(true);
+      const listIntent = detectListIntent(prompt);
+      if (listIntent) {
+        ensureAssistantList(listIntent);
       }
 
       setDissolvingPrompt(prompt);
@@ -565,6 +1100,7 @@ const LiveAvatarSessionComponent: React.FC<{
     [
       dissolvingPrompt,
       ensureAudioOutputReady,
+      ensureAssistantList,
       interrupt,
       isStreamReady,
       schedulePromptBrain,
@@ -1307,23 +1843,48 @@ const LiveAvatarSessionComponent: React.FC<{
 
     const handleUserTranscription = async (event: { text: string }) => {
       const userText = event.text.trim();
-      if (LIST_TRIGGER_RE.test(userText) || isGroceryListMode) {
-        setIsGroceryListMode(true);
-        const items = extractGroceryItems(userText);
-        if (items.length > 0) {
-          setGroceryListItems((currentItems) => {
-            const nextItems = [...currentItems];
-            for (const item of items) {
-              if (
-                !nextItems.some(
-                  (existing) => existing.toLowerCase() === item.toLowerCase(),
-                )
-              ) {
-                nextItems.push(item);
-              }
-            }
-            return nextItems.slice(0, 12);
-          });
+      if (isInternalSignal(userText)) {
+        return;
+      }
+
+      if (hasBugReportIntent(userText)) {
+        const didFileBug = await fileBugReport(userText);
+        if (didFileBug) return;
+      }
+
+      if (LIST_CLOSE_RE.test(userText)) {
+        setActiveListId(null);
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      if (LIST_NAV_NEXT_RE.test(userText)) {
+        moveActiveList(1);
+      } else if (LIST_NAV_PREV_RE.test(userText)) {
+        moveActiveList(-1);
+      }
+
+      const listIntent = detectListIntent(userText);
+      const targetListId = listIntent
+        ? ensureAssistantList(listIntent)
+        : activeListId;
+
+      if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
+        const displayStyle = detectListDisplayStyle(userText);
+        if (displayStyle) {
+          setListDisplayStyle(targetListId, displayStyle);
+        }
+
+        const accentColor = detectListAccentColor(userText);
+        if (accentColor) {
+          setListAccentColor(targetListId, accentColor);
+        }
+
+        const removeItems = extractRemoveItems(userText);
+        if (removeItems.length > 0) {
+          removeItemsFromList(targetListId, removeItems);
+        } else {
+          addItemsToList(targetListId, extractListItems(userText));
         }
       }
       schedulePromptBrain(userText);
@@ -1535,8 +2096,15 @@ const LiveAvatarSessionComponent: React.FC<{
     mode,
     repeat,
     isProcessingCameraQuestion,
-    isGroceryListMode,
+    activeListId,
+    addItemsToList,
+    ensureAssistantList,
+    fileBugReport,
+    moveActiveList,
+    removeItemsFromList,
     schedulePromptBrain,
+    setListAccentColor,
+    setListDisplayStyle,
   ]);
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
@@ -2514,30 +3082,118 @@ const LiveAvatarSessionComponent: React.FC<{
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             isActive &&
-            isGroceryListMode && (
-              <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col rounded-[2.75rem] border border-white/10 bg-neutral-700/42 px-7 py-5 text-[#e8b46b] shadow-[inset_0_1px_18px_rgba(255,255,255,0.06),0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur-[4px]">
+            activeList && (
+              <div
+                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col rounded-[2.75rem] border border-white/10 bg-neutral-700/42 px-6 py-5 shadow-[inset_0_1px_18px_rgba(255,255,255,0.06),0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur-[4px]"
+                style={{ color: activeListTheme.foreground }}
+              >
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <h2 className="text-[1.55rem] font-bold leading-none drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)]">
-                    Grocery List
+                  <h2 className="min-w-0 flex-1 truncate text-[1.45rem] font-bold leading-none drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)]">
+                    {activeList.title}
                   </h2>
-                  <span className="rounded-full bg-black/20 px-3 py-1 text-[0.78rem] font-semibold uppercase text-[#e8b46b]/75">
-                    {groceryListItems.length || 0}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      aria-label="Show bullets"
+                      title="Show bullets"
+                      onClick={() => setActiveListDisplayStyle("bulleted")}
+                      className={`flex h-9 w-9 items-center justify-center rounded-full border border-white/10 ${
+                        activeList.displayStyle === "bulleted"
+                          ? "text-zinc-950"
+                          : "bg-black/20"
+                      }`}
+                      style={
+                        activeList.displayStyle === "bulleted"
+                          ? { backgroundColor: activeListTheme.solid }
+                          : { color: activeListTheme.foreground }
+                      }
+                    >
+                      <ListIcon className="h-4 w-4" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Show numbers"
+                      title="Show numbers"
+                      onClick={() => setActiveListDisplayStyle("numbered")}
+                      className={`flex h-9 w-9 items-center justify-center rounded-full border border-white/10 ${
+                        activeList.displayStyle === "numbered"
+                          ? "text-zinc-950"
+                          : "bg-black/20"
+                      }`}
+                      style={
+                        activeList.displayStyle === "numbered"
+                          ? { backgroundColor: activeListTheme.solid }
+                          : { color: activeListTheme.foreground }
+                      }
+                    >
+                      <ListOrdered className="h-4 w-4" aria-hidden />
+                    </button>
+                    <span
+                      className="rounded-full bg-black/20 px-3 py-1 text-[0.78rem] font-semibold uppercase"
+                      style={{ color: activeListTheme.foreground }}
+                    >
+                      {activeList.items.length || 0}
+                    </span>
+                  </div>
+                </div>
+                <div className="mb-3 flex gap-1.5 overflow-x-auto pb-1">
+                  {(Object.keys(LIST_ACCENT_COLORS) as ListAccentColor[]).map(
+                    (color) => {
+                      const option = LIST_ACCENT_COLORS[color];
+                      return (
+                        <button
+                          type="button"
+                          key={color}
+                          aria-label={`Use ${option.label}`}
+                          title={`Use ${option.label}`}
+                          onClick={() => setActiveListAccentColor(color)}
+                          className={`h-7 w-7 shrink-0 rounded-full border ${
+                            activeList.accentColor === color
+                              ? "border-white"
+                              : "border-white/20"
+                          }`}
+                          style={{
+                            backgroundColor: option.solid,
+                            boxShadow:
+                              activeList.accentColor === color
+                                ? `0 0 0 3px ${option.soft}`
+                                : undefined,
+                          }}
+                        />
+                      );
+                    },
+                  )}
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                  {groceryListItems.length > 0 ? (
-                    <ol className="space-y-2.5 text-[1.2rem] font-semibold leading-tight">
-                      {groceryListItems.map((item, index) => (
-                        <li key={`${item}-${index}`} className="flex gap-3">
-                          <span className="w-6 shrink-0 text-right text-[#e8b46b]/65">
-                            {index + 1}.
+                  {activeList.items.length > 0 ? (
+                    <ol className="space-y-2.5 text-[1.12rem] font-semibold leading-tight">
+                      {activeList.items.map((item, index) => (
+                        <li
+                          key={`${item}-${index}`}
+                          className="grid grid-cols-[2rem_1fr_2.25rem] items-start gap-2"
+                        >
+                          <span className="text-right opacity-65">
+                            {activeList.displayStyle === "numbered"
+                              ? `${index + 1}.`
+                              : "•"}
                           </span>
-                          <span>{item}</span>
+                          <span className="min-w-0 break-words">{item}</span>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${item}`}
+                            title={`Remove ${item}`}
+                            onClick={() =>
+                              removeListItemAtIndex(activeList.id, index)
+                            }
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/24 opacity-80 transition hover:bg-black/38 hover:opacity-100"
+                          >
+                            <X className="h-4 w-4" aria-hidden />
+                          </button>
                         </li>
                       ))}
                     </ol>
                   ) : (
-                    <p className="pt-6 text-center text-[1.2rem] font-semibold leading-snug text-[#e8b46b]/78">
+                    <p className="pt-6 text-center text-[1.2rem] font-semibold leading-snug opacity-80">
                       Say what you need
                     </p>
                   )}
@@ -2550,7 +3206,7 @@ const LiveAvatarSessionComponent: React.FC<{
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             isActive &&
-            !isGroceryListMode && (
+            !activeList && (
               <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+4.9rem)] left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-2 text-center pointer-events-none">
                 {thoughtPrompts.slice(0, 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;

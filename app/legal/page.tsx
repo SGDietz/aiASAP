@@ -56,7 +56,7 @@ const sections: Array<{
   {
     title: "8. Intellectual Property",
     paragraphs: [
-      "aiASAP, its branding, software, workflows, AI systems, interface, and related content are owned by aiASAP or its creator unless otherwise stated.",
+      "aiASAP, its branding, software, workflows, AI systems, interface, and related content are owned by aiASAP or the Creator/Builder/Founder/Financier/CEO aiASAP unless otherwise stated.",
       "aiASAP is a trademark of DietzX.",
       "You may not copy, scrape, reverse engineer, exploit, or redistribute the service without permission.",
     ],
@@ -80,7 +80,9 @@ const sections: Array<{
   },
   {
     title: "12. Contact",
-    paragraphs: ["For legal or privacy inquiries, contact sgdietz@pm.me."],
+    paragraphs: [
+      "For legal, privacy, or bug-report inquiries for the Creator/Builder/Founder/Financier/CEO aiASAP, contact sgdietz@pm.me.",
+    ],
   },
 ];
 

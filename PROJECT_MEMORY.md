@@ -15,13 +15,16 @@
 - Default posture: do things for the user, ask for permissions when needed, and keep the computer/browser tidy by closing anything that does not need to stay open.
 - Supabase rule: aiASAP must use its own Supabase project/database, never the iSolve database. Current project URL starts with `https://wqszxsqzkaatghyrqviv.supabase.co`.
 - Audit rule for product changes and auto-debug: audit first, give G a plan, get approval, then build/fix/deploy. Send G operational alerts through Telegram first.
+- Release gate: build until G is happy first. Do not send aiASAP to friends, family, landscaping clients, or other outside testers until G explicitly says he is happy with the smoke test and ready to share it.
 - aiASAP vision: a voice-first, self-learning AI company and product that helps people adopt AI with minimal mental friction.
 - Company name must always be written exactly as `aiASAP`; never use any other capitalization or spacing.
 - Current tagline direction: "Take the Leap"; older lines can remain as brainstorming, but smoke tests should use the current direction unless G changes it.
 - aiASAP should feel one-click: install/open it, then a natural-language avatar guides the user and performs tasks across computer, phone, and tablet.
 - UI rule: design mobile-first. LiveAvatar is portrait-only 9:16, so desktop/landscape must frame the portrait avatar cleanly without distorting it. G usually tests smoke tests on his phone.
 - UI permission rule: avoid double permission prompts. Load avatar silently/muted first, then use one clear tap-to-begin gesture for mic/audio.
-- Monetization direction: beta is free/no money ask. Later, use prepaid credits instead of subscriptions. Pricing philosophy is cost plus roughly 5 percent, as affordable as practical.
+- Monetization direction: no cost right now until aiASAP is fully built and G explicitly approves charging. Current MVP/beta must be free with no payment ask, pricing wall, or commerce UI. Future pricing hypothesis: start around `$10/month`, then transparent usage-based tiers/credits as users rely on aiASAP more, roughly `$10 -> $20 -> $50 -> $100 -> $200+` per month. Any upgrade must be clear and user-approved, not a surprise automatic price jump.
+- Future feedback/monetization behavior: 6 should occasionally ask, naturally and not too often, how users are liking aiASAP. Before a future usage/rate limit or tier upgrade, 6 should first ask how they are liking the app, listen to the answer, then ask whether they would pay more for more usage and record the response. No upgrade should happen without clear user approval.
+- Future fair-billing behavior: paid tiers should be able to move users down automatically when usage drops, not only up when usage rises. After two months with no use, aiASAP should drop the user to the free tier automatically, keep their info, and let them restart or pick up right where they left off. 6 can say: "The subscription will drop automatically when you use less. Go two months with no use at all, and it can drop you to the free tier, keep your info, and let you pick up right where you left off. You ever heard of that before? This entire system is built for you." Tie this to 6 having their back in every way.
 - App-store commerce rule: play by Apple/Google rules; if in-app digital credits are consumed inside mobile apps, plan for Apple/Google in-app purchase requirements.
 - Founder/business direction: SG Dietz is the Creator/Founder/Builder/CEO of iSolveUrProblems.ai & aiASAP. He is self-funding early aiASAP as much as possible and prefers retaining ownership if feasible. Be open, publish cost/usage analyses where practical, and position aiASAP as helping people first.
 - Company structure direction: DietzX is the intended parent/umbrella company for aiASAP and iSolveUrProblems.ai. The earlier separate-company mention from voice dictation was an error; treat that as DietzX.
@@ -33,6 +36,7 @@
 - Build constraint: prefer cloud/API inference and lightweight local tooling; do not plan heavy local model training, GPU-heavy video generation, or long-running resource-intensive workloads on this PC unless explicitly approved.
 - Current aiASAP LiveAvatar avatar ID: `3cbe98e4-50ff-4e48-8954-7685fcf09dac`.
 - aiASAP avatar name: `6` using the number, not "Six" or "SIX".
+- `6` is named 6 because he has their back, always. This is core identity and should stay consistent everywhere.
 - Everything in aiASAP should orient users around this promise: `6` does the work for them.
 - `6` personality: warm, southern, folksy, friendly AI buddy; allowed to be funny.
 - `6` should sound like his own warm southern character, not necessarily like the user.
@@ -91,4 +95,4 @@
 - Do not promote any Vercel build to `aiasap.ai` or `www.aiasap.ai` until G explicitly approves it.
 - Required terminology/workflow: security audit before production deployment or live-domain promotion.
 - OpenAI prompt brain is implemented and verified working through `app/api/prompt-brain/route.ts`; `OPENAI_API_KEY` is set in Vercel Production env and must not be written into repo files.
-- After product/code changes, send Telegram only the minimal smoke test message: `aiASAP build <commit>` and `https://ai-asap.vercel.app`.
+- Always send the ready/smoke-test link in Telegram when a build, deploy, or review URL is ready. Use the minimal message: `aiASAP build <commit>` and `https://ai-asap.vercel.app`. Helper script: `tools/send_telegram_smoke_test.ps1 -Commit <commit>`.
