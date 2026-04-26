@@ -57,6 +57,7 @@ const sections: Array<{
     title: "8. Intellectual Property",
     paragraphs: [
       "aiASAP, its branding, software, workflows, AI systems, interface, and related content are owned by aiASAP or its creator unless otherwise stated.",
+      "aiASAP is a trademark of DietzX.",
       "You may not copy, scrape, reverse engineer, exploit, or redistribute the service without permission.",
     ],
   },

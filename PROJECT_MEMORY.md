@@ -80,3 +80,15 @@
 - Next thing G may do: run the smoke test on phone. After he says it is done, inspect Supabase transcript/session data, learn from it, and ask concise questions.
 - Important unresolved check: Supabase schema may still need to be confirmed as run. If transcript lookup fails because tables do not exist, use `supabase/schema.sql` in the aiASAP Supabase SQL editor.
 - Safe restart note: no local dev server is required for the live site; current source is pushed to GitHub and deployed through Vercel. Local `.env` secrets are only on this machine, while Vercel has production env vars.
+
+## Laptop Shutdown Handoff - 2026-04-25
+
+- Full handoff file for desktop pickup: `HANDOFF_2026-04-25.md`.
+- Latest pushed commit at shutdown handoff: `49ac586 Rebuild with OpenAI prompt brain key`.
+- Current review URL: `https://ai-asap.vercel.app`.
+- Current review deployment: `ai-asap-gg86y5uwx-team-dietz.vercel.app`.
+- Custom domains `aiasap.ai` and `www.aiasap.ai` are intentionally still on the prior approved build `ai-asap-np3pdbbqe-team-dietz.vercel.app`.
+- Do not promote any Vercel build to `aiasap.ai` or `www.aiasap.ai` until G explicitly approves it.
+- Required terminology/workflow: security audit before production deployment or live-domain promotion.
+- OpenAI prompt brain is implemented and verified working through `app/api/prompt-brain/route.ts`; `OPENAI_API_KEY` is set in Vercel Production env and must not be written into repo files.
+- After product/code changes, send Telegram only the minimal smoke test message: `aiASAP build <commit>` and `https://ai-asap.vercel.app`.
