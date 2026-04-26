@@ -214,6 +214,22 @@ export async function sendAccountEmail(args: {
     "",
     "After that, 6 can remember your lists and pick up the same task where you left off.",
   ].join("\n");
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #171717; line-height: 1.5; max-width: 560px;">
+      <h1 style="font-size: 22px; margin: 0 0 12px;">Finish setting up your aiASAP account</h1>
+      <p style="margin: 0 0 18px;">Tap the button below to finish setting up your account with 6.</p>
+      <p style="margin: 0 0 22px;">
+        <a href="${args.verificationUrl}" style="display: inline-block; background: #171717; color: #ffffff; text-decoration: none; font-weight: 700; padding: 12px 18px; border-radius: 8px;">
+          Finish Account Setup
+        </a>
+      </p>
+      <p style="margin: 0 0 10px;">After that, 6 can remember your lists and pick up the same task where you left off.</p>
+      <p style="font-size: 13px; color: #666666; margin: 18px 0 0;">
+        If the button does not open, copy and paste this link:<br />
+        <a href="${args.verificationUrl}" style="color: #8a5a1f;">${args.verificationUrl}</a>
+      </p>
+    </div>
+  `;
 
   try {
     const res = await fetch("https://api.resend.com/emails", {
@@ -228,6 +244,7 @@ export async function sendAccountEmail(args: {
         to: args.to,
         subject: "Finish setting up your aiASAP account",
         text,
+        html,
       }),
     });
     if (!res.ok) {
