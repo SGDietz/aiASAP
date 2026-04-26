@@ -4,6 +4,11 @@ import {
   truncateUtf8String,
 } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
+import {
+  getAccountCookieName,
+  getStorageAccountFromSessionToken,
+  parseCookie,
+} from "../../../../src/lib/accountPersistence";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
 
 const BUCKET = process.env.AIASAP_MEDIA_BUCKET || "aiasap-media";
@@ -79,6 +84,12 @@ export async function POST(request: Request) {
     ({ url, serviceRoleKey } = getSupabaseAdminConfig());
   } catch {
     return jsonError("Supabase not configured", 500);
+  }
+
+  const accountToken = parseCookie(request, getAccountCookieName());
+  const accountUser = await getStorageAccountFromSessionToken(accountToken);
+  if (!accountUser && process.env.AIASAP_ALLOW_ANON_MEDIA_CAPTURE !== "true") {
+    return jsonError("Account required", 401);
   }
 
   let form: FormData;

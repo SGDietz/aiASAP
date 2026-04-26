@@ -66,7 +66,10 @@ export async function POST(request: Request) {
         email,
         emailSent,
         expiresAt,
-        verificationUrl: emailSent ? null : verificationUrl,
+        verificationUrl:
+          emailSent || process.env.NODE_ENV === "production"
+            ? null
+            : verificationUrl,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
