@@ -38,6 +38,9 @@ export function LiveAvatarSmokeClient() {
   const [state, setState] = useState<string>("idle");
   const [connected, setConnected] = useState(false);
   const [streamReady, setStreamReady] = useState(false);
+  const [sessionMode, setSessionMode] = useState<"FULL" | "CUSTOM" | null>(
+    null,
+  );
 
   const canSpeak = connected && streamReady;
 
@@ -57,7 +60,7 @@ export function LiveAvatarSmokeClient() {
     };
   }, []);
 
-  async function connect() {
+  async function connect(mode: "FULL" | "CUSTOM") {
     if (sessionRef.current) {
       log("Session already exists. Stop it first.", "warn");
       return;
@@ -66,13 +69,18 @@ export function LiveAvatarSmokeClient() {
     setState("minting token");
     setStreamReady(false);
     setConnected(false);
-    log("Requesting aiASAP LiveAvatar token...");
+    setSessionMode(mode);
+    log(`Requesting aiASAP LiveAvatar ${mode} token...`);
 
-    const tokenResponse = await fetch("/api/start-session", { method: "POST" });
+    const tokenResponse = await fetch(
+      mode === "FULL" ? "/api/start-session" : "/api/start-custom-session",
+      { method: "POST" },
+    );
     const tokenData = await tokenResponse.json().catch(() => null);
     if (!tokenResponse.ok || !tokenData?.session_token) {
       const message = tokenData?.error || "Token request failed";
       setState("token failed");
+      setSessionMode(null);
       log(message, "error");
       return;
     }
@@ -148,6 +156,7 @@ export function LiveAvatarSmokeClient() {
     } catch (error) {
       log(`session.start failed: ${String(error)}`, "error");
       sessionRef.current = null;
+      setSessionMode(null);
     }
   }
 
@@ -157,6 +166,7 @@ export function LiveAvatarSmokeClient() {
     sessionRef.current = null;
     setConnected(false);
     setStreamReady(false);
+    setSessionMode(null);
     setState("stopping");
     try {
       await current.stop();
@@ -185,6 +195,33 @@ export function LiveAvatarSmokeClient() {
     }
     const eventId = current.message(RESPONSE_TEST_LINE);
     log(`sdk.message sent event_id=${eventId ?? "none"}`);
+  }
+
+  async function speakAudioViaSdk() {
+    const current = sessionRef.current;
+    if (!current) {
+      log("No session for SDK audio.", "warn");
+      return;
+    }
+    try {
+      log("Requesting ElevenLabs PCM audio...");
+      const response = await fetch("/api/elevenlabs-text-to-speech", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: TEST_LINE }),
+      });
+      const data = await response.json().catch(() => null);
+      const audioBase64 =
+        typeof data?.audio === "string" ? data.audio.trim() : "";
+      if (!response.ok || !audioBase64) {
+        throw new Error(data?.error || "No audio returned");
+      }
+      const audio = window.atob(audioBase64);
+      const eventId = current.repeatAudio(audio);
+      log(`sdk.repeatAudio sent event_id=${eventId ?? "none"}`);
+    } catch (error) {
+      log(`sdk.repeatAudio failed: ${String(error)}`, "error");
+    }
   }
 
   function publishCommand(eventType: CommandEventsEnum, text: string) {
@@ -251,11 +288,19 @@ export function LiveAvatarSmokeClient() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => void connect()}
+                onClick={() => void connect("FULL")}
                 disabled={Boolean(session)}
                 className="rounded-md bg-amber-400 px-3 py-3 text-sm font-bold text-black disabled:opacity-45"
               >
-                Connect
+                Connect FULL
+              </button>
+              <button
+                type="button"
+                onClick={() => void connect("CUSTOM")}
+                disabled={Boolean(session)}
+                className="rounded-md bg-orange-300 px-3 py-3 text-sm font-bold text-black disabled:opacity-45"
+              >
+                Connect CUSTOM
               </button>
               <button
                 type="button"
@@ -283,6 +328,14 @@ export function LiveAvatarSmokeClient() {
               </button>
               <button
                 type="button"
+                onClick={() => void speakAudioViaSdk()}
+                disabled={!canSpeak}
+                className="rounded-md bg-violet-300 px-3 py-3 text-sm font-bold text-black disabled:opacity-45"
+              >
+                Audio SDK
+              </button>
+              <button
+                type="button"
                 onClick={speakViaDirectLiveKit}
                 disabled={!canSpeak}
                 className="rounded-md bg-emerald-400 px-3 py-3 text-sm font-bold text-black disabled:opacity-45"
@@ -307,6 +360,10 @@ export function LiveAvatarSmokeClient() {
               <div className="rounded bg-black/35 p-2">
                 <dt className="text-neutral-400">Stream</dt>
                 <dd className="font-bold">{streamReady ? "ready" : "not ready"}</dd>
+              </div>
+              <div className="rounded bg-black/35 p-2">
+                <dt className="text-neutral-400">Mode</dt>
+                <dd className="font-bold">{sessionMode ?? "none"}</dd>
               </div>
             </dl>
           </div>
