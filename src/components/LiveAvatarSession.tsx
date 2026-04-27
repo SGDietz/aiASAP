@@ -222,7 +222,7 @@ const INTEGRATION_REQUEST_RE =
 const CHANGE_REQUEST_TRIGGER_RE =
   /\b(?:feature request|change request|suggestion|idea for (?:the )?app|i wish|it should|you should|can you make|could you make|i want (?:the|this|it)|i'd like (?:the|this|it)|id like (?:the|this|it)|customize|customise|personalize|personalise)\b/i;
 const CHECK_IN_RE =
-  /\b(?:hey\s*)?(?:6|six|a6)\b[\s,]*(?:you there|are you there|you here|can you hear me|hello|hi|buddy)\b|\b(?:you there|are you there|can you hear me|hello six|hey six|hey 6)\b/i;
+  /\b(?:hey\s*)?(?:6|six|a6)\b[\s,]*(?:you there|are you there|you here|can you hear me|hello|hi|buddy)\b|\b(?:you there|are you there|anybody there|anyone there|is anybody there|is anyone there|are you listening|can you hear me|hello six|hey six|hey 6)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
 const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
@@ -1995,6 +1995,38 @@ const LiveAvatarSessionComponent: React.FC<{
       scheduleListeningResume,
       waitForAvatarSession,
     ],
+  );
+
+  const speakGeneralAssistantResponse = useCallback(
+    async (rawText: string) => {
+      const message = rawText.trim();
+      if (!message) return false;
+
+      try {
+        const response = await fetch("/api/openai-chat-complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        const data = await response.json().catch(() => null);
+        const spoken =
+          typeof data?.response === "string" ? data.response.trim() : "";
+        if (!response.ok || !spoken) {
+          throw new Error(data?.error || "General assistant response failed");
+        }
+        return speakScriptedResponse(spoken, {
+          forceInterrupt: true,
+          forceResume: true,
+        });
+      } catch (error) {
+        console.error("General assistant response failed:", error);
+        return speakScriptedResponse(
+          "I'm right here. Say that one more time and I'll stay with you.",
+          { forceInterrupt: true, forceResume: true },
+        );
+      }
+    },
+    [speakScriptedResponse],
   );
 
   useEffect(() => clearListeningResume, [clearListeningResume]);
@@ -3916,7 +3948,8 @@ const LiveAvatarSessionComponent: React.FC<{
 
       // Only process in streaming mode (Go Live)
       if (visionMode !== "streaming") {
-        console.log("Not in streaming mode, skipping transcription processing");
+        console.log("Routing non-streaming transcription to normal assistant");
+        await speakGeneralAssistantResponse(userText);
         return;
       }
 
@@ -4069,6 +4102,7 @@ const LiveAvatarSessionComponent: React.FC<{
     isRecording,
     isShoppingMode,
     safeInterrupt,
+    speakGeneralAssistantResponse,
     mode,
     repeat,
     isProcessingCameraQuestion,
@@ -5111,7 +5145,7 @@ const LiveAvatarSessionComponent: React.FC<{
       </div>
 
       {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 top-[48%] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none sm:top-1/2">
+        <div className="fixed inset-x-0 top-[51%] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none sm:top-[52%]">
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
             <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
               Loading
