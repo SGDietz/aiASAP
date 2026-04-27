@@ -222,7 +222,7 @@ const INTEGRATION_REQUEST_RE =
 const CHANGE_REQUEST_TRIGGER_RE =
   /\b(?:feature request|change request|suggestion|idea for (?:the )?app|i wish|it should|you should|can you make|could you make|i want (?:the|this|it)|i'd like (?:the|this|it)|id like (?:the|this|it)|customize|customise|personalize|personalise)\b/i;
 const CHECK_IN_RE =
-  /\b(?:hey\s*)?(?:6|six|a6)\b[\s,]*(?:you there|are you there|you here|can you hear me|hello|hi|buddy)\b|\b(?:you there|are you there|anybody there|anyone there|is anybody there|is anyone there|are you listening|can you hear me|hello six|hey six|hey 6)\b/i;
+  /\b(?:hey\s*)?(?:6|six|a6)\b[\s,]*(?:you there|are you there|you here|can you hear me|hello|hi|buddy)\b|\b(?:you there|are you there|anybody there|anyone there|everybody there|is anybody there|is anyone there|are you listening|can you hear me|hello six|hey six|hey 6)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
 const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
