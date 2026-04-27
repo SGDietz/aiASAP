@@ -1324,6 +1324,10 @@ const LiveAvatarSessionComponent: React.FC<{
     null,
   );
   const sessionStartErrorRef = useRef<string | null>(null);
+  const [isCustomVoiceActive, setIsCustomVoiceActive] = useState(false);
+  const voiceIsActive = mode === "CUSTOM" ? isCustomVoiceActive : isActive;
+  const voiceIsLoading =
+    mode === "CUSTOM" ? voiceStartAwaitingReady : isLoading;
 
   const runPromptBrain = useCallback(async (text: string) => {
     const latestUserText = text.trim();
@@ -2308,6 +2312,8 @@ const LiveAvatarSessionComponent: React.FC<{
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
       voiceHeldUntilUserStartRef.current = false;
+      setIsCustomVoiceActive(false);
+      setHasUserPressedVoiceStart(false);
       return;
     }
     if (sessionState !== SessionState.CONNECTED || !isStreamReady) {
@@ -2638,13 +2644,15 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const handleVoiceStartStop = useCallback(async () => {
-    if (isActive) {
+    if (voiceIsActive) {
       void interrupt();
-      stop();
-      setHasUserPressedVoiceStart(false);
       if (mode === "FULL") {
+        stop();
         stopListening();
+      } else {
+        setIsCustomVoiceActive(false);
       }
+      setHasUserPressedVoiceStart(false);
       return;
     }
     if (sessionState !== SessionState.CONNECTED || !isStreamReady) {
@@ -2656,7 +2664,11 @@ const LiveAvatarSessionComponent: React.FC<{
       if (!ok) {
         return;
       }
-      await start();
+      if (mode === "FULL") {
+        await start();
+      } else {
+        setIsCustomVoiceActive(true);
+      }
       const profile = deviceProfileRef.current;
       const isReturning = Boolean(accountEmail || profile.name);
       const greeting = isReturning
@@ -2680,7 +2692,7 @@ const LiveAvatarSessionComponent: React.FC<{
       setVoiceStartAwaitingReady(false);
     }
   }, [
-    isActive,
+    voiceIsActive,
     interrupt,
     repeat,
     stop,
@@ -2695,23 +2707,21 @@ const LiveAvatarSessionComponent: React.FC<{
   ]);
 
   const shouldShowBeginSurface =
-    mode === "FULL" &&
     visionMode !== "streaming" &&
     !isCameraActive &&
-    !isActive &&
+    !voiceIsActive &&
     !isAvatarTalking &&
     sessionState === SessionState.CONNECTED &&
     isStreamReady &&
     !voiceStartAwaitingReady;
 
   const shouldShowLoadingSurface =
-    mode === "FULL" &&
     visionMode !== "streaming" &&
     !isCameraActive &&
-    !isActive &&
+    !voiceIsActive &&
     !isAvatarTalking &&
     !shouldShowBeginSurface &&
-    (sessionState !== SessionState.CONNECTED || !isStreamReady || isLoading);
+    (sessionState !== SessionState.CONNECTED || !isStreamReady || voiceIsLoading);
 
   useEffect(() => {
     // console.log("isStreamReady: ", isStreamReady);
@@ -3690,6 +3700,11 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
       }
+      if (mode === "CUSTOM" && visionMode !== "streaming") {
+        schedulePromptBrain(userText);
+        await sendMessage(userText);
+        return;
+      }
       schedulePromptBrain(userText);
       console.log(
         "User transcription received:",
@@ -3864,8 +3879,71 @@ const LiveAvatarSessionComponent: React.FC<{
       AgentEventsEnum.USER_TRANSCRIPTION,
       handleUserTranscription,
     );
+    let customSpeechRecognition: any = null;
+    let customSpeechCancelled = false;
+    let customSpeechRestartTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    if (
+      mode === "CUSTOM" &&
+      hasUserPressedVoiceStart &&
+      voiceIsActive &&
+      typeof window !== "undefined"
+    ) {
+      const SpeechRecognitionCtor =
+        (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition;
+      if (SpeechRecognitionCtor) {
+        customSpeechRecognition = new SpeechRecognitionCtor();
+        customSpeechRecognition.continuous = true;
+        customSpeechRecognition.interimResults = false;
+        customSpeechRecognition.lang = "en-US";
+        customSpeechRecognition.onresult = (event: any) => {
+          if (isAvatarTalking) return;
+          const results = Array.from(event.results ?? []);
+          const transcript = results
+            .slice(event.resultIndex ?? 0)
+            .map((result: any) => result?.[0]?.transcript ?? "")
+            .join(" ")
+            .trim();
+          if (transcript) {
+            void handleUserTranscription({ text: transcript });
+          }
+        };
+        customSpeechRecognition.onerror = (event: any) => {
+          console.warn("Custom speech recognition error:", event?.error ?? event);
+        };
+        customSpeechRecognition.onend = () => {
+          if (customSpeechCancelled || mode !== "CUSTOM" || !voiceIsActive) {
+            return;
+          }
+          customSpeechRestartTimeout = setTimeout(() => {
+            try {
+              customSpeechRecognition?.start?.();
+            } catch {
+              // Browser recognition can throw if a restart overlaps an existing session.
+            }
+          }, 350);
+        };
+        try {
+          customSpeechRecognition.start();
+        } catch (error) {
+          console.warn("Custom speech recognition start failed:", error);
+        }
+      } else {
+        console.warn("Browser speech recognition is unavailable in this browser.");
+      }
+    }
 
     return () => {
+      customSpeechCancelled = true;
+      if (customSpeechRestartTimeout) {
+        clearTimeout(customSpeechRestartTimeout);
+      }
+      try {
+        customSpeechRecognition?.stop?.();
+      } catch {
+        // Ignore cleanup errors from browser speech recognition.
+      }
       if (processingTimeoutRef.current) {
         clearTimeout(processingTimeoutRef.current);
       }
@@ -3915,8 +3993,11 @@ const LiveAvatarSessionComponent: React.FC<{
     offerAccountSetupForMemory,
     removeItemsFromList,
     schedulePromptBrain,
+    sendMessage,
     setListAccentColor,
     setListDisplayStyle,
+    hasUserPressedVoiceStart,
+    voiceIsActive,
   ]);
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
@@ -4969,7 +5050,7 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
-          {visionMode !== "streaming" && !isCameraActive && !isActive && (
+          {visionMode !== "streaming" && !isCameraActive && !voiceIsActive && (
             <div className="fixed left-1/2 bottom-[11rem] sm:bottom-[11.5rem] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
@@ -5002,7 +5083,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       sessionState !== SessionState.CONNECTED ||
                       !isStreamReady ||
                       voiceStartAwaitingReady ||
-                      (isLoading && !isActive)
+                      (voiceIsLoading && !voiceIsActive)
                     }
                     onClick={() => void handleVoiceStartStop()}
                   >
@@ -5017,7 +5098,7 @@ const LiveAvatarSessionComponent: React.FC<{
                         {isActive ? "Stop" : "Start"}
                       </span>
                     </span> */}
-                    {isActive ? (
+                    {voiceIsActive ? (
                       <Square
                         className="mr-3 w-7 h-7 shrink-0 text-red-500 fill-current"
                         aria-hidden
@@ -5028,7 +5109,7 @@ const LiveAvatarSessionComponent: React.FC<{
                         aria-hidden
                       />
                     )}
-                    {isActive ? "Stop" : "Start"}
+                    {voiceIsActive ? "Stop" : "Start"}
                   </button>
                   <button
                     type="button"
@@ -5146,7 +5227,7 @@ const LiveAvatarSessionComponent: React.FC<{
             !isCameraActive &&
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
-            isActive &&
+            voiceIsActive &&
             !isShoppingMode &&
             activeList && (
               <div
@@ -5220,7 +5301,7 @@ const LiveAvatarSessionComponent: React.FC<{
             !isCameraActive &&
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
-            isActive &&
+            voiceIsActive &&
             !activeList &&
             !emailEntryOpen && (
               <div
@@ -5363,7 +5444,7 @@ export const LiveAvatarSession: React.FC<{
   onExit?: () => void;
 }> = ({ mode, sessionAccessToken, onSessionStopped, onExit }) => {
   return (
-    <LiveAvatarContextProvider sessionAccessToken={sessionAccessToken}>
+    <LiveAvatarContextProvider sessionAccessToken={sessionAccessToken} mode={mode}>
       <LiveAvatarSessionComponent
         mode={mode}
         onSessionStopped={onSessionStopped}

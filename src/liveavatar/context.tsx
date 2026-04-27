@@ -58,6 +58,7 @@ export const LiveAvatarContext = createContext<LiveAvatarContextProps>({
 type LiveAvatarContextProviderProps = {
   children: React.ReactNode;
   sessionAccessToken: string;
+  mode?: "FULL" | "CUSTOM";
 };
 
 const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
@@ -200,6 +201,7 @@ const useTalkingState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
 export const LiveAvatarContextProvider = ({
   children,
   sessionAccessToken,
+  mode = "FULL",
 }: LiveAvatarContextProviderProps) => {
   // Use same-origin proxy so session start/stop/keep-alive go through our API
   // and avoid 403/CORS when calling LiveAvatar from the browser.
@@ -263,6 +265,9 @@ export const LiveAvatarContextProvider = ({
   // - if still silent, emit synthetic user message to trigger fail-safe
   // - do this at most twice (10s, then 15s), reset when user speaks
   useEffect(() => {
+    if (mode !== "FULL") {
+      return;
+    }
     const session = sessionRef.current;
     if (!session || sessionState !== SessionState.CONNECTED) {
       return;
@@ -335,7 +340,7 @@ export const LiveAvatarContextProvider = ({
       session.off(AgentEventsEnum.AVATAR_SPEAK_STARTED, onAvatarSpeakStarted);
       session.off(AgentEventsEnum.AVATAR_SPEAK_ENDED, onAvatarSpeakEnded);
     };
-  }, [sessionState, sessionRef]);
+  }, [mode, sessionState, sessionRef]);
 
   // Terminate session after 1 minute of no activity
   const INACTIVITY_TIMEOUT_MS = 60 * 1000;

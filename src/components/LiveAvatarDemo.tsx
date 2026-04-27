@@ -4,8 +4,25 @@ import { useState, useCallback, useEffect, useRef } from "react";
 // import Image from "next/image";
 import { LiveAvatarSession } from "./LiveAvatarSession";
 import Link from "next/link";
+
+type LiveAvatarMode = "FULL" | "CUSTOM";
+
+function getRequestedLiveAvatarMode(): LiveAvatarMode {
+  if (typeof window === "undefined") {
+    return "FULL";
+  }
+  const params = new URLSearchParams(window.location.search);
+  const value =
+    params.get("mode") ??
+    params.get("avatarMode") ??
+    params.get("liveavatarMode") ??
+    "";
+  return value.toLowerCase() === "custom" ? "CUSTOM" : "FULL";
+}
+
 export const LiveAvatarDemo = () => {
   const [sessionToken, setSessionToken] = useState("");
+  const [mode] = useState<LiveAvatarMode>(getRequestedLiveAvatarMode);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExited, setIsExited] = useState(false);
@@ -15,9 +32,12 @@ export const LiveAvatarDemo = () => {
     try {
       setIsLoading(true);
       setError(null);
-      const res = await fetch("/api/start-session", {
-        method: "POST",
-      });
+      const res = await fetch(
+        mode === "CUSTOM" ? "/api/start-custom-session" : "/api/start-session",
+        {
+          method: "POST",
+        },
+      );
       if (!res.ok) {
         const err = await res.json();
         setError(err.error ?? "Failed to start session");
@@ -31,7 +51,7 @@ export const LiveAvatarDemo = () => {
       setError((err as Error).message);
       setIsLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     if (isExited || sessionToken) {
@@ -325,7 +345,7 @@ export const LiveAvatarDemo = () => {
 
   return (
     <LiveAvatarSession
-      mode="FULL"
+      mode={mode}
       sessionAccessToken={sessionToken}
       onSessionStopped={onSessionStopped}
       onExit={handleExit}

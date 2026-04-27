@@ -5,7 +5,7 @@ import {
   truncateUtf8String,
 } from "../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../src/lib/rateLimit";
-import { ELEVENLABS_API_KEY } from "../secrets";
+import { ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID } from "../secrets";
 
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 
@@ -28,9 +28,12 @@ export async function POST(request: Request) {
       });
     }
 
+    const configuredVoiceId = isSafeElevenLabsVoiceId(ELEVENLABS_VOICE_ID)
+      ? ELEVENLABS_VOICE_ID
+      : DEFAULT_VOICE_ID;
     const voice_id = isSafeElevenLabsVoiceId(rawVoiceId)
       ? rawVoiceId
-      : DEFAULT_VOICE_ID;
+      : configuredVoiceId;
     const text = truncateUtf8String(rawText, MAX_ELEVENLABS_TEXT_CHARS);
 
     if (!ELEVENLABS_API_KEY) {

@@ -1,6 +1,13 @@
 import { useCallback } from "react";
 import { useLiveAvatarContext } from "./context";
 
+function decodePcmAudioBase64(audioBase64: string): string {
+  if (typeof window === "undefined") {
+    return audioBase64;
+  }
+  return window.atob(audioBase64);
+}
+
 export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
   const { sessionRef } = useLiveAvatarContext();
 
@@ -15,10 +22,11 @@ export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
       } else if (mode === "CUSTOM") {
         const res = await fetch("/api/elevenlabs-text-to-speech", {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: message }),
         });
         const { audio } = await res.json();
-        return sessionRef.current.repeatAudio(audio);
+        return sessionRef.current.repeatAudio(decodePcmAudioBase64(audio));
       }
     },
     [sessionRef, mode],
