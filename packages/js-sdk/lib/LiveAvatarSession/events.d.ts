@@ -55,7 +55,10 @@ export declare enum CommandEventsEnum {
     AVATAR_STOP_LISTENING = "avatar.stop_listening"
 }
 type CommandEventData<T extends CommandEventsEnum, U extends object = object> = {
+    event_id?: string;
     event_type: T;
+    session_id?: string | null;
+    source_event_id?: string | null;
 } & U;
 export type CommandEvent = CommandEventData<CommandEventsEnum.SESSION_UPDATE> | CommandEventData<CommandEventsEnum.SESSION_STOP> | CommandEventData<CommandEventsEnum.AVATAR_INTERRUPT> | CommandEventData<CommandEventsEnum.AVATAR_SPEAK_TEXT, {
     text: string;

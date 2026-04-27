@@ -734,21 +734,27 @@ class LiveAvatarSession extends EventEmitter {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_RESPONSE,
             text: message,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     repeat(message) {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_TEXT,
             text: message,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     repeatAudio(audio) {
         if (!this.assertConnected()) {
@@ -758,29 +764,38 @@ class LiveAvatarSession extends EventEmitter {
             console.warn("Cannot repeat audio. Please check you're using a supported mode.");
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_AUDIO,
             audio: audio,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     startListening() {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_START_LISTENING,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     stopListening() {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_STOP_LISTENING,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     interrupt() {
         if (!this.assertConnected()) {
@@ -970,16 +985,26 @@ class LiveAvatarSession extends EventEmitter {
         this.postStop(SessionDisconnectReason.UNKNOWN_REASON);
     }
     sendCommandEvent(commandEvent) {
-        // Use WebSocket if available, otherwise use LiveKit data channel
-        if (this._sessionEventSocket &&
+        var _a, _b, _c, _d;
+        const enrichedCommandEvent = Object.assign({ event_id: (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId(), session_id: (_c = (_b = this._sessionInfo) === null || _b === void 0 ? void 0 : _b.session_id) !== null && _c !== void 0 ? _c : null, source_event_id: (_d = commandEvent.source_event_id) !== null && _d !== void 0 ? _d : null }, commandEvent);
+        // Current FULL-mode LiveAvatar commands are sent through LiveKit's
+        // `agent-control` topic. The legacy websocket path remains only for
+        // raw PCM audio in CUSTOM-style integrations.
+        const webSocketOnly = enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO;
+        if (webSocketOnly &&
+            this._sessionEventSocket &&
             this._sessionEventSocket.readyState === WebSocket.OPEN) {
-            this.sendCommandEventToWebSocket(commandEvent);
+            this.sendCommandEventToWebSocket(enrichedCommandEvent);
         }
         else if (this.room.state === "connected") {
-            const data = new TextEncoder().encode(JSON.stringify(commandEvent));
-            this.room.localParticipant.publishData(data, {
+            const data = new TextEncoder().encode(JSON.stringify(enrichedCommandEvent));
+            void this.room.localParticipant
+                .publishData(data, {
                 reliable: true,
                 topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
+            })
+                .catch((error) => {
+                console.error("Failed to publish LiveAvatar command event:", error);
             });
         }
         else {
@@ -999,13 +1024,14 @@ class LiveAvatarSession extends EventEmitter {
         });
     }
     sendCommandEventToWebSocket(commandEvent) {
+        var _a;
         if (!this._sessionEventSocket ||
             this._sessionEventSocket.readyState !== WebSocket.OPEN) {
             console.warn("WebSocket not open to send command event");
             return;
         }
         const event_type = commandEvent.event_type;
-        const event_id = this.generateEventId();
+        const event_id = (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId();
         let audioChunks = [];
         switch (event_type) {
             case CommandEventsEnum.AVATAR_SPEAK_AUDIO:

@@ -178,31 +178,37 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     this._remoteAudioTrack.attach(element);
   }
 
-  public message(message: string): void {
+  public message(message: string): string | void {
     if (!this.assertConnected()) {
       return;
     }
 
+    const event_id = this.generateEventId();
     const data = {
+      event_id,
       event_type: CommandEventsEnum.AVATAR_SPEAK_RESPONSE,
       text: message,
     };
     this.sendCommandEvent(data as CommandEvent);
+    return event_id;
   }
 
-  public repeat(message: string): void {
+  public repeat(message: string): string | void {
     if (!this.assertConnected()) {
       return;
     }
 
+    const event_id = this.generateEventId();
     const data = {
+      event_id,
       event_type: CommandEventsEnum.AVATAR_SPEAK_TEXT,
       text: message,
     };
     this.sendCommandEvent(data as CommandEvent);
+    return event_id;
   }
 
-  public repeatAudio(audio: string): void {
+  public repeatAudio(audio: string): string | void {
     if (!this.assertConnected()) {
       return;
     }
@@ -213,33 +219,42 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
       return;
     }
 
+    const event_id = this.generateEventId();
     const data = {
+      event_id,
       event_type: CommandEventsEnum.AVATAR_SPEAK_AUDIO,
       audio: audio,
     };
     this.sendCommandEvent(data as CommandEvent);
+    return event_id;
   }
 
-  public startListening(): void {
+  public startListening(): string | void {
     if (!this.assertConnected()) {
       return;
     }
 
+    const event_id = this.generateEventId();
     const data = {
+      event_id,
       event_type: CommandEventsEnum.AVATAR_START_LISTENING,
     };
     this.sendCommandEvent(data as CommandEvent);
+    return event_id;
   }
 
-  public stopListening(): void {
+  public stopListening(): string | void {
     if (!this.assertConnected()) {
       return;
     }
 
+    const event_id = this.generateEventId();
     const data = {
+      event_id,
       event_type: CommandEventsEnum.AVATAR_STOP_LISTENING,
     };
     this.sendCommandEvent(data as CommandEvent);
+    return event_id;
   }
 
   public interrupt(): void {
@@ -466,18 +481,35 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
   }
 
   private sendCommandEvent(commandEvent: CommandEvent): void {
-    // Use WebSocket if available, otherwise use LiveKit data channel
+    const enrichedCommandEvent = {
+      event_id: commandEvent.event_id ?? this.generateEventId(),
+      session_id: this._sessionInfo?.session_id ?? null,
+      source_event_id: commandEvent.source_event_id ?? null,
+      ...commandEvent,
+    } as CommandEvent;
+
+    // Current FULL-mode LiveAvatar commands are sent through LiveKit's
+    // `agent-control` topic. The legacy websocket path remains only for
+    // raw PCM audio in CUSTOM-style integrations.
+    const webSocketOnly =
+      enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO;
+
     if (
+      webSocketOnly &&
       this._sessionEventSocket &&
       this._sessionEventSocket.readyState === WebSocket.OPEN
     ) {
-      this.sendCommandEventToWebSocket(commandEvent);
+      this.sendCommandEventToWebSocket(enrichedCommandEvent);
     } else if (this.room.state === "connected") {
-      const data = new TextEncoder().encode(JSON.stringify(commandEvent));
-      this.room.localParticipant.publishData(data, {
-        reliable: true,
-        topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
-      });
+      const data = new TextEncoder().encode(JSON.stringify(enrichedCommandEvent));
+      void this.room.localParticipant
+        .publishData(data, {
+          reliable: true,
+          topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
+        })
+        .catch((error) => {
+          console.error("Failed to publish LiveAvatar command event:", error);
+        });
     } else {
       console.warn("No active connection to send command event");
     }
@@ -506,7 +538,7 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     }
 
     const event_type = commandEvent.event_type;
-    const event_id = this.generateEventId();
+    const event_id = commandEvent.event_id ?? this.generateEventId();
     let audioChunks: string[] = [];
     switch (event_type) {
       case CommandEventsEnum.AVATAR_SPEAK_AUDIO:
