@@ -201,15 +201,6 @@ export async function POST(request: Request) {
         sessionActive: parsed.sessionActive,
         nextTimestamp: parsed.nextTimestamp,
         received: parsed.transcriptData.length,
-        userMessages: parsed.transcriptData
-          .filter((row) => row.role === "user")
-          .map((row) => ({
-            text: truncateUtf8String(
-              row.transcript.trim(),
-              MAX_TRANSCRIPTION_TEXT_CHARS,
-            ),
-            absoluteTimestamp: Math.floor(row.absolute_timestamp),
-          })),
         leadCaptureErrors,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },

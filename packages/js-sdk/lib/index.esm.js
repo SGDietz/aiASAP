@@ -970,14 +970,8 @@ class LiveAvatarSession extends EventEmitter {
         this.postStop(SessionDisconnectReason.UNKNOWN_REASON);
     }
     sendCommandEvent(commandEvent) {
-        // WebSocket command support is narrower than the LiveKit data channel.
-        // Text commands must stay on LiveKit or they are dropped as unsupported.
-        const webSocketSupported = commandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO ||
-            commandEvent.event_type === CommandEventsEnum.AVATAR_INTERRUPT ||
-            commandEvent.event_type === CommandEventsEnum.AVATAR_START_LISTENING ||
-            commandEvent.event_type === CommandEventsEnum.AVATAR_STOP_LISTENING;
-        if (webSocketSupported &&
-            this._sessionEventSocket &&
+        // Use WebSocket if available, otherwise use LiveKit data channel
+        if (this._sessionEventSocket &&
             this._sessionEventSocket.readyState === WebSocket.OPEN) {
             this.sendCommandEventToWebSocket(commandEvent);
         }

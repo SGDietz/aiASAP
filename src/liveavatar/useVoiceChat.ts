@@ -19,8 +19,8 @@ export const useVoiceChat = () => {
     return await sessionRef.current.voiceChat.unmute();
   }, [sessionRef]);
 
-  const start = useCallback(async (config = {}) => {
-    return await sessionRef.current.voiceChat.start(config);
+  const start = useCallback(async () => {
+    return await sessionRef.current.voiceChat.start();
   }, [sessionRef]);
 
   const stop = useCallback(() => {
