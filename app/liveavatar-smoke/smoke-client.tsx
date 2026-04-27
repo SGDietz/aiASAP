@@ -12,6 +12,8 @@ import {
 const COMMAND_TOPIC = "agent-control";
 const TEST_LINE =
   "Hi, I'm 6. This is a direct LiveAvatar smoke test.";
+const RESPONSE_TEST_LINE =
+  "Say exactly this sentence back: LiveAvatar response path test.";
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -122,6 +124,27 @@ export function LiveAvatarSmokeClient() {
     try {
       await nextSession.start();
       log(`session.start resolved, id=${nextSession.sessionId ?? "none"}`);
+      const internalRoom = (nextSession as any).room;
+      const rawRoomState = internalRoom?.state ?? "unknown";
+      log(`internal room state=${rawRoomState}`);
+      internalRoom?.on?.(
+        "dataReceived",
+        (
+          data: Uint8Array,
+          _participant: unknown,
+          _kind: unknown,
+          topic: string,
+        ) => {
+          if (topic !== "agent-response") return;
+          let decoded = "";
+          try {
+            decoded = new TextDecoder().decode(data);
+          } catch {
+            decoded = "[decode failed]";
+          }
+          log(`raw agent-response ${decoded}`);
+        },
+      );
     } catch (error) {
       log(`session.start failed: ${String(error)}`, "error");
       sessionRef.current = null;
@@ -154,7 +177,17 @@ export function LiveAvatarSmokeClient() {
     log(`sdk.repeat sent event_id=${eventId ?? "none"}`);
   }
 
-  function speakViaDirectLiveKit() {
+  function speakResponseViaSdk() {
+    const current = sessionRef.current;
+    if (!current) {
+      log("No session for SDK response.", "warn");
+      return;
+    }
+    const eventId = current.message(RESPONSE_TEST_LINE);
+    log(`sdk.message sent event_id=${eventId ?? "none"}`);
+  }
+
+  function publishCommand(eventType: CommandEventsEnum, text: string) {
     const current = sessionRef.current as any;
     const room = current?.room;
     const publishData = room?.localParticipant?.publishData;
@@ -165,21 +198,29 @@ export function LiveAvatarSmokeClient() {
     const eventId = crypto.randomUUID();
     const payload = {
       event_id: eventId,
-      event_type: CommandEventsEnum.AVATAR_SPEAK_TEXT,
+      event_type: eventType,
       session_id: current.sessionId ?? null,
       source_event_id: null,
-      text: TEST_LINE,
+      text,
     };
     const encoded = new TextEncoder().encode(JSON.stringify(payload));
     void publishData.call(room.localParticipant, encoded, {
       reliable: true,
       topic: COMMAND_TOPIC,
     })
-      .then(() => log(`direct publish resolved event_id=${eventId}`))
+      .then(() => log(`direct ${eventType} resolved event_id=${eventId}`))
       .catch((error: unknown) =>
-        log(`direct publish failed: ${String(error)}`, "error"),
+        log(`direct ${eventType} failed: ${String(error)}`, "error"),
       );
-    log(`direct publish queued ${safeJson(payload)}`);
+    log(`direct ${eventType} queued ${safeJson(payload)}`);
+  }
+
+  function speakViaDirectLiveKit() {
+    publishCommand(CommandEventsEnum.AVATAR_SPEAK_TEXT, TEST_LINE);
+  }
+
+  function speakResponseViaDirectLiveKit() {
+    publishCommand(CommandEventsEnum.AVATAR_SPEAK_RESPONSE, RESPONSE_TEST_LINE);
   }
 
   return (
@@ -234,11 +275,27 @@ export function LiveAvatarSmokeClient() {
               </button>
               <button
                 type="button"
+                onClick={speakResponseViaSdk}
+                disabled={!canSpeak}
+                className="rounded-md bg-cyan-300 px-3 py-3 text-sm font-bold text-black disabled:opacity-45"
+              >
+                Response SDK
+              </button>
+              <button
+                type="button"
                 onClick={speakViaDirectLiveKit}
                 disabled={!canSpeak}
                 className="rounded-md bg-emerald-400 px-3 py-3 text-sm font-bold text-black disabled:opacity-45"
               >
                 Speak Direct
+              </button>
+              <button
+                type="button"
+                onClick={speakResponseViaDirectLiveKit}
+                disabled={!canSpeak}
+                className="rounded-md bg-lime-300 px-3 py-3 text-sm font-bold text-black disabled:opacity-45"
+              >
+                Response Direct
               </button>
             </div>
 
