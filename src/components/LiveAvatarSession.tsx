@@ -217,6 +217,8 @@ const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
 const BUG_REPORT_TRIGGER_RE =
   /\b(?:report (?:a )?bug|file (?:a )?bug|bug report|this (?:is|looks) broken|the app (?:is|seems|looks) broken|something (?:is|went) wrong|this is not working|that did not work|issue with (?:the )?app)\b/i;
+const CHECK_IN_RE =
+  /\b(?:hey\s*)?(?:6|six|a6)\b[\s,]*(?:you there|are you there|you here|can you hear me|hello|hi|buddy)\b|\b(?:you there|are you there|anybody there|anyone there|everybody there|is anybody there|is anyone there|are you listening|can you hear me|hello six|hey six|hey 6)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
 const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
@@ -913,6 +915,10 @@ function findMentionedListItem(
 
 function hasBugReportIntent(text: string): boolean {
   return !isInternalSignal(text) && BUG_REPORT_TRIGGER_RE.test(text);
+}
+
+function hasCheckInIntent(text: string): boolean {
+  return !isInternalSignal(text) && CHECK_IN_RE.test(text);
 }
 
 function summarizeBugReport(text: string): string {
@@ -2140,6 +2146,41 @@ const LiveAvatarSessionComponent: React.FC<{
       return true;
     },
     [repeat],
+  );
+
+  const speakGeneralAssistantResponse = useCallback(
+    async (rawText: string) => {
+      const message = rawText.trim();
+      if (!message) return false;
+
+      try {
+        const response = await fetch("/api/openai-chat-complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        const data = await response.json().catch(() => null);
+        const spoken =
+          typeof data?.response === "string" ? data.response.trim() : "";
+        if (!response.ok || !spoken) {
+          throw new Error(data?.error || "General assistant response failed");
+        }
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      } catch (error) {
+        console.error("General assistant response failed:", error);
+        const fallback =
+          "I'm right here. Say that one more time and I'll stay with you.";
+        await repeat(fallback);
+        lastAvatarResponseRef.current = fallback;
+        lastVisionResponseTimeRef.current = Date.now();
+        return false;
+      }
+    },
+    [interrupt, repeat],
   );
 
   useEffect(() => {
@@ -3475,6 +3516,16 @@ const LiveAvatarSessionComponent: React.FC<{
         if (didFileBug) return;
       }
 
+      if (hasCheckInIntent(userText)) {
+        const spoken = "I'm right here. What do you want to work on?";
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        schedulePromptBrain(userText);
+        return;
+      }
+
       if (
         END_CONVERSATION_RE.test(userText) &&
         !accountEmail &&
@@ -3708,7 +3759,8 @@ const LiveAvatarSessionComponent: React.FC<{
 
       // Only process in streaming mode (Go Live)
       if (visionMode !== "streaming") {
-        console.log("Not in streaming mode, skipping transcription processing");
+        console.log("Routing non-streaming transcription to normal assistant");
+        await speakGeneralAssistantResponse(userText);
         return;
       }
 
@@ -3917,6 +3969,7 @@ const LiveAvatarSessionComponent: React.FC<{
     schedulePromptBrain,
     setListAccentColor,
     setListDisplayStyle,
+    speakGeneralAssistantResponse,
   ]);
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
@@ -4728,8 +4781,10 @@ const LiveAvatarSessionComponent: React.FC<{
           </div>
         </div>
         {microphoneWarning && (
-          <div className="mt-4 bg-yellow-500 text-black px-4 py-2 rounded-md max-w-2xl text-center">
-            <p className="font-semibold">⚠️ Warning: {microphoneWarning}</p>
+          <div className="mt-3 max-w-[min(22rem,86vw)] rounded-full border border-[#e0aa62]/30 bg-black/62 px-4 py-2 text-center text-[#f1c477] shadow-[0_14px_32px_rgba(0,0,0,0.45)] backdrop-blur-sm">
+            <p className="text-[0.78rem] font-semibold leading-snug">
+              {microphoneWarning}
+            </p>
           </div>
         )}
         {/* {isAnalyzingImage && (
@@ -4980,10 +5035,8 @@ const LiveAvatarSessionComponent: React.FC<{
                         <span className="block">Starting…</span>
                       ) : (
                         <span className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1.5 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
-                          <span className="flex items-center gap-3 text-[0.82rem] font-bold uppercase tracking-[0.18em] text-[#f1c477]/78">
-                            <span className="h-px w-10 bg-gradient-to-r from-transparent to-[#e0aa62]/85" />
+                          <span className="text-[0.82rem] font-bold uppercase tracking-[0.18em] text-[#f1c477]/78">
                             Tap Anywhere
-                            <span className="h-px w-10 bg-gradient-to-l from-transparent to-[#e0aa62]/85" />
                           </span>
                           <span className="text-[1.42rem] font-black leading-none">
                             To Talk to 6

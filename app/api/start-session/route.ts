@@ -8,6 +8,8 @@ import {
 } from "../secrets";
 import { assertCanMintSessionToken } from "../../../src/lib/liveavatarCredits";
 
+const AIASAP_ONLY_CONTEXT_ID = "33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930";
+
 export async function POST() {
   const missing = [
     ["LIVEAVATAR_API_KEY", API_KEY],
@@ -20,6 +22,18 @@ export async function POST() {
     return new Response(
       JSON.stringify({
         error: `LiveAvatar is missing: ${missing.map(([name]) => name).join(", ")}`,
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  if (CONTEXT_ID !== AIASAP_ONLY_CONTEXT_ID) {
+    return new Response(
+      JSON.stringify({
+        error: "aiASAP LiveAvatar context mismatch",
       }),
       {
         status: 500,

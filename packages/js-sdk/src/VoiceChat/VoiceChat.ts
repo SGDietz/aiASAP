@@ -50,6 +50,17 @@ export class VoiceChat extends (EventEmitter as new () => TypedEmitter<VoiceChat
     this.state = VoiceChatState.STARTING;
 
     const { defaultMuted, deviceId } = config;
+    const mediaDevices =
+      typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+
+    if (!mediaDevices?.getUserMedia) {
+      const warningMessage =
+        "Voice needs HTTPS on phones. Open the secure aiASAP link to talk with 6.";
+      console.warn(warningMessage);
+      this.emit(VoiceChatEvent.WARNING, warningMessage);
+      this.state = VoiceChatState.INACTIVE;
+      return;
+    }
 
     try {
       this.track = await createLocalAudioTrack({
@@ -79,9 +90,8 @@ export class VoiceChat extends (EventEmitter as new () => TypedEmitter<VoiceChat
       this.state = VoiceChatState.ACTIVE;
     } catch (error) {
       // If microphone is not available, emit warning but don't fail
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      const warningMessage = `Microphone not available: ${errorMessage}. Session will continue without voice chat.`;
+      const warningMessage =
+        "Microphone is not available yet. Check browser permission, then tap again.";
       console.warn(warningMessage);
       this.emit(VoiceChatEvent.WARNING, warningMessage);
       this.state = VoiceChatState.INACTIVE;

@@ -154,7 +154,10 @@ type CommandEventData<
   T extends CommandEventsEnum,
   U extends object = object,
 > = {
+  event_id?: string;
   event_type: T;
+  session_id?: string | null;
+  source_event_id?: string | null;
 } & U;
 
 export type CommandEvent =

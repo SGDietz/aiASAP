@@ -449,6 +449,14 @@ class VoiceChat extends EventEmitter {
             }
             this.state = VoiceChatState.STARTING;
             const { defaultMuted, deviceId } = config;
+            const mediaDevices = typeof navigator !== "undefined" ? navigator.mediaDevices : undefined;
+            if (!(mediaDevices === null || mediaDevices === void 0 ? void 0 : mediaDevices.getUserMedia)) {
+                const warningMessage = "Voice needs HTTPS on phones. Open the secure aiASAP link to talk with 6.";
+                console.warn(warningMessage);
+                this.emit(VoiceChatEvent.WARNING, warningMessage);
+                this.state = VoiceChatState.INACTIVE;
+                return;
+            }
             try {
                 this.track = yield createLocalAudioTrack({
                     echoCancellation: true,
@@ -474,8 +482,7 @@ class VoiceChat extends EventEmitter {
             }
             catch (error) {
                 // If microphone is not available, emit warning but don't fail
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                const warningMessage = `Microphone not available: ${errorMessage}. Session will continue without voice chat.`;
+                const warningMessage = "Microphone is not available yet. Check browser permission, then tap again.";
                 console.warn(warningMessage);
                 this.emit(VoiceChatEvent.WARNING, warningMessage);
                 this.state = VoiceChatState.INACTIVE;
@@ -734,21 +741,27 @@ class LiveAvatarSession extends EventEmitter {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_RESPONSE,
             text: message,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     repeat(message) {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_TEXT,
             text: message,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     repeatAudio(audio) {
         if (!this.assertConnected()) {
@@ -758,35 +771,45 @@ class LiveAvatarSession extends EventEmitter {
             console.warn("Cannot repeat audio. Please check you're using a supported mode.");
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_AUDIO,
             audio: audio,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     startListening() {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_START_LISTENING,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     stopListening() {
         if (!this.assertConnected()) {
             return;
         }
+        const event_id = this.generateEventId();
         const data = {
+            event_id,
             event_type: CommandEventsEnum.AVATAR_STOP_LISTENING,
         };
         this.sendCommandEvent(data);
+        return event_id;
     }
     interrupt() {
         if (!this.assertConnected()) {
             return;
         }
         const data = {
+            event_id: this.generateEventId(),
             event_type: CommandEventsEnum.AVATAR_INTERRUPT,
         };
         this.sendCommandEvent(data);
@@ -970,13 +993,26 @@ class LiveAvatarSession extends EventEmitter {
         this.postStop(SessionDisconnectReason.UNKNOWN_REASON);
     }
     sendCommandEvent(commandEvent) {
-        // Use WebSocket if available, otherwise use LiveKit data channel
-        if (this._sessionEventSocket &&
+        var _a, _b, _c;
+        const enrichedCommandEvent = {
+            event_id: (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId(),
+            session_id: (_c = (_b = this._sessionInfo) === null || _b === void 0 ? void 0 : _b.session_id) !== null && _c !== void 0 ? _c : null,
+            source_event_id: commandEvent.source_event_id !== null && commandEvent.source_event_id !== void 0 ? commandEvent.source_event_id : null,
+            ...commandEvent,
+        };
+        // WebSocket command support is narrower than the LiveKit data channel.
+        // Text commands must stay on LiveKit or they are dropped as unsupported.
+        const webSocketSupported = enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO ||
+            enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_INTERRUPT ||
+            enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_START_LISTENING ||
+            enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_STOP_LISTENING;
+        if (webSocketSupported &&
+            this._sessionEventSocket &&
             this._sessionEventSocket.readyState === WebSocket.OPEN) {
-            this.sendCommandEventToWebSocket(commandEvent);
+            this.sendCommandEventToWebSocket(enrichedCommandEvent);
         }
         else if (this.room.state === "connected") {
-            const data = new TextEncoder().encode(JSON.stringify(commandEvent));
+            const data = new TextEncoder().encode(JSON.stringify(enrichedCommandEvent));
             this.room.localParticipant.publishData(data, {
                 reliable: true,
                 topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
@@ -1005,7 +1041,7 @@ class LiveAvatarSession extends EventEmitter {
             return;
         }
         const event_type = commandEvent.event_type;
-        const event_id = this.generateEventId();
+        const event_id = commandEvent.event_id !== null && commandEvent.event_id !== void 0 ? commandEvent.event_id : this.generateEventId();
         let audioChunks = [];
         switch (event_type) {
             case CommandEventsEnum.AVATAR_SPEAK_AUDIO:
