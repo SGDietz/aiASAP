@@ -1012,7 +1012,8 @@ class LiveAvatarSession extends EventEmitter {
             this.sendCommandEventToWebSocket(enrichedCommandEvent);
         }
         else if (this.room.state === "connected") {
-            const data = new TextEncoder().encode(JSON.stringify(enrichedCommandEvent));
+            const liveKitCommandEvent = this.toLiveKitCommandEvent(enrichedCommandEvent);
+            const data = new TextEncoder().encode(JSON.stringify(liveKitCommandEvent));
             this.room.localParticipant.publishData(data, {
                 reliable: true,
                 topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
@@ -1021,6 +1022,17 @@ class LiveAvatarSession extends EventEmitter {
         else {
             console.warn("No active connection to send command event");
         }
+    }
+    toLiveKitCommandEvent(commandEvent) {
+        const { source_event_id, ...eventWithoutSource } = commandEvent;
+        // FULL-mode LiveAvatar commands over LiveKit are strict: event_type, session_id,
+        // and the command data. WebSocket commands still carry event_id.
+        if (commandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_TEXT ||
+            commandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_RESPONSE) {
+            const { event_id, ...textEvent } = eventWithoutSource;
+            return textEvent;
+        }
+        return eventWithoutSource;
     }
     generateEventId() {
         // Use native browser crypto API
