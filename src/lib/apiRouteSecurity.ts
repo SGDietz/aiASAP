@@ -14,6 +14,18 @@ const ALLOWED_ORIGINS = new Set([
 export function assertAllowedOrigin(request: Request): Response | null {
   if (process.env.NODE_ENV !== "production") return null;
 
+  const host = request.headers.get("host")?.toLowerCase() ?? "";
+  if (
+    host.startsWith("localhost:") ||
+    host === "localhost" ||
+    host.startsWith("127.0.0.1:") ||
+    host === "127.0.0.1" ||
+    host.startsWith("[::1]:") ||
+    host === "[::1]"
+  ) {
+    return null;
+  }
+
   const origin = request.headers.get("origin");
   if (origin !== null) {
     if (ALLOWED_ORIGINS.has(origin)) return null;

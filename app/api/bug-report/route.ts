@@ -18,7 +18,10 @@ type BugReportPayload = {
   transcript?: unknown;
   pageUrl?: unknown;
   activeList?: unknown;
+  category?: unknown;
 };
+
+type ReportCategory = "bug" | "change_request" | "integration_request";
 
 function supabaseHeaders(serviceRoleKey: string) {
   return {
@@ -60,6 +63,25 @@ function cleanActiveList(value: unknown): Record<string, unknown> | null {
     : [];
 
   return { title, displayStyle, accentColor, accentHex, accentLabel, items };
+}
+
+function cleanReportCategory(value: unknown): ReportCategory {
+  if (value === "change_request" || value === "integration_request") {
+    return value;
+  }
+  return "bug";
+}
+
+function reportLabel(category: ReportCategory): string {
+  if (category === "integration_request") return "integration request";
+  if (category === "change_request") return "change request";
+  return "bug report";
+}
+
+function reportSource(category: ReportCategory): string {
+  if (category === "integration_request") return "six_integration_request";
+  if (category === "change_request") return "six_change_request";
+  return "six_voice";
 }
 
 async function storeBugReport(row: Record<string, unknown>) {
@@ -121,6 +143,7 @@ async function emailBugReport(report: {
   pageUrl: string | null;
   founderEmail: string;
   storedId: string | null;
+  category: ReportCategory;
 }) {
   const resendApiKey = process.env.RESEND_API_KEY;
   const from = process.env.BUG_REPORT_FROM_EMAIL || "aiASAP <bugs@aiasap.ai>";
@@ -128,6 +151,7 @@ async function emailBugReport(report: {
 
   const body = [
     `For: ${AIASAP_FOUNDER_TITLE}`,
+    `Type: ${reportLabel(report.category)}`,
     report.storedId ? `Report ID: ${report.storedId}` : null,
     report.sessionId ? `Session ID: ${report.sessionId}` : null,
     report.pageUrl ? `Page: ${report.pageUrl}` : null,
@@ -148,7 +172,7 @@ async function emailBugReport(report: {
       body: JSON.stringify({
         from,
         to: report.founderEmail,
-        subject: `aiASAP bug report for ${AIASAP_FOUNDER_TITLE}`,
+        subject: `aiASAP ${reportLabel(report.category)} for ${AIASAP_FOUNDER_TITLE}`,
         text: body,
       }),
     });
@@ -192,6 +216,8 @@ export async function POST(request: Request) {
     );
     const pageUrl = cleanOptionalString(body.pageUrl, MAX_PAGE_URL_CHARS);
     const activeList = cleanActiveList(body.activeList);
+    const category = cleanReportCategory(body.category);
+    const source = reportSource(category);
     const founderEmail =
       process.env.AIASAP_FOUNDER_REPORT_EMAIL ||
       process.env.BUG_REPORT_TO_EMAIL ||
@@ -205,7 +231,7 @@ export async function POST(request: Request) {
       active_list: activeList,
       recipient_title: AIASAP_FOUNDER_TITLE,
       email_to: founderEmail || null,
-      source: "six_voice",
+      source,
     });
 
     const storedId =
@@ -220,7 +246,7 @@ export async function POST(request: Request) {
           active_list: activeList,
           recipient_title: AIASAP_FOUNDER_TITLE,
           email_to: founderEmail || null,
-          source: "six_voice",
+          source,
         });
     const emailSent = await emailBugReport({
       summary,
@@ -228,6 +254,7 @@ export async function POST(request: Request) {
       pageUrl,
       founderEmail,
       storedId: storedId ?? fallbackPath,
+      category,
     });
 
     return new Response(
@@ -237,6 +264,7 @@ export async function POST(request: Request) {
         reportId: storedId,
         storagePath: fallbackPath,
         emailSent,
+        category,
         recipientTitle: AIASAP_FOUNDER_TITLE,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },

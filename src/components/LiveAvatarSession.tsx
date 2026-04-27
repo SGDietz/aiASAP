@@ -217,6 +217,10 @@ const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
 const BUG_REPORT_TRIGGER_RE =
   /\b(?:report (?:a )?bug|file (?:a )?bug|bug report|this (?:is|looks) broken|the app (?:is|seems|looks) broken|something (?:is|went) wrong|this is not working|that did not work|issue with (?:the )?app)\b/i;
+const INTEGRATION_REQUEST_RE =
+  /\b(?:connect|hook up|link|sync|integrate|use|set up|setup)\b[\s\S]{0,80}\b(?:gmail|google calendar|calendar|email|mail|apple mail|icloud|outlook|hotmail|yahoo|proton|aol)\b|\b(?:gmail|google calendar|apple mail|icloud mail|outlook|hotmail|yahoo mail|proton mail|aol mail)\b[\s\S]{0,80}\b(?:connect|hook up|link|sync|integrate|set up|setup)\b/i;
+const CHANGE_REQUEST_TRIGGER_RE =
+  /\b(?:feature request|change request|suggestion|idea for (?:the )?app|i wish|it should|you should|can you make|could you make|i want (?:the|this|it)|i'd like (?:the|this|it)|id like (?:the|this|it)|customize|customise|personalize|personalise)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
 const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
@@ -915,6 +919,14 @@ function hasBugReportIntent(text: string): boolean {
   return !isInternalSignal(text) && BUG_REPORT_TRIGGER_RE.test(text);
 }
 
+function hasIntegrationRequestIntent(text: string): boolean {
+  return !isInternalSignal(text) && INTEGRATION_REQUEST_RE.test(text);
+}
+
+function hasChangeRequestIntent(text: string): boolean {
+  return !isInternalSignal(text) && CHANGE_REQUEST_TRIGGER_RE.test(text);
+}
+
 function summarizeBugReport(text: string): string {
   return text
     .replace(/^let'?s work on this next:\s*/i, "")
@@ -1259,6 +1271,10 @@ const LiveAvatarSessionComponent: React.FC<{
     id: string;
     title: string;
   } | null>(null);
+  const listeningResumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const listeningResumeCleanupRef = useRef<(() => void) | null>(null);
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -1788,8 +1804,161 @@ const LiveAvatarSessionComponent: React.FC<{
     [activeListId, assistantLists],
   );
 
+  const clearListeningResume = useCallback(() => {
+    if (listeningResumeTimerRef.current) {
+      clearTimeout(listeningResumeTimerRef.current);
+      listeningResumeTimerRef.current = null;
+    }
+    if (listeningResumeCleanupRef.current) {
+      listeningResumeCleanupRef.current();
+      listeningResumeCleanupRef.current = null;
+    }
+  }, []);
+
+  const safeInterrupt = useCallback(() => {
+    try {
+      interrupt();
+    } catch (error) {
+      console.warn("Avatar interrupt failed:", error);
+    }
+  }, [interrupt]);
+
+  const safeStopAvatarListening = useCallback(() => {
+    if (mode !== "FULL") return;
+    try {
+      stopListening();
+    } catch (error) {
+      console.warn("Avatar stop listening failed:", error);
+    }
+  }, [mode, stopListening]);
+
+  const safeStartAvatarListening = useCallback(() => {
+    if (
+      mode !== "FULL" ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady ||
+      isRecording ||
+      visionMode === "streaming"
+    ) {
+      return;
+    }
+    try {
+      startListening();
+    } catch (error) {
+      console.warn("Avatar start listening failed:", error);
+    }
+  }, [
+    isRecording,
+    isStreamReady,
+    mode,
+    sessionState,
+    startListening,
+    visionMode,
+  ]);
+
+  const scheduleListeningResume = useCallback(
+    (spoken: string, forceResume = false) => {
+      clearListeningResume();
+      if (
+        mode !== "FULL" ||
+        visionMode === "streaming" ||
+        isRecording ||
+        (!forceResume && !hasUserPressedVoiceStart && !isActive)
+      ) {
+        return;
+      }
+
+      let hasResumed = false;
+      const resume = () => {
+        if (hasResumed) return;
+        hasResumed = true;
+        clearListeningResume();
+        safeStartAvatarListening();
+      };
+
+      const session = sessionRef.current;
+      if (session) {
+        const onSpeakEnded = () => {
+          window.setTimeout(resume, 160);
+        };
+        session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, onSpeakEnded);
+        listeningResumeCleanupRef.current = () => {
+          if (typeof (session as any).off === "function") {
+            (session as any).off(AgentEventsEnum.AVATAR_SPEAK_ENDED, onSpeakEnded);
+          } else if (typeof (session as any).removeListener === "function") {
+            (session as any).removeListener(
+              AgentEventsEnum.AVATAR_SPEAK_ENDED,
+              onSpeakEnded,
+            );
+          }
+        };
+      }
+
+      const estimatedSpeechMs = Math.min(
+        14_000,
+        Math.max(1_800, spoken.length * 55),
+      );
+      listeningResumeTimerRef.current = setTimeout(resume, estimatedSpeechMs);
+    },
+    [
+      clearListeningResume,
+      hasUserPressedVoiceStart,
+      isActive,
+      isRecording,
+      mode,
+      safeStartAvatarListening,
+      sessionRef,
+      visionMode,
+    ],
+  );
+
+  const speakScriptedResponse = useCallback(
+    async (
+      spoken: string,
+      options: { forceInterrupt?: boolean; forceResume?: boolean } = {},
+    ) => {
+      const message = spoken.trim();
+      if (!message) return false;
+
+      if (mode === "FULL") {
+        clearListeningResume();
+        safeStopAvatarListening();
+        if (options.forceInterrupt || isAvatarTalking) {
+          safeInterrupt();
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 140));
+      }
+
+      try {
+        await repeat(message);
+        lastAvatarResponseRef.current = message;
+        lastVisionResponseTimeRef.current = Date.now();
+        scheduleListeningResume(message, Boolean(options.forceResume));
+        return true;
+      } catch (error) {
+        console.error("Scripted avatar speech failed:", error);
+        scheduleListeningResume("", Boolean(options.forceResume));
+        return false;
+      }
+    },
+    [
+      clearListeningResume,
+      isAvatarTalking,
+      mode,
+      repeat,
+      safeInterrupt,
+      safeStopAvatarListening,
+      scheduleListeningResume,
+    ],
+  );
+
+  useEffect(() => clearListeningResume, [clearListeningResume]);
+
   const fileBugReport = useCallback(
-    async (rawText: string) => {
+    async (
+      rawText: string,
+      category: "bug" | "change_request" | "integration_request" = "bug",
+    ) => {
       const summary = summarizeBugReport(rawText);
       if (!summary) return false;
       try {
@@ -1801,6 +1970,7 @@ const LiveAvatarSessionComponent: React.FC<{
             summary,
             transcript: rawText,
             pageUrl: window.location.href,
+            category,
             activeList: activeList
               ? {
                   title: activeList.title,
@@ -1814,19 +1984,23 @@ const LiveAvatarSessionComponent: React.FC<{
 
         if (!response.ok) return false;
         const data = await response.json();
+        const reportName =
+          category === "integration_request"
+            ? "integration request"
+            : category === "change_request"
+              ? "change request"
+              : "bug report";
         const spoken = data?.emailSent
-          ? `I made a bug report and sent it to the ${AIASAP_FOUNDER_TITLE}.`
-          : `I made a bug report for the ${AIASAP_FOUNDER_TITLE}.`;
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+          ? `I made a ${reportName} and sent it to the ${AIASAP_FOUNDER_TITLE}.`
+          : `I made a ${reportName} for the ${AIASAP_FOUNDER_TITLE}.`;
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         return true;
       } catch (error) {
         console.error("Failed to file bug report:", error);
         return false;
       }
     },
-    [activeList, repeat],
+    [activeList, speakScriptedResponse],
   );
 
   const startAccountSetup = useCallback(
@@ -1873,9 +2047,7 @@ const LiveAvatarSessionComponent: React.FC<{
               : "Account Email Needs Setup",
         );
         setAccountVerificationUrl(verificationUrl);
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         accountSetupOfferMadeRef.current = false;
         accountSetupDeclinedAtRef.current = 0;
         accountSetupEmailMissCountRef.current = 0;
@@ -1887,13 +2059,17 @@ const LiveAvatarSessionComponent: React.FC<{
         const spoken =
           "I had trouble setting up that email link. I made a note for G to fix account setup.";
         setAccountNotice("Account setup needs attention");
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         return true;
       }
     },
-    [activeList, activeListId, assistantLists, isShoppingMode, repeat],
+    [
+      activeList,
+      activeListId,
+      assistantLists,
+      isShoppingMode,
+      speakScriptedResponse,
+    ],
   );
 
   const openEmailEntry = useCallback(
@@ -1902,12 +2078,10 @@ const LiveAvatarSessionComponent: React.FC<{
       const message =
         spoken ||
         "I opened the email box so you can type it. I will still read it back before I send anything.";
-      await repeat(message);
-      lastAvatarResponseRef.current = message;
-      lastVisionResponseTimeRef.current = Date.now();
+      await speakScriptedResponse(message, { forceInterrupt: true });
       return true;
     },
-    [repeat],
+    [speakScriptedResponse],
   );
 
   const handleEmailMiss = useCallback(
@@ -1921,12 +2095,10 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       const spoken =
         "I did not catch a complete email address yet. No rush. Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
+      await speakScriptedResponse(spoken, { forceInterrupt: true });
       return true;
     },
-    [openEmailEntry, repeat],
+    [openEmailEntry, speakScriptedResponse],
   );
 
   const confirmAccountEmailCandidate = useCallback(
@@ -1945,12 +2117,10 @@ const LiveAvatarSessionComponent: React.FC<{
       setEmailEntryOpen(false);
       setTypedAccountEmail(normalizedEmail);
       const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
+      await speakScriptedResponse(spoken, { forceInterrupt: true });
       return true;
     },
-    [openEmailEntry, repeat],
+    [openEmailEntry, speakScriptedResponse],
   );
 
   const handleTypedAccountEmailSubmit = useCallback(
@@ -1987,11 +2157,9 @@ const LiveAvatarSessionComponent: React.FC<{
     const spoken =
       customSpoken ||
       "Let's get that account set up. It's just a quick email click. Then next time I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
-    await repeat(spoken);
-    lastAvatarResponseRef.current = spoken;
-    lastVisionResponseTimeRef.current = Date.now();
+    await speakScriptedResponse(spoken, { forceInterrupt: true });
     return true;
-  }, [accountEmail, repeat]);
+  }, [accountEmail, speakScriptedResponse]);
 
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
@@ -2044,9 +2212,7 @@ const LiveAvatarSessionComponent: React.FC<{
         }
         const spoken =
           "Before I send the account email, I need a yes or no. Is that email address correct?";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         return true;
       }
 
@@ -2070,9 +2236,7 @@ const LiveAvatarSessionComponent: React.FC<{
           setEmailEntryOpen(false);
           const spoken =
             "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceInterrupt: true });
           return true;
         }
         if (ACCOUNT_READY_YES_RE.test(userText)) {
@@ -2085,9 +2249,7 @@ const LiveAvatarSessionComponent: React.FC<{
           setTypedAccountEmail("");
           const spoken =
             "Great. What email address should I send the link to? Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceInterrupt: true });
           return true;
         }
       }
@@ -2103,9 +2265,7 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupEmailMissCountRef.current = 0;
         const spoken =
           "You can use the site right now, but if you want me to remember everything next time, let's get that account set up. It's just a quick email click. Then when you come back, I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         return true;
       }
 
@@ -2115,7 +2275,7 @@ const LiveAvatarSessionComponent: React.FC<{
       confirmAccountEmailCandidate,
       handleEmailMiss,
       openEmailEntry,
-      repeat,
+      speakScriptedResponse,
       startAccountSetup,
     ],
   );
@@ -2134,12 +2294,10 @@ const LiveAvatarSessionComponent: React.FC<{
       const spoken = reachedMax
         ? "That's as big as I can make the prompts without crowding my face or the Terms line."
         : "I made the prompts a little bigger. Is that enough?";
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
+      await speakScriptedResponse(spoken, { forceInterrupt: true });
       return true;
     },
-    [repeat],
+    [speakScriptedResponse],
   );
 
   useEffect(() => {
@@ -2328,7 +2486,7 @@ const LiveAvatarSessionComponent: React.FC<{
     }
     const onAvatarSpeakStarted = () => {
       if (!audioUnlockedRef.current) {
-        void interrupt();
+        safeInterrupt();
       }
     };
     session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, onAvatarSpeakStarted);
@@ -2338,7 +2496,7 @@ const LiveAvatarSessionComponent: React.FC<{
         onAvatarSpeakStarted,
       );
     };
-  }, [sessionRef, interrupt]);
+  }, [sessionRef, safeInterrupt]);
 
   /** Ensure remote avatar audio can play (mobile autoplay policies). Call from explicit button taps only. */
   const ensureAudioOutputReady = useCallback(async (): Promise<boolean> => {
@@ -2425,9 +2583,7 @@ const LiveAvatarSessionComponent: React.FC<{
           sources.length > 0
             ? `${data.answer} Any of those sound interesting? If not, tell me what kind of things you like and I'll narrow it down. Source links are on your screen.`
             : `${data.answer} Any of that sound interesting?`;
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         schedulePromptBrain(query);
         return true;
       } catch (error) {
@@ -2435,15 +2591,13 @@ const LiveAvatarSessionComponent: React.FC<{
         const spoken =
           "I had trouble looking that up online. Try telling me the city or ZIP code again.";
         setOnlineLookupNotice("Online lookup needs location");
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         return true;
       } finally {
         setIsOnlineLookupLoading(false);
       }
     },
-    [isOnlineLookupLoading, repeat, schedulePromptBrain],
+    [isOnlineLookupLoading, schedulePromptBrain, speakScriptedResponse],
   );
 
   const requestSharedLocation = useCallback(async () => {
@@ -2451,9 +2605,7 @@ const LiveAvatarSessionComponent: React.FC<{
     if (!navigator.geolocation) {
       const spoken =
         "This browser is not letting me ask for location. Tell me your city or ZIP code and I'll look from there.";
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
+      await speakScriptedResponse(spoken, { forceInterrupt: true });
       return;
     }
 
@@ -2471,13 +2623,11 @@ const LiveAvatarSessionComponent: React.FC<{
         const spoken =
           "No problem. Tell me your city or ZIP code instead, and I'll search around there.";
         setOnlineLookupNotice("Tell 6 your city or ZIP");
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
       },
       { enableHighAccuracy: false, maximumAge: 1000 * 60 * 10, timeout: 12000 },
     );
-  }, [performOnlineLookup, repeat]);
+  }, [performOnlineLookup, speakScriptedResponse]);
 
   const handleOnlineLookupSpeech = useCallback(
     async (userText: string) => {
@@ -2491,9 +2641,7 @@ const LiveAvatarSessionComponent: React.FC<{
         if (soundsLikeInvalidZipCode(text)) {
           const spoken =
             "That ZIP code does not sound quite right. ZIP codes are five digits. Tell me the five-digit ZIP code, or say share location.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceInterrupt: true });
           return true;
         }
         const location =
@@ -2517,9 +2665,7 @@ const LiveAvatarSessionComponent: React.FC<{
       setOnlineLookupNotice("Tell 6 where to look");
       const spoken =
         "I can look that up online. Do you want to tell me your ZIP code, or wanna share your phone's location? If you share location, your phone or browser will ask permission first. What kind of cool things do you like?";
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
+      await speakScriptedResponse(spoken, { forceInterrupt: true });
       setThoughtPrompts(
         normalizeThoughtPrompts([
           "Give ZIP Code",
@@ -2530,7 +2676,7 @@ const LiveAvatarSessionComponent: React.FC<{
       );
       return true;
     },
-    [performOnlineLookup, repeat],
+    [performOnlineLookup, requestSharedLocation, speakScriptedResponse],
   );
 
   const handleThoughtPromptTap = useCallback(
@@ -2562,7 +2708,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       try {
         await ensureAudioOutputReady();
-        await interrupt();
+        safeInterrupt();
         if (listIntent) {
           const ensured = lastEnsuredListRef.current;
           const pendingCustomization = pendingListCustomizationPromptRef.current;
@@ -2576,9 +2722,7 @@ const LiveAvatarSessionComponent: React.FC<{
           if (hasPendingCustomization) {
             pendingListCustomizationPromptRef.current = null;
           }
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceResume: true });
           schedulePromptBrain(prompt);
           return;
         }
@@ -2587,9 +2731,7 @@ const LiveAvatarSessionComponent: React.FC<{
             prompt === "Quick Tour"
               ? "A. I. A-S-A-P. is the easy way into AI. You talk to me, and I help with lists, reminders, planning, making money, and eventually building whole companies. What should we try first?"
               : "A. I. A-S-A-P. is built so you can just talk to me and I help you get things done. Lists, reminders, weekend plans, money ideas, and bigger things later. Want the quick tour, or want to start with something useful?";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceResume: true });
           setThoughtPrompts(
             normalizeThoughtPrompts([
               "Quick Tour",
@@ -2607,9 +2749,7 @@ const LiveAvatarSessionComponent: React.FC<{
         if (prompt === "Give ZIP Code" || prompt === "Enter City or ZIP") {
           const spoken =
             "Tell me your ZIP code, and I'll look online around there.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceResume: true });
           return;
         }
         if (isOnlineLookupIntent(prompt)) {
@@ -2626,24 +2766,25 @@ const LiveAvatarSessionComponent: React.FC<{
       dissolvingPrompt,
       ensureAudioOutputReady,
       ensureAssistantList,
-      interrupt,
       handleOnlineLookupSpeech,
       isStreamReady,
-      repeat,
       requestSharedLocation,
+      safeInterrupt,
       schedulePromptBrain,
       sendMessage,
       sessionState,
+      speakScriptedResponse,
     ],
   );
 
   const handleVoiceStartStop = useCallback(async () => {
     if (isActive) {
-      void interrupt();
+      clearListeningResume();
+      safeInterrupt();
       stop();
       setHasUserPressedVoiceStart(false);
       if (mode === "FULL") {
-        stopListening();
+        safeStopAvatarListening();
       }
       return;
     }
@@ -2669,25 +2810,23 @@ const LiveAvatarSessionComponent: React.FC<{
           updatedAt: Date.now(),
         }));
       }
-      await repeat(greeting);
-      lastAvatarResponseRef.current = greeting;
-      lastVisionResponseTimeRef.current = Date.now();
-      if (mode === "FULL") {
-        startListening();
-      }
       setHasUserPressedVoiceStart(true);
+      await speakScriptedResponse(greeting, {
+        forceInterrupt: true,
+        forceResume: true,
+      });
     } finally {
       setVoiceStartAwaitingReady(false);
     }
   }, [
+    clearListeningResume,
     isActive,
-    interrupt,
-    repeat,
+    safeInterrupt,
+    safeStopAvatarListening,
+    speakScriptedResponse,
     stop,
     start,
     mode,
-    startListening,
-    stopListening,
     sessionState,
     isStreamReady,
     ensureAudioOutputReady,
@@ -3462,7 +3601,7 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (isAvatarTalking) {
-        void interrupt();
+        safeInterrupt();
       }
 
       if (await handlePromptSizeSpeech(userText)) {
@@ -3473,6 +3612,17 @@ const LiveAvatarSessionComponent: React.FC<{
       if (hasBugReportIntent(userText)) {
         const didFileBug = await fileBugReport(userText);
         if (didFileBug) return;
+      }
+
+      if (hasIntegrationRequestIntent(userText)) {
+        const didFileIntegrationRequest = await fileBugReport(
+          userText,
+          "integration_request",
+        );
+        if (didFileIntegrationRequest) {
+          schedulePromptBrain(userText);
+          return;
+        }
       }
 
       if (
@@ -3512,11 +3662,8 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
         setIsShoppingMode(false);
-        await interrupt();
         const spoken = "I closed shopping mode.";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         schedulePromptBrain(userText);
         return;
       }
@@ -3531,10 +3678,7 @@ const LiveAvatarSessionComponent: React.FC<{
         } else {
           setActiveListId(null);
         }
-        await interrupt();
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
         schedulePromptBrain(userText);
         return;
       }
@@ -3543,9 +3687,7 @@ const LiveAvatarSessionComponent: React.FC<{
         const nextList = moveActiveList(1);
         if (nextList) {
           const spoken = `I opened the ${nextList.title}.`;
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceInterrupt: true });
           schedulePromptBrain(userText);
           return;
         }
@@ -3553,9 +3695,7 @@ const LiveAvatarSessionComponent: React.FC<{
         const previousList = moveActiveList(-1);
         if (previousList) {
           const spoken = `I opened the ${previousList.title}.`;
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceInterrupt: true });
           schedulePromptBrain(userText);
           return;
         }
@@ -3579,7 +3719,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
         if (enteringShoppingMode) {
           setIsShoppingMode(true);
-          await interrupt();
+          safeInterrupt();
         }
 
         const displayStyle = detectListDisplayStyle(userText);
@@ -3639,9 +3779,7 @@ const LiveAvatarSessionComponent: React.FC<{
         ) {
           pendingListCustomizationPromptRef.current = null;
           const spoken = `I made the ${pendingCustomization.title}. Want this one a different color, a different shade, bullets instead of numbers, or anything else that makes it easier to scan?`;
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceInterrupt: true });
           schedulePromptBrain(userText);
           return;
         }
@@ -3670,22 +3808,29 @@ const LiveAvatarSessionComponent: React.FC<{
         if (enteringShoppingMode) {
           const spoken =
             "Got it. I'll keep the list up and stay out of the way. Tell me what to remove, or tap the X next to an item.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(spoken, { forceInterrupt: true });
           schedulePromptBrain(userText);
           return;
         }
 
         if (listActionSpoken) {
-          await repeat(listActionSpoken);
-          lastAvatarResponseRef.current = listActionSpoken;
-          lastVisionResponseTimeRef.current = Date.now();
+          await speakScriptedResponse(listActionSpoken, { forceInterrupt: true });
           schedulePromptBrain(userText);
           return;
         }
 
         if (isShoppingMode) {
+          schedulePromptBrain(userText);
+          return;
+        }
+      }
+
+      if (hasChangeRequestIntent(userText)) {
+        const didFileChangeRequest = await fileBugReport(
+          userText,
+          "change_request",
+        );
+        if (didFileChangeRequest) {
           schedulePromptBrain(userText);
           return;
         }
@@ -3728,7 +3873,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       // Interrupt the agent immediately so it never says "I can't access your camera"
       // We will answer from camera analysis only via processCameraQuestion -> repeat(analysis)
-      interrupt();
+      safeInterrupt();
 
       // Skip if this transcription matches our recent avatar response (avatar's speech being transcribed)
       // This prevents infinite loops where avatar's response triggers another analysis
@@ -3897,7 +4042,7 @@ const LiveAvatarSessionComponent: React.FC<{
     isRecording,
     isShoppingMode,
     isAvatarTalking,
-    interrupt,
+    safeInterrupt,
     mode,
     repeat,
     isProcessingCameraQuestion,
@@ -3917,6 +4062,7 @@ const LiveAvatarSessionComponent: React.FC<{
     schedulePromptBrain,
     setListAccentColor,
     setListDisplayStyle,
+    speakScriptedResponse,
   ]);
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
