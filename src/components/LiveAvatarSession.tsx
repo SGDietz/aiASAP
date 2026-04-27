@@ -221,6 +221,8 @@ const INTEGRATION_REQUEST_RE =
   /\b(?:connect|hook up|link|sync|integrate|use|set up|setup)\b[\s\S]{0,80}\b(?:gmail|google calendar|calendar|email|mail|apple mail|icloud|outlook|hotmail|yahoo|proton|aol)\b|\b(?:gmail|google calendar|apple mail|icloud mail|outlook|hotmail|yahoo mail|proton mail|aol mail)\b[\s\S]{0,80}\b(?:connect|hook up|link|sync|integrate|set up|setup)\b/i;
 const CHANGE_REQUEST_TRIGGER_RE =
   /\b(?:feature request|change request|suggestion|idea for (?:the )?app|i wish|it should|you should|can you make|could you make|i want (?:the|this|it)|i'd like (?:the|this|it)|id like (?:the|this|it)|customize|customise|personalize|personalise)\b/i;
+const CHECK_IN_RE =
+  /\b(?:hey\s*)?(?:6|six|a6)\b[\s,]*(?:you there|are you there|you here|can you hear me|hello|hi|buddy)\b|\b(?:you there|are you there|can you hear me|hello six|hey six|hey 6)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
 const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
@@ -927,6 +929,10 @@ function hasChangeRequestIntent(text: string): boolean {
   return !isInternalSignal(text) && CHANGE_REQUEST_TRIGGER_RE.test(text);
 }
 
+function hasCheckInIntent(text: string): boolean {
+  return !isInternalSignal(text) && CHECK_IN_RE.test(text);
+}
+
 function summarizeBugReport(text: string): string {
   return text
     .replace(/^let'?s work on this next:\s*/i, "")
@@ -1186,6 +1192,10 @@ const LiveAvatarSessionComponent: React.FC<{
   const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const fallbackImageInputRef = useRef<HTMLInputElement>(null);
   const isDebugProcessingRef = useRef<boolean>(false);
+  const isAvatarTalkingRef = useRef(isAvatarTalking);
+  const userTranscriptionHandlerRef = useRef<
+    ((event: { text: string }) => void | Promise<void>) | null
+  >(null);
   const lastAvatarResponseRef = useRef<string>("");
   const lastUserTextRef = useRef<string>("");
   const lastVisionResponseTimeRef = useRef<number>(0);
@@ -1287,6 +1297,10 @@ const LiveAvatarSessionComponent: React.FC<{
     [activeListId, assistantLists],
   );
   const activeListTheme = listColorThemeFor(activeList);
+
+  useEffect(() => {
+    isAvatarTalkingRef.current = isAvatarTalking;
+  }, [isAvatarTalking]);
 
   useEffect(() => {
     deviceProfileRef.current = deviceProfile;
@@ -1815,6 +1829,14 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, []);
 
+  const waitForAvatarSession = useCallback(async () => {
+    const deadline = Date.now() + 1200;
+    while (!sessionRef.current && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    }
+    return sessionRef.current;
+  }, [sessionRef]);
+
   const safeInterrupt = useCallback(() => {
     try {
       interrupt();
@@ -1930,6 +1952,7 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       try {
+        await waitForAvatarSession();
         await repeat(message);
         lastAvatarResponseRef.current = message;
         lastVisionResponseTimeRef.current = Date.now();
@@ -1949,6 +1972,7 @@ const LiveAvatarSessionComponent: React.FC<{
       safeInterrupt,
       safeStopAvatarListening,
       scheduleListeningResume,
+      waitForAvatarSession,
     ],
   );
 
@@ -3565,11 +3589,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
   // Listen to user transcriptions and handle verbal questions in streaming mode (Go Live)
   useEffect(() => {
-    if (!sessionRef.current) {
-      return;
-    }
-
-    const handleUserTranscription = async (event: { text: string }) => {
+    userTranscriptionHandlerRef.current = async (event: { text: string }) => {
       const userText = event.text.trim();
       if (isInternalSignal(userText)) {
         return;
@@ -3600,7 +3620,7 @@ const LiveAvatarSessionComponent: React.FC<{
         }));
       }
 
-      if (isAvatarTalking) {
+      if (isAvatarTalkingRef.current) {
         safeInterrupt();
       }
 
@@ -3623,6 +3643,13 @@ const LiveAvatarSessionComponent: React.FC<{
           schedulePromptBrain(userText);
           return;
         }
+      }
+
+      if (hasCheckInIntent(userText)) {
+        const spoken = "I'm right here. What do you want to work on?";
+        await speakScriptedResponse(spoken, { forceInterrupt: true });
+        schedulePromptBrain(userText);
+        return;
       }
 
       if (
@@ -4000,48 +4027,11 @@ const LiveAvatarSessionComponent: React.FC<{
       // Process the question using the reusable function (only in streaming mode)
       await processCameraQuestion(userText, false);
     };
-
-    console.log(
-      "Setting up USER_TRANSCRIPTION listener, vision mode:",
-      visionMode,
-    );
-    sessionRef.current.on(
-      AgentEventsEnum.USER_TRANSCRIPTION,
-      handleUserTranscription,
-    );
-
-    return () => {
-      if (processingTimeoutRef.current) {
-        clearTimeout(processingTimeoutRef.current);
-      }
-      if (promptBrainTimeoutRef.current) {
-        clearTimeout(promptBrainTimeoutRef.current);
-      }
-      if (sessionRef.current) {
-        console.log("Cleaning up USER_TRANSCRIPTION listener");
-        // Use removeListener if off is not available
-        if (typeof (sessionRef.current as any).off === "function") {
-          (sessionRef.current as any).off(
-            AgentEventsEnum.USER_TRANSCRIPTION,
-            handleUserTranscription,
-          );
-        } else if (
-          typeof (sessionRef.current as any).removeListener === "function"
-        ) {
-          (sessionRef.current as any).removeListener(
-            AgentEventsEnum.USER_TRANSCRIPTION,
-            handleUserTranscription,
-          );
-        }
-      }
-    };
   }, [
-    sessionRef,
     visionMode,
     processCameraQuestion,
     isRecording,
     isShoppingMode,
-    isAvatarTalking,
     safeInterrupt,
     mode,
     repeat,
@@ -4064,6 +4054,54 @@ const LiveAvatarSessionComponent: React.FC<{
     setListDisplayStyle,
     speakScriptedResponse,
   ]);
+
+  useEffect(() => {
+    if (sessionState !== SessionState.CONNECTED) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let cleanupSessionListener: (() => void) | null = null;
+
+    const handleUserTranscription = (event: { text: string }) => {
+      void userTranscriptionHandlerRef.current?.(event);
+    };
+
+    const installListener = () => {
+      if (cancelled || cleanupSessionListener) return;
+      const session = sessionRef.current;
+      if (!session) {
+        retryTimer = setTimeout(installListener, 100);
+        return;
+      }
+
+      console.log("Setting up USER_TRANSCRIPTION listener");
+      session.on(AgentEventsEnum.USER_TRANSCRIPTION, handleUserTranscription);
+      cleanupSessionListener = () => {
+        console.log("Cleaning up USER_TRANSCRIPTION listener");
+        if (typeof (session as any).off === "function") {
+          (session as any).off(
+            AgentEventsEnum.USER_TRANSCRIPTION,
+            handleUserTranscription,
+          );
+        } else if (typeof (session as any).removeListener === "function") {
+          (session as any).removeListener(
+            AgentEventsEnum.USER_TRANSCRIPTION,
+            handleUserTranscription,
+          );
+        }
+      };
+    };
+
+    installListener();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+      cleanupSessionListener?.();
+    };
+  }, [sessionRef, sessionState]);
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
   const hasInitialAnalysisRef = useRef<boolean>(false);
@@ -5127,9 +5165,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       ) : (
                         <span className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1.5 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
                           <span className="flex items-center gap-3 text-[0.82rem] font-bold uppercase tracking-[0.18em] text-[#f1c477]/78">
-                            <span className="h-px w-10 bg-gradient-to-r from-transparent to-[#e0aa62]/85" />
                             Tap Anywhere
-                            <span className="h-px w-10 bg-gradient-to-l from-transparent to-[#e0aa62]/85" />
                           </span>
                           <span className="text-[1.42rem] font-black leading-none">
                             To Talk to 6
@@ -5372,7 +5408,7 @@ const LiveAvatarSessionComponent: React.FC<{
               <div
                 className="fixed left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none"
                 style={{
-                  bottom: `calc(env(safe-area-inset-bottom) + ${2.75 + promptSizeLevel * 0.25}rem)`,
+                  bottom: `calc(env(safe-area-inset-bottom) + ${3.05 + promptSizeLevel * 0.25}rem)`,
                 }}
               >
                 {thoughtPrompts.slice(0, onlineLookupNotice ? 3 : 4).map((prompt, index) => {
