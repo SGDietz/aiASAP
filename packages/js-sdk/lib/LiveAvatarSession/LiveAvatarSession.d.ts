@@ -26,11 +26,11 @@ export declare class LiveAvatarSession extends LiveAvatarSession_base {
     stop(): Promise<void>;
     keepAlive(): Promise<void>;
     attach(element: HTMLMediaElement): void;
-    message(message: string): string | void;
-    repeat(message: string): string | void;
-    repeatAudio(audio: string): string | void;
-    startListening(): string | void;
-    stopListening(): string | void;
+    message(message: string): void;
+    repeat(message: string): void;
+    repeatAudio(audio: string): void;
+    startListening(): void;
+    stopListening(): void;
     interrupt(): void;
     private trackEvents;
     private connectWebSocket;

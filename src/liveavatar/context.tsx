@@ -92,26 +92,6 @@ const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
   return { sessionState, isStreamReady, connectionQuality };
 };
 
-const getFriendlyMicrophoneWarning = (message: string): string => {
-  if (
-    /getUserMedia|mediaDevices|secure context|Cannot read properties/i.test(
-      message,
-    )
-  ) {
-    return "Voice needs HTTPS on phones. Open the secure aiASAP link to talk with 6.";
-  }
-
-  if (/denied|not allowed|permission/i.test(message)) {
-    return "Microphone permission is off. Allow the mic, then tap again.";
-  }
-
-  return message
-    .replace(/^Warning:\s*/i, "")
-    .replace(/^Microphone not available:\s*/i, "Microphone is not available yet. ")
-    .replace(/\s*Session will continue without voice chat\.?\s*$/i, "")
-    .trim();
-};
-
 const useVoiceChatState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
   const [isMuted, setIsMuted] = useState(true);
   const [voiceChatState, setVoiceChatState] = useState<VoiceChatState>(
@@ -128,7 +108,6 @@ const useVoiceChatState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
       });
       sessionRef.current.voiceChat.on(VoiceChatEvent.UNMUTED, () => {
         setIsMuted(false);
-        setMicrophoneWarning(null);
       });
       sessionRef.current.voiceChat.on(
         VoiceChatEvent.STATE_CHANGED,
@@ -137,7 +116,7 @@ const useVoiceChatState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
       sessionRef.current.voiceChat.on(
         VoiceChatEvent.WARNING,
         (message: string) => {
-          setMicrophoneWarning(getFriendlyMicrophoneWarning(message));
+          setMicrophoneWarning(message);
         },
       );
     }
