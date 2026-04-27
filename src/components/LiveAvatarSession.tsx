@@ -198,7 +198,7 @@ const REMOVE_COMMAND_RE =
 const LIST_NAV_NEXT_RE = /\b(?:next|another|toggle|switch)\s+list\b/i;
 const LIST_NAV_PREV_RE = /\b(?:previous|prior|last|back)\s+list\b/i;
 const LIST_CLOSE_RE =
-  /\b(?:close|hide|dismiss|put away|minimize)\s+(?:the|my|this|that)?\s*(?:list|lists)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+disappear\b|\b(?:take|remove)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\s+(?:off|from)\s+(?:the\s+)?screen\b/i;
+  /\b(?:close|hide|dismiss|drop|put away|take down|minimize)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+(?:disappear|go away)\b|\b(?:take|remove|drop)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\s+(?:down|off|from)(?:\s+(?:the\s+)?screen)?\b|\bno\s+(?:visible\s+)?list\b|\bback\s+to\s+(?:the\s+)?(?:prompts|boxes)\b/i;
 const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
 const BUG_REPORT_TRIGGER_RE =
@@ -208,15 +208,17 @@ const ACCOUNT_SETUP_TRIGGER_RE =
 const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
   /\b(?:send me (?:an?\s+)?email|email reminder|text me|notify me|two weeks before|2 weeks before|one week before|1 week before|day before|morning of|set (?:those|that|them) reminders?|save (?:that|this) reminder)\b/i;
 const ACCOUNT_READY_YES_RE =
-  /\b(?:yes|yeah|yep|sure|ready|ok|okay|do it|let'?s do it|set it up|send it)\b/i;
+  /\b(?:yes|yeah|yep|sure|ready|ok|okay|correct|that'?s correct|that is correct|that'?s right|that is right|that does|sounds right|looks right|looks good|do it|let'?s do it|set it up|send it)\b/i;
 const ACCOUNT_READY_NO_RE = /\b(?:no|not now|later|stop|never mind|cancel)\b/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const END_CONVERSATION_RE =
+  /\b(?:end|stop|finish|wrap up|done with|all done|that'?s all)\s+(?:this\s+)?(?:conversation|session|chat|talk|for now)?\b|\bi'?m done\b/i;
 const ONLINE_LOOKUP_TOPIC_RE =
-  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|weekend|weekend activities|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
+  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
 const ONLINE_LOOKUP_ACTION_RE =
-  /\b(?:find|look up|search|show me|where|nearby|near me|check|help me find)\b/i;
+  /\b(?:find|look up|search|show me|where|nearby|near me|check|help me find|plan)\b/i;
 const ONLINE_LOOKUP_DIRECT_RE =
-  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|concert|concerts|show|shows|events?|restaurants?)\b/i;
+  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|weekend|cool things to do|concert|concerts|show|shows|events?|restaurants?)\b/i;
 const LOCATION_HINT_RE =
   /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
 const LOCATION_SHARE_CHOICE_RE =
@@ -230,7 +232,7 @@ const LIST_MUTATION_SIGNAL_RE =
 const LIST_CONVERSATION_FRAGMENT_RE =
   /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got|well|so|you|letter g|i have a grocery|take i have a grocery)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got|well|so|you|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
@@ -366,7 +368,9 @@ function loadDeviceProfile(): DeviceProfile {
     const parsed = JSON.parse(raw) as Partial<DeviceProfile>;
     const name =
       typeof parsed.name === "string" && parsed.name.trim()
-        ? parsed.name.trim().slice(0, 40)
+        ? /^(?:just|yeah|yep|okay|ok)$/i.test(parsed.name.trim())
+          ? null
+          : parsed.name.trim().slice(0, 40)
         : null;
     const greetingCount =
       typeof parsed.greetingCount === "number" && Number.isFinite(parsed.greetingCount)
@@ -406,6 +410,7 @@ function correctListItem(item: string): string {
 const DEVICE_NAME_STOP_WORDS = new Set([
   "yes",
   "no",
+  "just",
   "okay",
   "ok",
   "grocery",
@@ -510,9 +515,13 @@ function cleanListItem(
     .replace(/^let'?s work on this next:\s*/i, "")
     .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
+    .replace(/\bfor\s+tacos?\b/gi, (match) =>
+      value.trim().toLowerCase() === match.toLowerCase() ? "Taco Stuff" : " ",
+    )
     .replace(/\b(?:um|uh|like|please)\b/gi, " ")
-    .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|list|my list|the list)\b/gi, " ")
+    .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|grocery|groceries|shopping|walmart|list|my list|the list)\b/gi, " ")
     .replace(LIST_ITEM_PREFIX_RE, "")
+    .replace(/^(?:some|a|an|the)\s+/i, "")
     .replace(/[.!?]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -557,6 +566,16 @@ function isOnlineLookupIntent(text: string): boolean {
   if (ONLINE_LOOKUP_ACTION_RE.test(text)) return true;
   if (ONLINE_LOOKUP_DIRECT_RE.test(text)) return true;
   return false;
+}
+
+function summarizeOnlineLookupTopic(query: string): string {
+  return query
+    .replace(/^let'?s work on this next:\s*/i, "")
+    .replace(/\b(?:can you|could you|please|help me|i want to|i need to)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 56)
+    .replace(/[.?!,;:]+$/g, "") || "that";
 }
 
 function extractLocationHint(text: string): string | null {
@@ -644,12 +663,12 @@ function detectListIntent(text: string): {
   if (isInternalSignal(text)) return null;
   const value = text.toLowerCase();
 
-  if (/\bgrocer(?:y|ies)\b/.test(value)) {
-    return { title: "Grocery List", kind: "grocery" };
-  }
-
   if (/\bwalmart\b/.test(value)) {
     return { title: "Walmart List", kind: "shopping" };
+  }
+
+  if (/\bgrocer(?:y|ies)\b/.test(value)) {
+    return { title: "Grocery List", kind: "grocery" };
   }
 
   const todoScope =
@@ -838,6 +857,27 @@ function extractSpokenEmailCandidate(text: string): string | null {
   return isValidEmailCandidate(candidate) ? candidate : null;
 }
 
+function mergeEmailDomainCorrection(
+  text: string,
+  previousEmail: string | null,
+): string | null {
+  if (!previousEmail || !previousEmail.includes("@")) return null;
+  const local = previousEmail.split("@")[0];
+  if (!local || local.length < 2) return null;
+  const normalized = text
+    .toLowerCase()
+    .replace(/[']/g, "")
+    .replace(/\b(?:dot|period|point)\b/g, ".")
+    .replace(/[^a-z0-9.\s-]/g, " ")
+    .replace(/\s*\.\s*/g, ".")
+    .replace(/\s+/g, " ")
+    .trim();
+  const domain = normalized.match(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/)?.[0];
+  if (!domain) return null;
+  const candidate = `${local}@${domain}`;
+  return isValidEmailCandidate(candidate) ? candidate : null;
+}
+
 function extractAccountEmailCandidate(
   text: string,
   fallbackEmail: string | null,
@@ -971,6 +1011,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
   const accountSetupPendingEmailRef = useRef<string | null>(null);
+  const accountSetupRejectedEmailRef = useRef<string | null>(null);
   const accountSetupOfferMadeRef = useRef(false);
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -1549,7 +1590,7 @@ const LiveAvatarSessionComponent: React.FC<{
     [activeList, activeListId, assistantLists, isShoppingMode, repeat],
   );
 
-  const offerAccountSetupForMemory = useCallback(async () => {
+  const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
     if (
       accountEmail ||
       accountSetupOfferMadeRef.current ||
@@ -1563,7 +1604,9 @@ const LiveAvatarSessionComponent: React.FC<{
     accountSetupAwaitingReadyRef.current = true;
     accountSetupAwaitingEmailRef.current = false;
     accountSetupPendingEmailRef.current = null;
+    accountSetupRejectedEmailRef.current = null;
     const spoken =
+      customSpoken ||
       "Let's get that account set up. It's just a quick email click. Then next time I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
     await repeat(spoken);
     lastAvatarResponseRef.current = spoken;
@@ -1574,7 +1617,12 @@ const LiveAvatarSessionComponent: React.FC<{
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
       const contact = extractContactDetails(userText);
-      const directEmail = extractAccountEmailCandidate(userText, contact.email);
+      const correctedEmail = mergeEmailDomainCorrection(
+        userText,
+        accountSetupPendingEmailRef.current ?? accountSetupRejectedEmailRef.current,
+      );
+      const directEmail =
+        extractAccountEmailCandidate(userText, contact.email) ?? correctedEmail;
 
       if (accountSetupPendingEmailRef.current) {
         if (
@@ -1596,9 +1644,12 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupPendingEmailRef.current = null;
           accountSetupAwaitingEmailRef.current = false;
           accountSetupAwaitingReadyRef.current = false;
+          accountSetupRejectedEmailRef.current = null;
           return await startAccountSetup(emailToSend);
         }
         if (ACCOUNT_READY_NO_RE.test(userText)) {
+          accountSetupRejectedEmailRef.current =
+            accountSetupPendingEmailRef.current;
           accountSetupPendingEmailRef.current = null;
           accountSetupAwaitingEmailRef.current = true;
           accountSetupAwaitingReadyRef.current = false;
@@ -1620,6 +1671,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (accountSetupAwaitingEmailRef.current && directEmail) {
         const normalizedEmail = directEmail.trim().toLowerCase();
         accountSetupPendingEmailRef.current = normalizedEmail;
+        accountSetupRejectedEmailRef.current = null;
         accountSetupAwaitingEmailRef.current = false;
         accountSetupAwaitingReadyRef.current = false;
         const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
@@ -1643,6 +1695,7 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupAwaitingReadyRef.current = false;
           accountSetupAwaitingEmailRef.current = false;
           accountSetupPendingEmailRef.current = null;
+          accountSetupRejectedEmailRef.current = null;
           const spoken =
             "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
           await repeat(spoken);
@@ -1654,6 +1707,7 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupAwaitingReadyRef.current = false;
           accountSetupAwaitingEmailRef.current = true;
           accountSetupPendingEmailRef.current = null;
+          accountSetupRejectedEmailRef.current = null;
           const spoken = "Great. What email address should I send the link to?";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -1666,6 +1720,7 @@ const LiveAvatarSessionComponent: React.FC<{
         if (directEmail) {
           const normalizedEmail = directEmail.trim().toLowerCase();
           accountSetupPendingEmailRef.current = normalizedEmail;
+          accountSetupRejectedEmailRef.current = null;
           accountSetupAwaitingReadyRef.current = false;
           accountSetupAwaitingEmailRef.current = false;
           const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
@@ -1677,6 +1732,7 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupAwaitingReadyRef.current = true;
         accountSetupAwaitingEmailRef.current = false;
         accountSetupPendingEmailRef.current = null;
+        accountSetupRejectedEmailRef.current = null;
         const spoken =
           "You can use the site right now, but if you want me to remember everything next time, let's get that account set up. It's just a quick email click. Then when you come back, I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
         await repeat(spoken);
@@ -1960,9 +2016,10 @@ const LiveAvatarSessionComponent: React.FC<{
   const performOnlineLookup = useCallback(
     async (query: string, location: string) => {
       if (isOnlineLookupLoading) return true;
+      const topic = summarizeOnlineLookupTopic(query);
       setIsOnlineLookupLoading(true);
       setOnlineLookupSources([]);
-      setOnlineLookupNotice("Looking online...");
+      setOnlineLookupNotice(`Looking online for ${topic}`);
       try {
         const response = await fetch("/api/online-search", {
           method: "POST",
@@ -1987,7 +2044,7 @@ const LiveAvatarSessionComponent: React.FC<{
         setOnlineLookupSources(sources);
         setOnlineLookupNotice(
           sources.length > 0
-            ? "Online sources ready"
+            ? `Sources ready for ${topic}`
             : "Online lookup complete",
         );
         const spoken =
@@ -2075,9 +2132,9 @@ const LiveAvatarSessionComponent: React.FC<{
 
       onlineLookupPendingQueryRef.current = text;
       setOnlineLookupSources([]);
-      setOnlineLookupNotice("Give ZIP code or share location");
+      setOnlineLookupNotice("Tell 6 where to look");
       const spoken =
-        "I can look that up online. Do you want to give me your ZIP code, or share your location? If you choose Share Location, your phone or browser will ask permission first.";
+        "I can look that up online. Tell me your city or ZIP code, or say share location and your phone or browser will ask permission first. What kind of cool things do you like?";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
@@ -2085,7 +2142,7 @@ const LiveAvatarSessionComponent: React.FC<{
         normalizeThoughtPrompts([
           "Give ZIP Code",
           "Share Location",
-          "Plan This Weekend",
+          "Find Cool Things",
           "Check the Weather",
         ]),
       );
@@ -2991,6 +3048,18 @@ const LiveAvatarSessionComponent: React.FC<{
         if (didFileBug) return;
       }
 
+      if (
+        END_CONVERSATION_RE.test(userText) &&
+        !accountEmail &&
+        assistantLists.some((list) => list.items.length > 0) &&
+        (await offerAccountSetupForMemory(
+          "Before we wrap up, I can remember those lists next time if you create an account. It's just a quick email click. You ready?",
+        ))
+      ) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
       if (await handleAccountSetupSpeech(userText)) {
         schedulePromptBrain(userText);
         return;
@@ -3010,6 +3079,8 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
+      const listIntent = detectListIntent(userText);
+
       if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
         setIsShoppingMode(false);
         void interrupt();
@@ -3018,8 +3089,12 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (LIST_CLOSE_RE.test(userText)) {
-        setActiveListId(null);
         setIsShoppingMode(false);
+        if (listIntent && LIST_COMMAND_ONLY_RE.test(userText)) {
+          ensureAssistantList(listIntent);
+        } else {
+          setActiveListId(null);
+        }
         void interrupt();
         schedulePromptBrain(userText);
         return;
@@ -3031,7 +3106,6 @@ const LiveAvatarSessionComponent: React.FC<{
         moveActiveList(-1);
       }
 
-      const listIntent = detectListIntent(userText);
       const targetListId = listIntent
         ? ensureAssistantList(listIntent)
         : activeListId;
@@ -3306,9 +3380,11 @@ const LiveAvatarSessionComponent: React.FC<{
     mode,
     repeat,
     isProcessingCameraQuestion,
+    accountEmail,
     activeList,
     activeListId,
     addItemsToList,
+    assistantLists,
     ensureAssistantList,
     fileBugReport,
     handleAccountSetupSpeech,
@@ -4025,7 +4101,7 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {onlineLookupNotice && !isShoppingMode && (
-        <div className="fixed inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+13.6rem)] z-[74] mx-auto max-w-[28rem] rounded-lg border border-[#e0aa62]/25 bg-black/78 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur">
+        <div className="fixed left-1/2 top-[52%] z-[74] w-[min(90%,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#e0aa62]/25 bg-black/78 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold">{onlineLookupNotice}</p>
@@ -4089,7 +4165,7 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="relative top-[0.28rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="relative top-[0.5rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
@@ -4333,8 +4409,15 @@ const LiveAvatarSessionComponent: React.FC<{
                       {voiceStartAwaitingReady ? (
                         <span className="block">Starting…</span>
                       ) : (
-                        <span className="inline-flex min-h-[3.45rem] items-center justify-center rounded-full border border-[#e0aa62]/30 bg-black/35 px-8 text-[1.32rem] font-bold leading-none text-[#e0aa62] shadow-[inset_0_1px_16px_rgba(255,255,255,0.06),0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur-[3px]">
-                          Tap Anywhere to Begin
+                        <span className="inline-flex min-h-[3.45rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
+                          <span className="flex items-center gap-2 text-[0.84rem] font-bold uppercase tracking-[0.18em] text-[#f1c477]/78">
+                            <span className="h-2 w-2 rounded-full bg-[#e0aa62] shadow-[0_0_18px_rgba(224,170,98,0.95)]" />
+                            Tap Anywhere
+                            <span className="h-2 w-2 rounded-full bg-[#e0aa62] shadow-[0_0_18px_rgba(224,170,98,0.95)]" />
+                          </span>
+                          <span className="text-[1.36rem] font-black leading-none">
+                            Start Talking With 6
+                          </span>
                         </span>
                       )}
                     </p>
@@ -4482,7 +4565,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   </ol>
                 ) : (
                   <p className="pt-16 text-center text-2xl font-bold opacity-70">
-                    Say what you need
+                    Add Things by Telling 6
                   </p>
                 )}
               </div>
@@ -4556,7 +4639,7 @@ const LiveAvatarSessionComponent: React.FC<{
                     </ol>
                   ) : (
                     <p className="pt-6 text-center text-[1.2rem] font-semibold leading-snug opacity-80">
-                      Say what you need
+                      Add Things by Telling 6
                     </p>
                   )}
                 </div>

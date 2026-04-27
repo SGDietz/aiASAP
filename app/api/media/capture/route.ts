@@ -88,7 +88,10 @@ export async function POST(request: Request) {
 
   const accountToken = parseCookie(request, getAccountCookieName());
   const accountUser = await getStorageAccountFromSessionToken(accountToken);
-  if (!accountUser && process.env.AIASAP_ALLOW_ANON_MEDIA_CAPTURE !== "true") {
+  const requireAccount =
+    process.env.AIASAP_REQUIRE_ACCOUNT_FOR_MEDIA === "true" ||
+    process.env.AIASAP_ALLOW_ANON_MEDIA_CAPTURE === "false";
+  if (!accountUser && requireAccount) {
     return jsonError("Account required", 401);
   }
 
