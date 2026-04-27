@@ -1963,10 +1963,10 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (mode === "FULL") {
         clearListeningResume();
-        if (options.forceInterrupt || isAvatarTalking) {
+        if (isAvatarTalking) {
           safeInterrupt();
+          await new Promise((resolve) => window.setTimeout(resolve, 140));
         }
-        await new Promise((resolve) => window.setTimeout(resolve, 140));
       }
 
       try {
@@ -2866,7 +2866,7 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const handleVoiceStartStop = useCallback(async () => {
-    if (isActive) {
+    if (isActive && hasUserPressedVoiceStart) {
       clearListeningResume();
       safeInterrupt();
       stop();
@@ -2885,7 +2885,9 @@ const LiveAvatarSessionComponent: React.FC<{
       if (!ok) {
         return;
       }
-      await start({ defaultMuted: false });
+      if (!isActive) {
+        await start({ defaultMuted: false });
+      }
       const profile = deviceProfileRef.current;
       const isReturning = Boolean(accountEmail || profile.name);
       const greeting = isReturning
@@ -2900,7 +2902,6 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       setHasUserPressedVoiceStart(true);
       await speakScriptedResponse(greeting, {
-        forceInterrupt: true,
         forceResume: true,
       });
     } finally {
@@ -2909,6 +2910,7 @@ const LiveAvatarSessionComponent: React.FC<{
   }, [
     clearListeningResume,
     isActive,
+    hasUserPressedVoiceStart,
     safeInterrupt,
     safeStopAvatarListening,
     speakScriptedResponse,
@@ -2925,7 +2927,7 @@ const LiveAvatarSessionComponent: React.FC<{
     mode === "FULL" &&
     visionMode !== "streaming" &&
     !isCameraActive &&
-    !isActive &&
+    !hasUserPressedVoiceStart &&
     !isAvatarTalking &&
     sessionState === SessionState.CONNECTED &&
     isStreamReady &&
@@ -2935,7 +2937,7 @@ const LiveAvatarSessionComponent: React.FC<{
     mode === "FULL" &&
     visionMode !== "streaming" &&
     !isCameraActive &&
-    !isActive &&
+    !hasUserPressedVoiceStart &&
     !isAvatarTalking &&
     !shouldShowBeginSurface &&
     (sessionState !== SessionState.CONNECTED || !isStreamReady || isLoading);
@@ -5144,7 +5146,7 @@ const LiveAvatarSessionComponent: React.FC<{
       </div>
 
       {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 top-[51%] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none sm:top-[52%]">
+        <div className="fixed inset-x-0 top-[52%] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none sm:top-[53%]">
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
             <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
               Loading
