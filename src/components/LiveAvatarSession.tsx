@@ -1286,6 +1286,7 @@ const LiveAvatarSessionComponent: React.FC<{
     null,
   );
   const listeningResumeCleanupRef = useRef<(() => void) | null>(null);
+  const browserSpeechRef = useRef<SpeechSynthesisUtterance | null>(null);
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -1355,6 +1356,53 @@ const LiveAvatarSessionComponent: React.FC<{
     null,
   );
   const sessionStartErrorRef = useRef<string | null>(null);
+  const [voiceDebugEnabled, setVoiceDebugEnabled] = useState(false);
+  const [voiceDebugLines, setVoiceDebugLines] = useState<string[]>([]);
+
+  const logVoiceDebug = useCallback((label: string, detail?: unknown) => {
+    const value =
+      detail === undefined
+        ? ""
+        : `: ${
+            typeof detail === "string"
+              ? detail
+              : JSON.stringify(detail, null, 0)
+          }`;
+    const line = `${new Date().toLocaleTimeString()} ${label}${value}`;
+    console.log("[voice-debug]", line);
+    setVoiceDebugLines((current) => [...current.slice(-8), line]);
+  }, []);
+
+  useEffect(() => {
+    setVoiceDebugEnabled(
+      window.location.hostname === "localhost" ||
+        window.location.search.includes("debugVoice=1"),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!voiceDebugEnabled) return;
+    logVoiceDebug(
+      "state",
+      `session=${sessionState} stream=${isStreamReady} voiceActive=${isActive} voiceLoading=${isLoading} muted=${isMuted} userTalking=${isUserTalking} avatarTalking=${isAvatarTalking}`,
+    );
+  }, [
+    isActive,
+    isAvatarTalking,
+    isLoading,
+    isMuted,
+    isStreamReady,
+    isUserTalking,
+    logVoiceDebug,
+    sessionState,
+    voiceDebugEnabled,
+  ]);
+
+  useEffect(() => {
+    if (voiceDebugEnabled && microphoneWarning) {
+      logVoiceDebug("mic warning", microphoneWarning);
+    }
+  }, [logVoiceDebug, microphoneWarning, voiceDebugEnabled]);
 
   const runPromptBrain = useCallback(async (text: string) => {
     const latestUserText = text.trim();
@@ -1897,6 +1945,51 @@ const LiveAvatarSessionComponent: React.FC<{
     visionMode,
   ]);
 
+  const speakWithBrowserFallback = useCallback(
+    (spoken: string) => {
+      if (
+        typeof window === "undefined" ||
+        !("speechSynthesis" in window) ||
+        typeof SpeechSynthesisUtterance === "undefined"
+      ) {
+        logVoiceDebug("browser speech unavailable");
+        return false;
+      }
+
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(spoken);
+        utterance.lang = "en-US";
+        utterance.rate = 0.96;
+        utterance.pitch = 0.92;
+        const voices = window.speechSynthesis.getVoices();
+        const preferredVoice = voices.find((voice) =>
+          /\b(?:david|mark|daniel|male|google us english)\b/i.test(
+            `${voice.name} ${voice.voiceURI}`,
+          ),
+        );
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+        }
+        utterance.onstart = () => logVoiceDebug("browser speech started");
+        utterance.onend = () => logVoiceDebug("browser speech ended");
+        utterance.onerror = (event) =>
+          logVoiceDebug("browser speech error", event.error);
+        browserSpeechRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
+        window.speechSynthesis.resume();
+        return true;
+      } catch (error) {
+        logVoiceDebug(
+          "browser speech failed",
+          error instanceof Error ? error.message : String(error),
+        );
+        return false;
+      }
+    },
+    [logVoiceDebug],
+  );
+
   const scheduleListeningResume = useCallback(
     (spoken: string, forceResume = false) => {
       clearListeningResume();
@@ -1960,11 +2053,14 @@ const LiveAvatarSessionComponent: React.FC<{
     ) => {
       const message = spoken.trim();
       if (!message) return false;
+      logVoiceDebug("speak request", message.slice(0, 120));
 
       if (mode === "FULL") {
         clearListeningResume();
+        logVoiceDebug("speak stop listening");
         safeStopAvatarListening();
         if (isAvatarTalking) {
+          logVoiceDebug("speak interrupt current avatar");
           safeInterrupt();
           await new Promise((resolve) => window.setTimeout(resolve, 140));
         } else {
@@ -1973,16 +2069,55 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       try {
-        await waitForAvatarSession();
-        console.log("Scripted avatar speech starting:", message);
-        await repeat(message);
-        console.log("Scripted avatar speech accepted:", message);
+        const session = await waitForAvatarSession();
+        let avatarSpeechStarted = false;
+        let fallbackTimer: number | null = null;
+        const cleanupFallbackListener = () => {
+          if (!session) return;
+          if (typeof (session as any).off === "function") {
+            (session as any).off(
+              AgentEventsEnum.AVATAR_SPEAK_STARTED,
+              onAvatarSpeakStartedForFallback,
+            );
+          } else if (typeof (session as any).removeListener === "function") {
+            (session as any).removeListener(
+              AgentEventsEnum.AVATAR_SPEAK_STARTED,
+              onAvatarSpeakStartedForFallback,
+            );
+          }
+        };
+        const onAvatarSpeakStartedForFallback = () => {
+          avatarSpeechStarted = true;
+          if (fallbackTimer) {
+            window.clearTimeout(fallbackTimer);
+            fallbackTimer = null;
+          }
+          cleanupFallbackListener();
+        };
+        session?.on(
+          AgentEventsEnum.AVATAR_SPEAK_STARTED,
+          onAvatarSpeakStartedForFallback,
+        );
+        logVoiceDebug("repeat send", message.slice(0, 120));
+        const repeatResult = await repeat(message);
+        logVoiceDebug("repeat returned", String(repeatResult ?? "void"));
+        fallbackTimer = window.setTimeout(() => {
+          if (!avatarSpeechStarted) {
+            logVoiceDebug("repeat no avatar speak; browser fallback");
+            speakWithBrowserFallback(message);
+          }
+          cleanupFallbackListener();
+        }, 1800);
         lastAvatarResponseRef.current = message;
         lastVisionResponseTimeRef.current = Date.now();
         scheduleListeningResume(message, Boolean(options.forceResume));
         return true;
       } catch (error) {
         console.error("Scripted avatar speech failed:", error);
+        logVoiceDebug(
+          "speak failed",
+          error instanceof Error ? error.message : String(error),
+        );
         scheduleListeningResume("", Boolean(options.forceResume));
         return false;
       }
@@ -1991,10 +2126,12 @@ const LiveAvatarSessionComponent: React.FC<{
       clearListeningResume,
       isAvatarTalking,
       mode,
+      logVoiceDebug,
       repeat,
       safeInterrupt,
       safeStopAvatarListening,
       scheduleListeningResume,
+      speakWithBrowserFallback,
       waitForAvatarSession,
     ],
   );
@@ -2005,6 +2142,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (!message) return false;
 
       try {
+        logVoiceDebug("assistant fetch start", message.slice(0, 120));
         const response = await fetch("/api/openai-chat-complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2016,19 +2154,24 @@ const LiveAvatarSessionComponent: React.FC<{
         if (!response.ok || !spoken) {
           throw new Error(data?.error || "General assistant response failed");
         }
+        logVoiceDebug("assistant fetch ok", spoken.slice(0, 120));
         return speakScriptedResponse(spoken, {
           forceInterrupt: true,
           forceResume: true,
         });
       } catch (error) {
         console.error("General assistant response failed:", error);
+        logVoiceDebug(
+          "assistant fetch failed",
+          error instanceof Error ? error.message : String(error),
+        );
         return speakScriptedResponse(
           "I'm right here. Say that one more time and I'll stay with you.",
           { forceInterrupt: true, forceResume: true },
         );
       }
     },
-    [speakScriptedResponse],
+    [logVoiceDebug, speakScriptedResponse],
   );
 
   useEffect(() => clearListeningResume, [clearListeningResume]);
@@ -2462,6 +2605,9 @@ const LiveAvatarSessionComponent: React.FC<{
         const userMessages = Array.isArray(data.userMessages)
           ? data.userMessages
           : [];
+        if (userMessages.length > 0) {
+          logVoiceDebug("transcript sync users", String(userMessages.length));
+        }
         for (const item of userMessages) {
           if (
             item &&
@@ -2473,6 +2619,10 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       } catch (e) {
         console.error("LiveAvatar transcript sync failed:", e);
+        logVoiceDebug(
+          "transcript sync failed",
+          e instanceof Error ? e.message : String(e),
+        );
       }
     };
 
@@ -2480,7 +2630,7 @@ const LiveAvatarSessionComponent: React.FC<{
     const intervalMs = 3_000;
     const id = setInterval(runSync, intervalMs);
     return () => clearInterval(id);
-  }, [sessionState, sessionRef]);
+  }, [logVoiceDebug, sessionState, sessionRef]);
 
   // Function to reset to home screen (close camera, clear uploads, but keep session)
   const resetToHomeScreen = useCallback(() => {
@@ -2576,18 +2726,28 @@ const LiveAvatarSessionComponent: React.FC<{
       return;
     }
     const onAvatarSpeakStarted = () => {
+      logVoiceDebug("avatar speak started");
       if (!audioUnlockedRef.current) {
+        logVoiceDebug("avatar speak interrupted before audio unlock");
         safeInterrupt();
       }
     };
+    const onAvatarSpeakEnded = () => {
+      logVoiceDebug("avatar speak ended");
+    };
     session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, onAvatarSpeakStarted);
+    session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, onAvatarSpeakEnded);
     return () => {
       session.removeListener(
         AgentEventsEnum.AVATAR_SPEAK_STARTED,
         onAvatarSpeakStarted,
       );
+      session.removeListener(
+        AgentEventsEnum.AVATAR_SPEAK_ENDED,
+        onAvatarSpeakEnded,
+      );
     };
-  }, [sessionRef, safeInterrupt]);
+  }, [logVoiceDebug, sessionRef, safeInterrupt]);
 
   /** Ensure remote avatar audio can play (mobile autoplay policies). Call from explicit button taps only. */
   const ensureAudioOutputReady = useCallback(async (): Promise<boolean> => {
@@ -2869,8 +3029,16 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const handleVoiceStartStop = useCallback(async () => {
+    logVoiceDebug(
+      "tap voice",
+      `active=${isActive} pressed=${hasUserPressedVoiceStart} session=${sessionState} stream=${isStreamReady}`,
+    );
     if (isActive && hasUserPressedVoiceStart) {
       clearListeningResume();
+      logVoiceDebug("tap stopping voice");
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
       safeInterrupt();
       stop();
       setHasUserPressedVoiceStart(false);
@@ -2880,23 +3048,32 @@ const LiveAvatarSessionComponent: React.FC<{
       return;
     }
     if (sessionState !== SessionState.CONNECTED || !isStreamReady) {
+      logVoiceDebug("tap ignored not ready");
       return;
     }
     setVoiceStartAwaitingReady(true);
     try {
+      logVoiceDebug("audio unlock start");
       const ok = await ensureAudioOutputReady();
+      logVoiceDebug("audio unlock result", String(ok));
       if (!ok) {
         return;
       }
       setHasUserPressedVoiceStart(true);
       if (!isActive) {
+        logVoiceDebug("voice start call");
         const voiceStartAttempt = start({ defaultMuted: false }).catch((error) => {
+          logVoiceDebug(
+            "voice start failed",
+            error instanceof Error ? error.message : String(error),
+          );
           console.warn("Voice chat start did not complete before greeting:", error);
         });
         await Promise.race([
           voiceStartAttempt,
           new Promise((resolve) => window.setTimeout(resolve, 1200)),
         ]);
+        logVoiceDebug("voice start race done");
       }
       const profile = deviceProfileRef.current;
       const isReturning = Boolean(accountEmail || profile.name);
@@ -2914,6 +3091,7 @@ const LiveAvatarSessionComponent: React.FC<{
         forceResume: true,
       });
     } finally {
+      logVoiceDebug("tap voice finally");
       setVoiceStartAwaitingReady(false);
     }
   }, [
@@ -2930,6 +3108,7 @@ const LiveAvatarSessionComponent: React.FC<{
     isStreamReady,
     ensureAudioOutputReady,
     accountEmail,
+    logVoiceDebug,
   ]);
 
   const shouldShowBeginSurface =
@@ -3666,10 +3845,13 @@ const LiveAvatarSessionComponent: React.FC<{
   useEffect(() => {
     userTranscriptionHandlerRef.current = async (event: { text: string }) => {
       const userText = event.text.trim();
+      logVoiceDebug("transcript", userText.slice(0, 140));
       if (isInternalSignal(userText)) {
+        logVoiceDebug("transcript ignored internal");
         return;
       }
       if (!shouldHandleUserText(userText)) {
+        logVoiceDebug("transcript ignored duplicate");
         return;
       }
       lastUserTextRef.current = userText;
@@ -3725,6 +3907,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (hasCheckInIntent(userText)) {
         const spoken = "I'm right here. What do you want to work on?";
+        logVoiceDebug("branch check-in");
         await speakScriptedResponse(spoken, { forceInterrupt: true });
         schedulePromptBrain(userText);
         return;
@@ -3959,6 +4142,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // Only process in streaming mode (Go Live)
       if (visionMode !== "streaming") {
         console.log("Routing non-streaming transcription to normal assistant");
+        logVoiceDebug("branch general assistant");
         await speakGeneralAssistantResponse(userText);
         return;
       }
@@ -4126,6 +4310,7 @@ const LiveAvatarSessionComponent: React.FC<{
     handleAccountSetupSpeech,
     handleOnlineLookupSpeech,
     handlePromptSizeSpeech,
+    logVoiceDebug,
     moveActiveList,
     offerAccountSetupForMemory,
     removeItemsFromList,
@@ -4857,6 +5042,23 @@ const LiveAvatarSessionComponent: React.FC<{
             >
               Back
             </button>
+          )}
+        </div>
+      )}
+
+      {voiceDebugEnabled && (
+        <div className="pointer-events-none fixed right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[95] max-w-[min(92vw,32rem)] rounded-md border border-[#e0aa62]/35 bg-black/82 px-3 py-2 text-left text-[0.68rem] font-semibold leading-snug text-[#f1c477] shadow-2xl backdrop-blur">
+          <div className="mb-1 text-[0.72rem] uppercase tracking-[0.14em] text-white/70">
+            Voice Debug
+          </div>
+          {voiceDebugLines.length === 0 ? (
+            <div>waiting...</div>
+          ) : (
+            voiceDebugLines.map((line, index) => (
+              <div key={`${line}-${index}`} className="whitespace-pre-wrap">
+                {line}
+              </div>
+            ))
           )}
         </div>
       )}
