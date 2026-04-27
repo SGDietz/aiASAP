@@ -1196,6 +1196,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const userTranscriptionHandlerRef = useRef<
     ((event: { text: string }) => void | Promise<void>) | null
   >(null);
+  const recentHandledUserTextsRef = useRef<Map<string, number>>(new Map());
   const lastAvatarResponseRef = useRef<string>("");
   const lastUserTextRef = useRef<string>("");
   const lastVisionResponseTimeRef = useRef<number>(0);
@@ -1837,6 +1838,24 @@ const LiveAvatarSessionComponent: React.FC<{
     return sessionRef.current;
   }, [sessionRef]);
 
+  const shouldHandleUserText = useCallback((text: string) => {
+    const key = text.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!key) return false;
+    const now = Date.now();
+    const handled = recentHandledUserTextsRef.current;
+    for (const [handledKey, handledAt] of handled) {
+      if (now - handledAt > 20_000) {
+        handled.delete(handledKey);
+      }
+    }
+    const lastHandledAt = handled.get(key);
+    if (lastHandledAt && now - lastHandledAt < 8_000) {
+      return false;
+    }
+    handled.set(key, now);
+    return true;
+  }, []);
+
   const safeInterrupt = useCallback(() => {
     try {
       interrupt();
@@ -1953,7 +1972,9 @@ const LiveAvatarSessionComponent: React.FC<{
 
       try {
         await waitForAvatarSession();
+        console.log("Scripted avatar speech starting:", message);
         await repeat(message);
+        console.log("Scripted avatar speech accepted:", message);
         lastAvatarResponseRef.current = message;
         lastVisionResponseTimeRef.current = Date.now();
         scheduleListeningResume(message, Boolean(options.forceResume));
@@ -2404,13 +2425,25 @@ const LiveAvatarSessionComponent: React.FC<{
         if (typeof data.nextTimestamp === "number") {
           transcriptCursorRef.current = data.nextTimestamp;
         }
+        const userMessages = Array.isArray(data.userMessages)
+          ? data.userMessages
+          : [];
+        for (const item of userMessages) {
+          if (
+            item &&
+            typeof item === "object" &&
+            typeof item.text === "string"
+          ) {
+            void userTranscriptionHandlerRef.current?.({ text: item.text });
+          }
+        }
       } catch (e) {
         console.error("LiveAvatar transcript sync failed:", e);
       }
     };
 
     void runSync();
-    const intervalMs = 20_000;
+    const intervalMs = 3_000;
     const id = setInterval(runSync, intervalMs);
     return () => clearInterval(id);
   }, [sessionState, sessionRef]);
@@ -3594,6 +3627,9 @@ const LiveAvatarSessionComponent: React.FC<{
       if (isInternalSignal(userText)) {
         return;
       }
+      if (!shouldHandleUserText(userText)) {
+        return;
+      }
       lastUserTextRef.current = userText;
 
       const rawLastAssistantText = lastAvatarResponseRef.current;
@@ -4050,6 +4086,7 @@ const LiveAvatarSessionComponent: React.FC<{
     offerAccountSetupForMemory,
     removeItemsFromList,
     schedulePromptBrain,
+    shouldHandleUserText,
     setListAccentColor,
     setListDisplayStyle,
     speakScriptedResponse,
@@ -4938,7 +4975,6 @@ const LiveAvatarSessionComponent: React.FC<{
           autoPlay // Native autoplay
           playsInline
           preload="auto"
-          muted={true} // Start muted to prevent mouth movement during loading
           className={`${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
@@ -5075,7 +5111,7 @@ const LiveAvatarSessionComponent: React.FC<{
       </div>
 
       {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 bottom-[10.75rem] z-30 flex justify-center px-4 pointer-events-none">
+        <div className="fixed inset-x-0 top-[48%] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none sm:top-1/2">
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
             <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
               Loading
