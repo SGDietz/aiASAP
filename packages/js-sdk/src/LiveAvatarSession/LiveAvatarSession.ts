@@ -489,11 +489,13 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
       ...commandEvent,
     } as CommandEvent;
 
-    // FULL-mode commands are handled by LiveAvatar over LiveKit's
-    // `agent-control` topic. Custom audio is the one command that still uses
-    // the websocket `agent.speak` path.
+    // WebSocket command support is narrower than the LiveKit data channel.
+    // Text commands must stay on LiveKit or they are dropped as unsupported.
     const webSocketSupported =
-      enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO;
+      enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO ||
+      enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_INTERRUPT ||
+      enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_START_LISTENING ||
+      enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_STOP_LISTENING;
 
     if (
       webSocketSupported &&
@@ -504,13 +506,9 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
     } else if (this.room.state === "connected") {
       const liveKitCommandEvent = this.toLiveKitCommandEvent(enrichedCommandEvent);
       const data = new TextEncoder().encode(JSON.stringify(liveKitCommandEvent));
-      void Promise.resolve(
-        this.room.localParticipant.publishData(data, {
-          reliable: true,
-          topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
-        }),
-      ).catch((error) => {
-        console.error("Failed to publish LiveAvatar command event:", error);
+      this.room.localParticipant.publishData(data, {
+        reliable: true,
+        topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
       });
     } else {
       console.warn("No active connection to send command event");
@@ -518,7 +516,23 @@ export class LiveAvatarSession extends (EventEmitter as new () => TypedEmitter<
   }
 
   private toLiveKitCommandEvent(commandEvent: CommandEvent): CommandEvent {
-    return commandEvent;
+    const { source_event_id, ...eventWithoutSource } = commandEvent as CommandEvent & {
+      source_event_id?: string | null;
+    };
+
+    // FULL-mode LiveAvatar commands over LiveKit are strict: event_type, session_id,
+    // and the command data. WebSocket commands still carry event_id.
+    if (
+      commandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_TEXT ||
+      commandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_RESPONSE
+    ) {
+      const { event_id, ...textEvent } = eventWithoutSource as CommandEvent & {
+        event_id?: string;
+      };
+      return textEvent as CommandEvent;
+    }
+
+    return eventWithoutSource as CommandEvent;
   }
 
   private generateEventId(): string {

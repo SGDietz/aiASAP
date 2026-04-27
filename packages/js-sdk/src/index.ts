@@ -16,4 +16,5 @@ export {
   CommandEventsEnum,
 } from "./LiveAvatarSession";
 export type { AgentEvent } from "./LiveAvatarSession";
-export { VoiceChatState, VoiceChatEvent } from "./VoiceChat";
+export { VoiceChatState } from "./VoiceChat";
+export type { VoiceChatEvent } from "./VoiceChat";
