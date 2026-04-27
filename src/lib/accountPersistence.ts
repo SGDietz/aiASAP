@@ -8,6 +8,8 @@ export type StoredAssistantList = {
   items: string[];
   displayStyle: string;
   accentColor: string;
+  accentHex?: string;
+  accentLabel?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -47,7 +49,7 @@ const VALID_LIST_COLOR = new Set(["amber", "blue", "green", "rose", "purple", "w
 const LIST_ITEM_CHATTER_RE =
   /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|you mean|what are you|what is|what's)\b/i;
 const LIST_ITEM_FILLER_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|i mean|i guess|all those|it|that|this|them|they|those|these|god|got)$/i;
 const LIST_ITEM_VAGUE_RE = /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
 function supabaseHeaders(serviceRoleKey: string) {
@@ -66,7 +68,12 @@ function cleanText(value: unknown, max: number): string | null {
 }
 
 function cleanStoredListItem(value: unknown): string | null {
-  const cleaned = cleanText(value, MAX_ITEM_CHARS);
+  const cleaned = cleanText(value, MAX_ITEM_CHARS)
+    ?.replace(
+      /^(?:and\s+)?(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+/i,
+      "",
+    )
+    .trim();
   if (!cleaned) return null;
   if (/[?]/.test(cleaned)) return null;
   if (LIST_ITEM_CHATTER_RE.test(cleaned)) return null;
@@ -175,6 +182,8 @@ export function sanitizeAssistantLists(value: unknown): StoredAssistantList[] {
     const kind = cleanText(list.kind, 20) ?? "custom";
     const displayStyle = cleanText(list.displayStyle, 20) ?? "numbered";
     const accentColor = cleanText(list.accentColor, 20) ?? "amber";
+    const accentHex = cleanText(list.accentHex, 20);
+    const accentLabel = cleanText(list.accentLabel, 40);
     const createdAt =
       typeof list.createdAt === "number" && Number.isFinite(list.createdAt)
         ? list.createdAt
@@ -205,6 +214,8 @@ export function sanitizeAssistantLists(value: unknown): StoredAssistantList[] {
           ? displayStyle
           : "numbered",
         accentColor: VALID_LIST_COLOR.has(accentColor) ? accentColor : "amber",
+        accentHex: accentHex && /^#[0-9a-f]{6}$/i.test(accentHex) ? accentHex : undefined,
+        accentLabel: accentLabel ?? undefined,
         createdAt,
         updatedAt,
       },

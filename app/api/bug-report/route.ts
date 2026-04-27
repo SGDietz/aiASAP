@@ -49,6 +49,8 @@ function cleanActiveList(value: unknown): Record<string, unknown> | null {
   const title = cleanOptionalString(maybe.title, 120);
   const displayStyle = cleanOptionalString(maybe.displayStyle, 40);
   const accentColor = cleanOptionalString(maybe.accentColor, 40);
+  const accentHex = cleanOptionalString(maybe.accentHex, 20);
+  const accentLabel = cleanOptionalString(maybe.accentLabel, 40);
   const items = Array.isArray(maybe.items)
     ? maybe.items
         .filter((item): item is string => typeof item === "string")
@@ -57,7 +59,7 @@ function cleanActiveList(value: unknown): Record<string, unknown> | null {
         .filter(Boolean)
     : [];
 
-  return { title, displayStyle, accentColor, items };
+  return { title, displayStyle, accentColor, accentHex, accentLabel, items };
 }
 
 async function storeBugReport(row: Record<string, unknown>) {

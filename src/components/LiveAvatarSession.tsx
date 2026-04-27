@@ -21,7 +21,6 @@ import {
   Play,
   Square,
   X,
-  MapPin,
 } from "lucide-react";
 
 export type SessionStoppedReason = { reason?: "inactivity" };
@@ -40,10 +39,10 @@ const RETURNING_GREETING_OPTIONS = [
 ];
 
 const DEFAULT_THOUGHT_PROMPTS = [
+  "Explore aiASAP",
   "Start a Grocery List",
   "Create To Do List",
   "Plan This Weekend",
-  "Remember a Birthday",
 ];
 
 const PROMPT_SIZE_REQUEST_RE =
@@ -165,6 +164,8 @@ type AssistantList = {
   items: string[];
   displayStyle: ListDisplayStyle;
   accentColor: ListAccentColor;
+  accentHex?: string;
+  accentLabel?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -211,6 +212,11 @@ const ACCOUNT_READY_YES_RE =
   /\b(?:yes|yeah|yep|sure|ready|ok|okay|correct|that'?s correct|that is correct|that'?s right|that is right|that does|sounds right|looks right|looks good|do it|let'?s do it|set it up|send it)\b/i;
 const ACCOUNT_READY_NO_RE = /\b(?:no|not now|later|stop|never mind|cancel)\b/i;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const EMAIL_ENTRY_REQUEST_RE =
+  /\b(?:type|typing|text|write|enter|keyboard|text box|textbox|input|pop up|popup)\b.*\b(?:email|address|it|that)\b|\b(?:can i|let me)\s+(?:type|text|write|enter)\s+(?:the\s+)?(?:email|address|it)\b/i;
+const LIST_DONE_RE =
+  /\b(?:that'?s all|that is all|that'?s it|that is it|all done|done|finished|complete|nothing else|no more)\b/i;
+const ACCOUNT_SETUP_REOFFER_COOLDOWN_MS = 90_000;
 const END_CONVERSATION_RE =
   /\b(?:end|stop|finish|wrap up|done with|all done|that'?s all)\s+(?:this\s+)?(?:conversation|session|chat|talk|for now)?\b|\bi'?m done\b/i;
 const ONLINE_LOOKUP_TOPIC_RE =
@@ -232,7 +238,7 @@ const LIST_MUTATION_SIGNAL_RE =
 const LIST_CONVERSATION_FRAGMENT_RE =
   /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|i mean|i guess|all those|it|that|this|them|they|those|these|god|got|well|so|you|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|i mean|i guess|all those|it|that|this|them|they|those|these|god|got|well|so|you|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
@@ -277,6 +283,97 @@ const LIST_ACCENT_COLORS: Record<
     soft: "rgba(248, 250, 252, 0.18)",
   },
 };
+
+type ListColorTheme = {
+  label: string;
+  foreground: string;
+  solid: string;
+  soft: string;
+};
+
+type ListAccentUpdate = {
+  accentColor: ListAccentColor;
+  accentHex?: string;
+  accentLabel?: string;
+};
+
+const CUSTOM_LIST_COLOR_MAP: Record<string, string> = {
+  amber: "#e8b46b",
+  black: "#f3f4f6",
+  blue: "#8ec5ff",
+  brown: "#b8895b",
+  coral: "#ff9f8c",
+  cyan: "#67e8f9",
+  gold: "#f5c76f",
+  gray: "#d1d5db",
+  green: "#86efac",
+  grey: "#d1d5db",
+  indigo: "#a5b4fc",
+  lavender: "#c4b5fd",
+  lime: "#bef264",
+  mint: "#99f6e4",
+  navy: "#7aa7ff",
+  orange: "#fdba74",
+  pink: "#f9a8d4",
+  purple: "#d8b4fe",
+  red: "#fca5a5",
+  rose: "#fda4af",
+  silver: "#e5e7eb",
+  teal: "#5eead4",
+  violet: "#c4b5fd",
+  white: "#ffffff",
+  yellow: "#fde68a",
+};
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const normalized = hex.trim().replace(/^#/, "");
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return null;
+  return {
+    r: parseInt(normalized.slice(0, 2), 16),
+    g: parseInt(normalized.slice(2, 4), 16),
+    b: parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${[r, g, b]
+    .map((value) =>
+      Math.max(0, Math.min(255, Math.round(value)))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
+
+function adjustHexShade(hex: string, amount: number): string {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const target = amount >= 0 ? 255 : 0;
+  const ratio = Math.abs(amount);
+  return rgbToHex(
+    rgb.r + (target - rgb.r) * ratio,
+    rgb.g + (target - rgb.g) * ratio,
+    rgb.b + (target - rgb.b) * ratio,
+  );
+}
+
+function softFromHex(hex: string, alpha = 0.2): string {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return "rgba(232, 180, 107, 0.2)";
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function listColorThemeFor(list: AssistantList | null): ListColorTheme {
+  if (list?.accentHex) {
+    return {
+      label: list.accentLabel ?? "Custom",
+      foreground: list.accentHex,
+      solid: list.accentHex,
+      soft: softFromHex(list.accentHex),
+    };
+  }
+  return list ? LIST_ACCENT_COLORS[list.accentColor] : LIST_ACCENT_COLORS.amber;
+}
 
 function titleCaseWords(value: string): string {
   return value
@@ -328,7 +425,9 @@ function isAssistantList(value: unknown): value is AssistantList {
     typeof maybe.id === "string" &&
     typeof maybe.title === "string" &&
     Array.isArray(maybe.items) &&
-    maybe.items.every((item) => typeof item === "string")
+    maybe.items.every((item) => typeof item === "string") &&
+    (!maybe.accentHex || typeof maybe.accentHex === "string") &&
+    (!maybe.accentLabel || typeof maybe.accentLabel === "string")
   );
 }
 
@@ -441,6 +540,7 @@ const DEVICE_NAME_STOP_WORDS = new Set([
   "ready",
   "fine",
   "good",
+  "excited",
   "reminder",
   "birthday",
   "weekend",
@@ -521,6 +621,10 @@ function cleanListItem(
     .replace(/\b(?:um|uh|like|please)\b/gi, " ")
     .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|grocery|groceries|shopping|walmart|list|my list|the list)\b/gi, " ")
     .replace(LIST_ITEM_PREFIX_RE, "")
+    .replace(
+      /^(?:and\s+)?(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+/i,
+      "",
+    )
     .replace(/^(?:some|a|an|the)\s+/i, "")
     .replace(/[.!?]+$/g, "")
     .replace(/\s+/g, " ")
@@ -576,6 +680,17 @@ function summarizeOnlineLookupTopic(query: string): string {
     .trim()
     .slice(0, 56)
     .replace(/[.?!,;:]+$/g, "") || "that";
+}
+
+function isListDoneSignal(userText: string, lastAssistantText: string): boolean {
+  const text = userText.trim();
+  if (LIST_DONE_RE.test(text)) return true;
+  return (
+    /^(?:no|nope|nah)$/i.test(text) &&
+    /\b(?:anything else|what else|add anything|need anything else|want anything else)\b/i.test(
+      lastAssistantText,
+    )
+  );
 }
 
 function extractLocationHint(text: string): string | null {
@@ -773,15 +888,80 @@ function detectListAccentColor(text: string): ListAccentColor | null {
   return null;
 }
 
+function detectListAccentUpdate(
+  text: string,
+  currentList: AssistantList | null,
+): ListAccentUpdate | null {
+  const value = text.toLowerCase();
+  const wantsColor =
+    /\b(?:color|colour|make|turn|change|darker|lighter|brighter|deeper|shade)\b/.test(
+      value,
+    );
+  if (!wantsColor) return null;
+
+  const typedHex = value.match(/#[0-9a-f]{6}\b/i)?.[0];
+  const mentionedColor =
+    Object.keys(CUSTOM_LIST_COLOR_MAP).find((color) =>
+      new RegExp(`\\b${color}\\b`, "i").test(value),
+    ) ?? null;
+  const isLighter = /\b(?:lighter|brighter|softer|paler)\b/i.test(value);
+  const isDarker = /\b(?:darker|deeper|richer)\b/i.test(value);
+  if (!typedHex && !mentionedColor && !isLighter && !isDarker) return null;
+
+  const fallbackColor = currentList?.accentColor ?? "amber";
+  const baseHex =
+    typedHex ??
+    (mentionedColor ? CUSTOM_LIST_COLOR_MAP[mentionedColor] : null) ??
+    currentList?.accentHex ??
+    LIST_ACCENT_COLORS[fallbackColor].solid;
+  const amount = isLighter ? 0.24 : isDarker ? -0.24 : 0;
+  const accentHex = amount === 0 ? baseHex : adjustHexShade(baseHex, amount);
+
+  let accentColor: ListAccentColor = fallbackColor;
+  if (mentionedColor) {
+    if (mentionedColor === "blue" || mentionedColor === "navy") accentColor = "blue";
+    else if (mentionedColor === "green" || mentionedColor === "mint" || mentionedColor === "lime" || mentionedColor === "teal") accentColor = "green";
+    else if (mentionedColor === "pink" || mentionedColor === "rose" || mentionedColor === "red" || mentionedColor === "coral") accentColor = "rose";
+    else if (mentionedColor === "purple" || mentionedColor === "violet" || mentionedColor === "lavender" || mentionedColor === "indigo") accentColor = "purple";
+    else if (mentionedColor === "white" || mentionedColor === "gray" || mentionedColor === "grey" || mentionedColor === "silver" || mentionedColor === "black") accentColor = "white";
+    else accentColor = "amber";
+  }
+
+  const shadeLabel = isLighter ? "Light " : isDarker ? "Dark " : "";
+  const colorLabel =
+    mentionedColor?.replace(/^\w/, (char) => char.toUpperCase()) ??
+    currentList?.accentLabel ??
+    LIST_ACCENT_COLORS[fallbackColor].label;
+
+  return {
+    accentColor,
+    accentHex,
+    accentLabel: `${shadeLabel}${colorLabel}`.trim(),
+  };
+}
+
 function speakEmailAddress(email: string): string {
-  return email
-    .replace(/@/g, " at ")
+  const [local = "", domain = ""] = email.toLowerCase().split("@");
+  const speakChars = (value: string) =>
+    value
+      .split("")
+      .map((char) => {
+        if (char === ".") return "dot";
+        if (char === "_") return "underscore";
+        if (char === "-") return "dash";
+        if (char === "+") return "plus";
+        return char;
+      })
+      .join(" ");
+  const domainSpoken = domain
     .replace(/\./g, " dot ")
     .replace(/_/g, " underscore ")
     .replace(/-/g, " dash ")
     .replace(/\+/g, " plus ")
     .replace(/\s+/g, " ")
     .trim();
+  if (!local || !domainSpoken) return email;
+  return `${speakChars(local)} at ${domainSpoken}`;
 }
 
 const SPOKEN_EMAIL_NOISE_WORDS = new Set([
@@ -980,6 +1160,8 @@ const LiveAvatarSessionComponent: React.FC<{
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
     string | null
   >(null);
+  const [emailEntryOpen, setEmailEntryOpen] = useState(false);
+  const [typedAccountEmail, setTypedAccountEmail] = useState("");
   const [onlineLookupNotice, setOnlineLookupNotice] = useState<string | null>(
     null,
   );
@@ -1013,6 +1195,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountSetupPendingEmailRef = useRef<string | null>(null);
   const accountSetupRejectedEmailRef = useRef<string | null>(null);
   const accountSetupOfferMadeRef = useRef(false);
+  const accountSetupDeclinedAtRef = useRef(0);
+  const pendingListCustomizationPromptRef = useRef<{
+    id: string;
+    title: string;
+  } | null>(null);
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -1024,9 +1211,7 @@ const LiveAvatarSessionComponent: React.FC<{
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
     [activeListId, assistantLists],
   );
-  const activeListTheme = activeList
-    ? LIST_ACCENT_COLORS[activeList.accentColor]
-    : LIST_ACCENT_COLORS.amber;
+  const activeListTheme = listColorThemeFor(activeList);
 
   useEffect(() => {
     deviceProfileRef.current = deviceProfile;
@@ -1358,6 +1543,9 @@ const LiveAvatarSessionComponent: React.FC<{
         updatedAt: now,
       };
 
+      if (assistantLists.length > 0) {
+        pendingListCustomizationPromptRef.current = { id, title: normalizedTitle };
+      }
       setAssistantLists((currentLists) => [...currentLists, newList]);
       setActiveListId(id);
       return id;
@@ -1458,11 +1646,17 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const setListAccentColor = useCallback(
-    (listId: string, accentColor: ListAccentColor) => {
+    (listId: string, update: ListAccentUpdate) => {
       setAssistantLists((currentLists) =>
         currentLists.map((list) =>
           list.id === listId
-            ? { ...list, accentColor, updatedAt: Date.now() }
+            ? {
+                ...list,
+                accentColor: update.accentColor,
+                accentHex: update.accentHex,
+                accentLabel: update.accentLabel,
+                updatedAt: Date.now(),
+              }
             : list,
         ),
       );
@@ -1560,7 +1754,7 @@ const LiveAvatarSessionComponent: React.FC<{
         const verificationUrl =
           typeof data?.verificationUrl === "string" ? data.verificationUrl : null;
         const spoken = data?.emailSent
-          ? "Done. I sent you an email. Click that link, and when you come back, I'll be like, hey, how's it going? I'll remember your lists and we'll pick up right where we left off."
+          ? "Done. I sent you an email. Check for it now and click the link. While you wait, I can also help with reminders, lists, weekend plans, and ideas for making more money. When you come back, we'll pick up right where we left off."
           : verificationUrl
             ? "I saved your email, but the email sender is not finished yet. I put the sign-in link on your screen for this test."
             : "I saved your email, but the email sender is not fully connected yet. I made a note for G to finish account email before this goes live.";
@@ -1575,6 +1769,10 @@ const LiveAvatarSessionComponent: React.FC<{
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
+        accountSetupOfferMadeRef.current = false;
+        accountSetupDeclinedAtRef.current = 0;
+        setEmailEntryOpen(false);
+        setTypedAccountEmail("");
         return true;
       } catch (error) {
         console.error("Account setup failed:", error);
@@ -1590,12 +1788,63 @@ const LiveAvatarSessionComponent: React.FC<{
     [activeList, activeListId, assistantLists, isShoppingMode, repeat],
   );
 
+  const openEmailEntry = useCallback(
+    async (spoken?: string) => {
+      setEmailEntryOpen(true);
+      const message =
+        spoken ||
+        "I opened the email box so you can type it. I will still read it back before I send anything.";
+      await repeat(message);
+      lastAvatarResponseRef.current = message;
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [repeat],
+  );
+
+  const confirmAccountEmailCandidate = useCallback(
+    async (email: string) => {
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!isValidEmailCandidate(normalizedEmail)) {
+        return openEmailEntry(
+          "That does not look like a complete email address yet. Type it like name at domain dot com, or say it slowly.",
+        );
+      }
+      accountSetupPendingEmailRef.current = normalizedEmail;
+      accountSetupRejectedEmailRef.current = null;
+      accountSetupAwaitingEmailRef.current = false;
+      accountSetupAwaitingReadyRef.current = false;
+      setTypedAccountEmail(normalizedEmail);
+      const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [openEmailEntry, repeat],
+  );
+
+  const handleTypedAccountEmailSubmit = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const candidate = extractAccountEmailCandidate(typedAccountEmail, null);
+      await confirmAccountEmailCandidate(candidate ?? typedAccountEmail);
+    },
+    [confirmAccountEmailCandidate, typedAccountEmail],
+  );
+
   const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
     if (
       accountEmail ||
-      accountSetupOfferMadeRef.current ||
       accountSetupAwaitingReadyRef.current ||
       accountSetupAwaitingEmailRef.current
+    ) {
+      return false;
+    }
+    if (
+      accountSetupDeclinedAtRef.current > 0 &&
+      Date.now() - accountSetupDeclinedAtRef.current <
+        ACCOUNT_SETUP_REOFFER_COOLDOWN_MS
     ) {
       return false;
     }
@@ -1624,20 +1873,26 @@ const LiveAvatarSessionComponent: React.FC<{
       const directEmail =
         extractAccountEmailCandidate(userText, contact.email) ?? correctedEmail;
 
+      if (
+        EMAIL_ENTRY_REQUEST_RE.test(userText) &&
+        (accountSetupAwaitingEmailRef.current ||
+          accountSetupAwaitingReadyRef.current ||
+          accountSetupPendingEmailRef.current ||
+          ACCOUNT_SETUP_TRIGGER_RE.test(userText))
+      ) {
+        accountSetupAwaitingReadyRef.current = false;
+        accountSetupAwaitingEmailRef.current = true;
+        return openEmailEntry(
+          "Yes. I opened the email box so you can type it. I will read it back before I send anything.",
+        );
+      }
+
       if (accountSetupPendingEmailRef.current) {
         if (
           directEmail &&
           directEmail !== accountSetupPendingEmailRef.current
         ) {
-          const normalizedEmail = directEmail.trim().toLowerCase();
-          accountSetupPendingEmailRef.current = normalizedEmail;
-          accountSetupAwaitingEmailRef.current = false;
-          accountSetupAwaitingReadyRef.current = false;
-          const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
-          return true;
+          return confirmAccountEmailCandidate(directEmail);
         }
         if (ACCOUNT_READY_YES_RE.test(userText)) {
           const emailToSend = accountSetupPendingEmailRef.current;
@@ -1653,12 +1908,11 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupPendingEmailRef.current = null;
           accountSetupAwaitingEmailRef.current = true;
           accountSetupAwaitingReadyRef.current = false;
-          const spoken =
-            "Okay, I will not send it. Tell me the email address again, and I'll read it back before I send anything.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
-          return true;
+          setEmailEntryOpen(true);
+          setTypedAccountEmail(accountSetupRejectedEmailRef.current ?? "");
+          return openEmailEntry(
+            "Okay, I will not send it. I opened the email box too, so you can type it or say it again slowly.",
+          );
         }
         const spoken =
           "Before I send the account email, I need a yes or no. Is that email address correct?";
@@ -1669,25 +1923,13 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (accountSetupAwaitingEmailRef.current && directEmail) {
-        const normalizedEmail = directEmail.trim().toLowerCase();
-        accountSetupPendingEmailRef.current = normalizedEmail;
-        accountSetupRejectedEmailRef.current = null;
-        accountSetupAwaitingEmailRef.current = false;
-        accountSetupAwaitingReadyRef.current = false;
-        const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
-        return true;
+        return confirmAccountEmailCandidate(directEmail);
       }
 
       if (accountSetupAwaitingEmailRef.current) {
-        const spoken =
-          "I did not catch a complete email address. No rush. Say it slowly, like name at domain dot com, and I will read it back before I send anything. If you do not know it, we can keep going, and you can ask a child or grandchild for help later.";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
-        return true;
+        return openEmailEntry(
+          "I did not catch a complete email address. No rush. I opened the email box so you can type it, or say it slowly like name at domain dot com.",
+        );
       }
 
       if (accountSetupAwaitingReadyRef.current) {
@@ -1696,6 +1938,9 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupAwaitingEmailRef.current = false;
           accountSetupPendingEmailRef.current = null;
           accountSetupRejectedEmailRef.current = null;
+          accountSetupDeclinedAtRef.current = Date.now();
+          accountSetupOfferMadeRef.current = false;
+          setEmailEntryOpen(false);
           const spoken =
             "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
           await repeat(spoken);
@@ -1708,7 +1953,9 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupAwaitingEmailRef.current = true;
           accountSetupPendingEmailRef.current = null;
           accountSetupRejectedEmailRef.current = null;
-          const spoken = "Great. What email address should I send the link to?";
+          setEmailEntryOpen(true);
+          const spoken =
+            "Great. What email address should I send the link to? You can say it, or type it in the email box I opened.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -1718,16 +1965,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (ACCOUNT_SETUP_TRIGGER_RE.test(userText)) {
         if (directEmail) {
-          const normalizedEmail = directEmail.trim().toLowerCase();
-          accountSetupPendingEmailRef.current = normalizedEmail;
-          accountSetupRejectedEmailRef.current = null;
-          accountSetupAwaitingReadyRef.current = false;
-          accountSetupAwaitingEmailRef.current = false;
-          const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
-          return true;
+          return confirmAccountEmailCandidate(directEmail);
         }
         accountSetupAwaitingReadyRef.current = true;
         accountSetupAwaitingEmailRef.current = false;
@@ -1743,7 +1981,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       return false;
     },
-    [repeat, startAccountSetup],
+    [confirmAccountEmailCandidate, openEmailEntry, repeat, startAccountSetup],
   );
 
   const handlePromptSizeSpeech = useCallback(
@@ -2049,8 +2287,8 @@ const LiveAvatarSessionComponent: React.FC<{
         );
         const spoken =
           sources.length > 0
-            ? `${data.answer} Source links are on your screen.`
-            : data.answer;
+            ? `${data.answer} Any of those sound interesting? If not, tell me what kind of things you like and I'll narrow it down. Source links are on your screen.`
+            : `${data.answer} Any of that sound interesting?`;
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -2181,6 +2419,24 @@ const LiveAvatarSessionComponent: React.FC<{
       try {
         await ensureAudioOutputReady();
         await interrupt();
+        if (prompt === "Explore aiASAP" || prompt === "Quick Tour") {
+          const spoken =
+            prompt === "Quick Tour"
+              ? "a-i-asap is the easy way into AI. You talk to me, and I help with lists, reminders, planning, making money, and eventually building whole companies. What should we try first?"
+              : "a-i-asap is built so you can just talk to me and I help you get things done. Lists, reminders, weekend plans, money ideas, and bigger things later. Want the quick tour, or want to start with something useful?";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          setThoughtPrompts(
+            normalizeThoughtPrompts([
+              "Quick Tour",
+              "Start a Grocery List",
+              "Remember a Birthday",
+              "Plan This Weekend",
+            ]),
+          );
+          return;
+        }
         if (prompt === "Share Location") {
           await requestSharedLocation();
           return;
@@ -2199,7 +2455,6 @@ const LiveAvatarSessionComponent: React.FC<{
         }
         await sendMessage(`Let's work on this next: ${prompt}`);
         schedulePromptBrain(prompt);
-        if (listIntent) void offerAccountSetupForMemory();
       } catch (error) {
         console.error("Failed to send thought prompt:", error);
       }
@@ -2211,7 +2466,6 @@ const LiveAvatarSessionComponent: React.FC<{
       interrupt,
       handleOnlineLookupSpeech,
       isStreamReady,
-      offerAccountSetupForMemory,
       repeat,
       requestSharedLocation,
       schedulePromptBrain,
@@ -2286,6 +2540,15 @@ const LiveAvatarSessionComponent: React.FC<{
     sessionState === SessionState.CONNECTED &&
     isStreamReady &&
     !voiceStartAwaitingReady;
+
+  const shouldShowLoadingSurface =
+    mode === "FULL" &&
+    visionMode !== "streaming" &&
+    !isCameraActive &&
+    !isActive &&
+    !isAvatarTalking &&
+    !shouldShowBeginSurface &&
+    (sessionState !== SessionState.CONNECTED || !isStreamReady || isLoading);
 
   useEffect(() => {
     // console.log("isStreamReady: ", isStreamReady);
@@ -3068,7 +3331,9 @@ const LiveAvatarSessionComponent: React.FC<{
       if (
         !isShoppingMode &&
         ACCOUNT_SETUP_NATURAL_MOMENT_RE.test(userText) &&
-        (await offerAccountSetupForMemory())
+        (await offerAccountSetupForMemory(
+          "I can keep that reminder for next time if we set up a quick account. It's just an email link. You ready?",
+        ))
       ) {
         schedulePromptBrain(userText);
         return;
@@ -3122,9 +3387,11 @@ const LiveAvatarSessionComponent: React.FC<{
           setListDisplayStyle(targetListId, displayStyle);
         }
 
-        const accentColor = detectListAccentColor(userText);
-        if (accentColor) {
-          setListAccentColor(targetListId, accentColor);
+        const targetListBeforeChange =
+          assistantLists.find((list) => list.id === targetListId) ?? activeList;
+        const accentUpdate = detectListAccentUpdate(userText, targetListBeforeChange);
+        if (accentUpdate) {
+          setListAccentColor(targetListId, accentUpdate);
         }
 
         const removeItems = extractRemoveItems(userText);
@@ -3147,17 +3414,32 @@ const LiveAvatarSessionComponent: React.FC<{
           }
         }
 
-        const changedListByVoice =
-          Boolean(listIntent) ||
-          Boolean(displayStyle) ||
-          Boolean(accentColor) ||
-          removeItems.length > 0 ||
-          addItems.length > 0;
+        const targetList = assistantLists.find((list) => list.id === targetListId);
+        const pendingCustomization = pendingListCustomizationPromptRef.current;
         if (
-          changedListByVoice &&
+          pendingCustomization?.id === targetListId &&
+          !isShoppingMode &&
+          !enteringShoppingMode
+        ) {
+          pendingListCustomizationPromptRef.current = null;
+          const spoken = `I made the ${pendingCustomization.title}. Want this one a different color, a different shade, bullets instead of numbers, or anything else that makes it easier to scan?`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+
+        if (
+          !accountEmail &&
           !isShoppingMode &&
           !enteringShoppingMode &&
-          (await offerAccountSetupForMemory())
+          targetList &&
+          targetList.items.length > 0 &&
+          isListDoneSignal(userText, lastAssistantText) &&
+          (await offerAccountSetupForMemory(
+            "Want me to keep this list for next time? To do that, we'll create a quick account with an email link. You ready?",
+          ))
         ) {
           schedulePromptBrain(userText);
           return;
@@ -4100,6 +4382,38 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
+      {emailEntryOpen && !isShoppingMode && (
+        <form
+          onSubmit={(event) => void handleTypedAccountEmailSubmit(event)}
+          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+4.75rem)] z-[76] flex w-[min(92%,30rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-[#e0aa62]/28 bg-black/86 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur"
+        >
+          <label htmlFor="account-email-entry" className="text-sm font-bold">
+            Type Email Address
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="account-email-entry"
+              type="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              autoFocus
+              value={typedAccountEmail}
+              onChange={(event) => setTypedAccountEmail(event.target.value)}
+              placeholder="name@example.com"
+              className="min-w-0 flex-1 rounded-md border border-white/12 bg-white px-3 py-2 text-base font-semibold text-black outline-none"
+            />
+            <button
+              type="submit"
+              className="shrink-0 rounded-md bg-[#e0aa62] px-4 py-2 text-sm font-black text-black"
+            >
+              Use
+            </button>
+          </div>
+        </form>
+      )}
+
       {onlineLookupNotice && !isShoppingMode && (
         <div className="fixed left-1/2 top-[52%] z-[74] w-[min(90%,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#e0aa62]/25 bg-black/78 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
@@ -4122,16 +4436,6 @@ const LiveAvatarSessionComponent: React.FC<{
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {onlineLookupPendingQueryRef.current && (
-                <button
-                  type="button"
-                  onClick={() => void requestSharedLocation()}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-[#e0aa62] px-3 text-xs font-bold text-black"
-                >
-                  <MapPin className="h-3.5 w-3.5" aria-hidden />
-                  Share Location
-                </button>
-              )}
               <button
                 type="button"
                 aria-label="Dismiss online lookup"
@@ -4165,7 +4469,7 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="relative top-[0.5rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="relative top-[0.78rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
@@ -4333,6 +4637,19 @@ const LiveAvatarSessionComponent: React.FC<{
         )}
       </div>
 
+      {shouldShowLoadingSurface && (
+        <div className="fixed inset-x-0 bottom-[10.75rem] z-30 flex justify-center px-4 pointer-events-none">
+          <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
+            <p className="text-[0.82rem] font-bold uppercase tracking-[0.2em] text-[#f1c477]/78">
+              Loading
+            </p>
+            <div className="mx-auto mt-2 h-1 w-28 overflow-hidden rounded-full bg-white/10">
+              <span className="block h-full w-1/2 animate-[loading-sweep_1.15s_ease-in-out_infinite] rounded-full bg-[#e0aa62]" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {shouldShowBeginSurface && (
         <button
           type="button"
@@ -4409,14 +4726,14 @@ const LiveAvatarSessionComponent: React.FC<{
                       {voiceStartAwaitingReady ? (
                         <span className="block">Starting…</span>
                       ) : (
-                        <span className="inline-flex min-h-[3.45rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
-                          <span className="flex items-center gap-2 text-[0.84rem] font-bold uppercase tracking-[0.18em] text-[#f1c477]/78">
-                            <span className="h-2 w-2 rounded-full bg-[#e0aa62] shadow-[0_0_18px_rgba(224,170,98,0.95)]" />
+                        <span className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1.5 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
+                          <span className="flex items-center gap-3 text-[0.82rem] font-bold uppercase tracking-[0.18em] text-[#f1c477]/78">
+                            <span className="h-px w-10 bg-gradient-to-r from-transparent to-[#e0aa62]/85" />
                             Tap Anywhere
-                            <span className="h-2 w-2 rounded-full bg-[#e0aa62] shadow-[0_0_18px_rgba(224,170,98,0.95)]" />
+                            <span className="h-px w-10 bg-gradient-to-l from-transparent to-[#e0aa62]/85" />
                           </span>
-                          <span className="text-[1.36rem] font-black leading-none">
-                            Start Talking With 6
+                          <span className="text-[1.42rem] font-black leading-none">
+                            To Talk to 6
                           </span>
                         </span>
                       )}
@@ -4758,6 +5075,18 @@ const LiveAvatarSessionComponent: React.FC<{
             opacity: 0;
             filter: blur(12px);
             transform: translateY(-1.35rem) scale(1.09);
+          }
+        }
+
+        @keyframes loading-sweep {
+          0% {
+            transform: translateX(-125%);
+          }
+          55% {
+            transform: translateX(160%);
+          }
+          100% {
+            transform: translateX(160%);
           }
         }
 
