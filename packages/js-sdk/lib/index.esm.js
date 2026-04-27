@@ -993,19 +993,12 @@ class LiveAvatarSession extends EventEmitter {
         this.postStop(SessionDisconnectReason.UNKNOWN_REASON);
     }
     sendCommandEvent(commandEvent) {
-        var _a, _b, _c;
-        const enrichedCommandEvent = {
-            event_id: (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId(),
-            session_id: (_c = (_b = this._sessionInfo) === null || _b === void 0 ? void 0 : _b.session_id) !== null && _c !== void 0 ? _c : null,
-            source_event_id: commandEvent.source_event_id !== null && commandEvent.source_event_id !== void 0 ? commandEvent.source_event_id : null,
-            ...commandEvent,
-        };
-        // WebSocket command support is narrower than the LiveKit data channel.
-        // Text commands must stay on LiveKit or they are dropped as unsupported.
-        const webSocketSupported = enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO ||
-            enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_INTERRUPT ||
-            enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_START_LISTENING ||
-            enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_STOP_LISTENING;
+        var _a, _b, _c, _d;
+        const enrichedCommandEvent = Object.assign({ event_id: (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId(), session_id: (_c = (_b = this._sessionInfo) === null || _b === void 0 ? void 0 : _b.session_id) !== null && _c !== void 0 ? _c : null, source_event_id: (_d = commandEvent.source_event_id) !== null && _d !== void 0 ? _d : null }, commandEvent);
+        // FULL-mode commands are handled by LiveAvatar over LiveKit's
+        // `agent-control` topic. Custom audio is the one command that still uses
+        // the websocket `agent.speak` path.
+        const webSocketSupported = enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO;
         if (webSocketSupported &&
             this._sessionEventSocket &&
             this._sessionEventSocket.readyState === WebSocket.OPEN) {
@@ -1014,9 +1007,11 @@ class LiveAvatarSession extends EventEmitter {
         else if (this.room.state === "connected") {
             const liveKitCommandEvent = this.toLiveKitCommandEvent(enrichedCommandEvent);
             const data = new TextEncoder().encode(JSON.stringify(liveKitCommandEvent));
-            this.room.localParticipant.publishData(data, {
+            void Promise.resolve(this.room.localParticipant.publishData(data, {
                 reliable: true,
                 topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
+            })).catch((error) => {
+                console.error("Failed to publish LiveAvatar command event:", error);
             });
         }
         else {
@@ -1024,15 +1019,7 @@ class LiveAvatarSession extends EventEmitter {
         }
     }
     toLiveKitCommandEvent(commandEvent) {
-        const { source_event_id, ...eventWithoutSource } = commandEvent;
-        // FULL-mode LiveAvatar commands over LiveKit are strict: event_type, session_id,
-        // and the command data. WebSocket commands still carry event_id.
-        if (commandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_TEXT ||
-            commandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_RESPONSE) {
-            const { event_id, ...textEvent } = eventWithoutSource;
-            return textEvent;
-        }
-        return eventWithoutSource;
+        return commandEvent;
     }
     generateEventId() {
         // Use native browser crypto API
@@ -1047,13 +1034,14 @@ class LiveAvatarSession extends EventEmitter {
         });
     }
     sendCommandEventToWebSocket(commandEvent) {
+        var _a;
         if (!this._sessionEventSocket ||
             this._sessionEventSocket.readyState !== WebSocket.OPEN) {
             console.warn("WebSocket not open to send command event");
             return;
         }
         const event_type = commandEvent.event_type;
-        const event_id = commandEvent.event_id !== null && commandEvent.event_id !== void 0 ? commandEvent.event_id : this.generateEventId();
+        const event_id = (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId();
         let audioChunks = [];
         switch (event_type) {
             case CommandEventsEnum.AVATAR_SPEAK_AUDIO:

@@ -43,6 +43,7 @@ export declare class LiveAvatarSession extends LiveAvatarSession_base {
     private postStop;
     private handleRoomDisconnect;
     private sendCommandEvent;
+    private toLiveKitCommandEvent;
     private generateEventId;
     private sendCommandEventToWebSocket;
     private assertConnected;
