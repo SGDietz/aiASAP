@@ -1963,9 +1963,12 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (mode === "FULL") {
         clearListeningResume();
+        safeStopAvatarListening();
         if (isAvatarTalking) {
           safeInterrupt();
           await new Promise((resolve) => window.setTimeout(resolve, 140));
+        } else {
+          await new Promise((resolve) => window.setTimeout(resolve, 90));
         }
       }
 
@@ -2885,8 +2888,15 @@ const LiveAvatarSessionComponent: React.FC<{
       if (!ok) {
         return;
       }
+      setHasUserPressedVoiceStart(true);
       if (!isActive) {
-        await start({ defaultMuted: false });
+        const voiceStartAttempt = start({ defaultMuted: false }).catch((error) => {
+          console.warn("Voice chat start did not complete before greeting:", error);
+        });
+        await Promise.race([
+          voiceStartAttempt,
+          new Promise((resolve) => window.setTimeout(resolve, 1200)),
+        ]);
       }
       const profile = deviceProfileRef.current;
       const isReturning = Boolean(accountEmail || profile.name);
@@ -2900,7 +2910,6 @@ const LiveAvatarSessionComponent: React.FC<{
           updatedAt: Date.now(),
         }));
       }
-      setHasUserPressedVoiceStart(true);
       await speakScriptedResponse(greeting, {
         forceResume: true,
       });
