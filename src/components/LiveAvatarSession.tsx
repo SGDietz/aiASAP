@@ -31,6 +31,8 @@ const AIASAP_FOUNDER_TITLE =
 const VOICE_START_GREETING =
   "Hi, I'm 6, your AI buddy. You know why they call me 6? 'Cuz I got your back. So what new and interesting things you got going on in your life right now?";
 
+const VOICE_DEBUG_BUILD = "voice-debug-tts-2026-04-27";
+
 const RETURNING_GREETING_OPTIONS = [
   "Hey{name}, good to see you. What are we working on today?",
   "Welcome back{name}. What's going on today?",
@@ -1136,6 +1138,13 @@ function extractAccountEmailCandidate(
   return extractSpokenEmailCandidate(text) ?? fallbackEmail?.trim().toLowerCase() ?? null;
 }
 
+function base64ToBinaryString(base64: string): string {
+  if (typeof window === "undefined" || typeof window.atob !== "function") {
+    return "";
+  }
+  return window.atob(base64);
+}
+
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
   onSessionStopped: (opts?: SessionStoppedReason) => void;
@@ -1165,7 +1174,7 @@ const LiveAvatarSessionComponent: React.FC<{
     unmute,
   } = useVoiceChat();
 
-  const { interrupt, repeat, startListening, stopListening } =
+  const { interrupt, repeat, repeatAudio, startListening, stopListening } =
     useAvatarActions(mode);
 
   const { sendMessage } = useTextChat(mode);
@@ -1287,6 +1296,8 @@ const LiveAvatarSessionComponent: React.FC<{
   );
   const listeningResumeCleanupRef = useRef<(() => void) | null>(null);
   const browserSpeechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const fallbackAudioContextRef = useRef<AudioContext | null>(null);
+  const fallbackAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const accountSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -1356,7 +1367,13 @@ const LiveAvatarSessionComponent: React.FC<{
     null,
   );
   const sessionStartErrorRef = useRef<string | null>(null);
-  const [voiceDebugEnabled, setVoiceDebugEnabled] = useState(false);
+  const [voiceDebugEnabled, setVoiceDebugEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return (
+      window.location.hostname === "localhost" ||
+      window.location.search.includes("debugVoice=1")
+    );
+  });
   const [voiceDebugLines, setVoiceDebugLines] = useState<string[]>([]);
 
   const logVoiceDebug = useCallback((label: string, detail?: unknown) => {
@@ -1370,7 +1387,7 @@ const LiveAvatarSessionComponent: React.FC<{
           }`;
     const line = `${new Date().toLocaleTimeString()} ${label}${value}`;
     console.log("[voice-debug]", line);
-    setVoiceDebugLines((current) => [...current.slice(-8), line]);
+    setVoiceDebugLines((current) => [...current.slice(-13), line]);
   }, []);
 
   useEffect(() => {
@@ -1990,6 +2007,110 @@ const LiveAvatarSessionComponent: React.FC<{
     [logVoiceDebug],
   );
 
+  const ensureFallbackAudioContextReady = useCallback(async () => {
+    if (typeof window === "undefined") return null;
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioContextCtor) {
+      logVoiceDebug("direct audio unavailable");
+      return null;
+    }
+    if (!fallbackAudioContextRef.current) {
+      fallbackAudioContextRef.current = new AudioContextCtor();
+    }
+    if (fallbackAudioContextRef.current.state === "suspended") {
+      await fallbackAudioContextRef.current.resume();
+    }
+    return fallbackAudioContextRef.current;
+  }, [logVoiceDebug]);
+
+  const playPcmAudioFallback = useCallback(
+    async (audioBase64: string | null) => {
+      if (!audioBase64) return false;
+      try {
+        const context = await ensureFallbackAudioContextReady();
+        if (!context) return false;
+        const binary = base64ToBinaryString(audioBase64);
+        if (!binary) return false;
+        const sampleCount = Math.floor(binary.length / 2);
+        const buffer = context.createBuffer(1, sampleCount, 24000);
+        const channel = buffer.getChannelData(0);
+        for (let i = 0, offset = 0; i < sampleCount; i += 1, offset += 2) {
+          const low = binary.charCodeAt(offset);
+          const high = binary.charCodeAt(offset + 1);
+          let sample = (high << 8) | low;
+          if (sample >= 0x8000) sample -= 0x10000;
+          channel[i] = Math.max(-1, Math.min(1, sample / 32768));
+        }
+
+        if (fallbackAudioSourceRef.current) {
+          try {
+            fallbackAudioSourceRef.current.stop();
+          } catch {
+            // Previous source may already be stopped.
+          }
+        }
+        const source = context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(context.destination);
+        source.onended = () => logVoiceDebug("direct audio ended");
+        fallbackAudioSourceRef.current = source;
+        source.start();
+        logVoiceDebug("direct audio started", `${sampleCount} samples`);
+        return true;
+      } catch (error) {
+        logVoiceDebug(
+          "direct audio failed",
+          error instanceof Error ? error.message : String(error),
+        );
+        return false;
+      }
+    },
+    [ensureFallbackAudioContextReady, logVoiceDebug],
+  );
+
+  const speakWithAvatarAudioFallback = useCallback(
+    async (spoken: string) => {
+      if (mode !== "FULL") {
+        return { sentToAvatar: false, audioBase64: null };
+      }
+
+      try {
+        logVoiceDebug("avatar audio fallback fetch", spoken.slice(0, 120));
+        const response = await fetch("/api/openai-text-to-speech", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: spoken, voice: "cedar" }),
+        });
+        const data = await response.json().catch(() => null);
+        const audioBase64 =
+          typeof data?.audio === "string" ? data.audio.trim() : "";
+
+        if (!response.ok || !audioBase64) {
+          throw new Error(data?.error || "No audio returned");
+        }
+
+        const audio = base64ToBinaryString(audioBase64);
+        if (!audio) {
+          throw new Error("Could not decode audio");
+        }
+
+        logVoiceDebug("avatar audio fallback send", `${audio.length} bytes`);
+        await repeatAudio(audio);
+        return { sentToAvatar: true, audioBase64 };
+      } catch (error) {
+        logVoiceDebug(
+          "avatar audio fallback failed",
+          error instanceof Error ? error.message : String(error),
+        );
+        return { sentToAvatar: false, audioBase64: null };
+      }
+    },
+    [logVoiceDebug, mode, repeatAudio],
+  );
+
   const scheduleListeningResume = useCallback(
     (spoken: string, forceResume = false) => {
       clearListeningResume();
@@ -2103,8 +2224,26 @@ const LiveAvatarSessionComponent: React.FC<{
         logVoiceDebug("repeat returned", String(repeatResult ?? "void"));
         fallbackTimer = window.setTimeout(() => {
           if (!avatarSpeechStarted) {
-            logVoiceDebug("repeat no avatar speak; browser fallback");
-            speakWithBrowserFallback(message);
+            void (async () => {
+              logVoiceDebug("repeat no avatar speak; avatar audio fallback");
+              const avatarAudioResult =
+                await speakWithAvatarAudioFallback(message);
+              if (avatarAudioResult.sentToAvatar) {
+                await new Promise((resolve) => window.setTimeout(resolve, 1400));
+              }
+              if (!avatarSpeechStarted) {
+                logVoiceDebug("avatar audio no speak; direct audio fallback");
+                const playedDirectAudio = await playPcmAudioFallback(
+                  avatarAudioResult.audioBase64,
+                );
+                if (!playedDirectAudio) {
+                  logVoiceDebug("direct audio unavailable; browser fallback");
+                  speakWithBrowserFallback(message);
+                }
+              }
+              cleanupFallbackListener();
+            })();
+            return;
           }
           cleanupFallbackListener();
         }, 1800);
@@ -2131,6 +2270,8 @@ const LiveAvatarSessionComponent: React.FC<{
       safeInterrupt,
       safeStopAvatarListening,
       scheduleListeningResume,
+      playPcmAudioFallback,
+      speakWithAvatarAudioFallback,
       speakWithBrowserFallback,
       waitForAvatarSession,
     ],
@@ -2764,6 +2905,7 @@ const LiveAvatarSessionComponent: React.FC<{
         });
       }
       await video.play();
+      await ensureFallbackAudioContextReady();
       audioUnlockedRef.current = true;
       setTimeout(() => {
         if (videoRef.current) {
@@ -2786,7 +2928,7 @@ const LiveAvatarSessionComponent: React.FC<{
       console.warn("Audio output not ready:", error);
       return false;
     }
-  }, [isStreamReady]);
+  }, [ensureFallbackAudioContextReady, isStreamReady]);
 
   /** Idempotent unlock for Go Live / Camera / Gallery (after user gesture). */
   const unlockAudio = useCallback(async () => {
@@ -5047,9 +5189,12 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {voiceDebugEnabled && (
-        <div className="pointer-events-none fixed right-2 top-[calc(env(safe-area-inset-top)+0.5rem)] z-[95] max-w-[min(92vw,32rem)] rounded-md border border-[#e0aa62]/35 bg-black/82 px-3 py-2 text-left text-[0.68rem] font-semibold leading-snug text-[#f1c477] shadow-2xl backdrop-blur">
-          <div className="mb-1 text-[0.72rem] uppercase tracking-[0.14em] text-white/70">
-            Voice Debug
+        <div className="pointer-events-none fixed left-2 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[120] w-[min(26rem,calc(100vw-1rem))] rounded-lg border border-[#e0aa62]/60 bg-black/90 px-3 py-2 text-left text-[0.72rem] font-semibold leading-snug text-[#f1c477] shadow-2xl backdrop-blur">
+          <div className="mb-1 flex items-center justify-between gap-3 text-[0.74rem] uppercase tracking-[0.14em] text-white/75">
+            <span>Voice Debug</span>
+            <span className="normal-case tracking-normal text-[#8ee6b0]">
+              {VOICE_DEBUG_BUILD}
+            </span>
           </div>
           {voiceDebugLines.length === 0 ? (
             <div>waiting...</div>
