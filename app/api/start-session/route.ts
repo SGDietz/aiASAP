@@ -56,6 +56,7 @@ export async function POST() {
       body: JSON.stringify({
         mode: "FULL",
         avatar_id: AVATAR_ID,
+        interactivity_type: "CONVERSATIONAL",
         max_session_duration: 20 * 60, // 20 minutes (LiveAvatar API: seconds)
         avatar_persona: avatarPersona,
       }),

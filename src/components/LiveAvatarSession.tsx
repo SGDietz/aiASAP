@@ -1963,7 +1963,6 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (mode === "FULL") {
         clearListeningResume();
-        safeStopAvatarListening();
         if (options.forceInterrupt || isAvatarTalking) {
           safeInterrupt();
         }
@@ -2886,7 +2885,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (!ok) {
         return;
       }
-      await start();
+      await start({ defaultMuted: false });
       const profile = deviceProfileRef.current;
       const isReturning = Boolean(accountEmail || profile.name);
       const greeting = isReturning
