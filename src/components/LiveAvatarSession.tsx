@@ -29,7 +29,7 @@ const AIASAP_FOUNDER_TITLE =
   "Creator/Builder/Founder/Financier/CEO aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? 'Cuz I got your back. So what you got going on today?";
+  "Hi, I'm 6, your AI buddy. You know why they call me 6? 'Cuz I got your back. So what new and interesting things you got going on in your life right now?";
 
 const RETURNING_GREETING_OPTIONS = [
   "Hey{name}, good to see you. What are we working on today?",
@@ -41,7 +41,7 @@ const RETURNING_GREETING_OPTIONS = [
 const DEFAULT_THOUGHT_PROMPTS = [
   "Explore aiASAP",
   "Start a Grocery List",
-  "Create To Do List",
+  "To Do List",
   "Plan This Weekend",
 ];
 
@@ -58,7 +58,7 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("task")
   ) {
     return [
-      "Create To Do List",
+      "To Do List",
       "Open Work To Do",
       "Open Family To Do",
       "Add a Reminder",
@@ -93,7 +93,7 @@ const getThoughtPrompts = (text: string): string[] => {
   ) {
     return [
       value.includes("walmart") ? "Open Walmart List" : "Add to Grocery List",
-      "Create To Do List",
+      "To Do List",
       "Add the Next Item",
       "Open Another List",
     ];
@@ -134,8 +134,21 @@ const getThoughtPrompts = (text: string): string[] => {
 };
 
 function normalizeThoughtPrompts(prompts: string[]): string[] {
+  const cleanThoughtPrompt = (prompt: string) => {
+    const cleaned = prompt
+      .trim()
+      .replace(/\bAI\s+ASAP\b/g, "aiASAP")
+      .replace(/\bai[-\s]?asap\b/gi, "aiASAP")
+      .replace(/\bCreate\s+To\s+Do\s+List\b/gi, "To Do List")
+      .replace(/\bactivities\b/gi, "plans")
+      .replace(/\bactivity\b/gi, "plan")
+      .replace(/\s+/g, " ");
+    if (/^explore\s+aiasap$/i.test(cleaned)) return "Explore aiASAP";
+    if (/^to\s+do\s+list$/i.test(cleaned)) return "To Do List";
+    return cleaned;
+  };
   const cleaned = prompts
-    .map((prompt) => prompt.trim())
+    .map(cleanThoughtPrompt)
     .filter(Boolean)
     .filter((prompt) => !/\b(?:contact|named g|for g|call g|text g|email g)\b/i.test(prompt))
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
@@ -235,6 +248,8 @@ const SHOPPING_MODE_CLOSE_RE =
   /\b(?:close|exit|leave|stop)\s+(?:shopping|store|full screen)\s*mode\b/i;
 const LIST_MUTATION_SIGNAL_RE =
   /\b(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up|also)\b/i;
+const LIST_START_WITH_REFERENCED_ITEMS_RE =
+  /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
   /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
@@ -673,13 +688,21 @@ function isOnlineLookupIntent(text: string): boolean {
 }
 
 function summarizeOnlineLookupTopic(query: string): string {
-  return query
+  const cleaned = query
     .replace(/^let'?s work on this next:\s*/i, "")
-    .replace(/\b(?:can you|could you|please|help me|i want to|i need to)\b/gi, " ")
+    .replace(/\b(?:actually|you know what|um|uh|okay|ok|please)\b/gi, " ")
+    .replace(/\b(?:can you|could you|help me|i want to|i need to|let'?s)\b/gi, " ")
+    .replace(/\b(?:plan this weekend|this weekend)\b/gi, "this weekend")
+    .replace(/\bactivities\b/gi, "plans")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 56)
-    .replace(/[.?!,;:]+$/g, "") || "that";
+    .replace(/[.?!,;:]+$/g, "");
+  if (/\bweekend\b/i.test(query)) return "this weekend";
+  if (/\b(?:hike|hiking|trail)\b/i.test(query)) return "local hikes";
+  if (/\bparks?\b/i.test(query)) return "local parks";
+  if (/\bweather|forecast\b/i.test(query)) return "weather";
+  return cleaned || "that";
 }
 
 function isListDoneSignal(userText: string, lastAssistantText: string): boolean {
@@ -720,6 +743,14 @@ function isLikelyTypedLocation(text: string): boolean {
   return /\b\d{5}(?:-\d{4})?\b/.test(value) || /^[a-z][a-z\s,.'-]+$/i.test(value);
 }
 
+function soundsLikeInvalidZipCode(text: string): boolean {
+  const value = text.trim();
+  if (!/\d/.test(value)) return false;
+  if (/\b\d{5}(?:-\d{4})?\b/.test(value)) return false;
+  const digits = value.replace(/\D/g, "");
+  return digits.length > 0 && digits.length < 5;
+}
+
 function extractListItems(
   text: string,
   options: { allowBareItems?: boolean } = {},
@@ -736,6 +767,28 @@ function extractListItems(
     .split(/[,.;\n]|\band\b/gi)
     .map((item) => cleanListItem(item, { fromExplicitCommand }))
     .filter((item): item is string => Boolean(item));
+}
+
+function extractReferencedAssistantListItems(text: string): string[] {
+  const listText = text
+    .replace(/\b(?:how does that sound|want to add|should i start|anything else)\b[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const matches = [...listText.matchAll(/\b\d+\.\s*([^0-9]+?)(?=\s+\d+\.|$)/g)];
+  const items = matches
+    .map((match) => cleanListItem(match[1] ?? "", { fromExplicitCommand: true }))
+    .filter((item): item is string => Boolean(item));
+  return [...new Set(items)].slice(0, 20);
+}
+
+function formatListItemsForSpeech(items: string[]): string {
+  const cleanItems = items.filter(Boolean);
+  if (cleanItems.length === 0) return "that";
+  if (cleanItems.length === 1) return cleanItems[0];
+  if (cleanItems.length === 2) return `${cleanItems[0]} and ${cleanItems[1]}`;
+  const shown = cleanItems.slice(0, 3).join(", ");
+  const remaining = cleanItems.length - 3;
+  return remaining > 0 ? `${shown}, and ${remaining} more` : shown;
 }
 
 function cleanRemoveListItem(value: string): string | null {
@@ -1188,6 +1241,11 @@ const LiveAvatarSessionComponent: React.FC<{
     item: string | null;
     action: "add" | "remove" | "mention";
   } | null>(null);
+  const lastEnsuredListRef = useRef<{
+    id: string;
+    title: string;
+    wasNew: boolean;
+  } | null>(null);
   const deviceProfileRef = useRef(deviceProfile);
   const postVerifyGreetingSpokenRef = useRef(false);
   const accountSetupAwaitingReadyRef = useRef(false);
@@ -1196,6 +1254,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountSetupRejectedEmailRef = useRef<string | null>(null);
   const accountSetupOfferMadeRef = useRef(false);
   const accountSetupDeclinedAtRef = useRef(0);
+  const accountSetupEmailMissCountRef = useRef(0);
   const pendingListCustomizationPromptRef = useRef<{
     id: string;
     title: string;
@@ -1520,6 +1579,11 @@ const LiveAvatarSessionComponent: React.FC<{
       );
 
       if (existing) {
+        lastEnsuredListRef.current = {
+          id: existing.id,
+          title: existing.title,
+          wasNew: false,
+        };
         setActiveListId(existing.id);
         return existing.id;
       }
@@ -1547,6 +1611,11 @@ const LiveAvatarSessionComponent: React.FC<{
         pendingListCustomizationPromptRef.current = { id, title: normalizedTitle };
       }
       setAssistantLists((currentLists) => [...currentLists, newList]);
+      lastEnsuredListRef.current = {
+        id,
+        title: normalizedTitle,
+        wasNew: true,
+      };
       setActiveListId(id);
       return id;
     },
@@ -1555,60 +1624,98 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const addItemsToList = useCallback((listId: string, items: string[]) => {
     if (items.length === 0) return false;
+    const list = assistantLists.find((item) => item.id === listId);
+    if (!list) {
+      latestListMutationRef.current = {
+        listId,
+        item: items[items.length - 1] ?? null,
+        action: "add",
+      };
+      setAssistantLists((currentLists) =>
+        currentLists.map((currentList) => {
+          if (currentList.id !== listId) return currentList;
+          const nextItems = [...currentList.items];
+          for (const item of items) {
+            if (
+              !nextItems.some(
+                (existing) => existing.toLowerCase() === item.toLowerCase(),
+              )
+            ) {
+              nextItems.push(item);
+            }
+          }
+          return {
+            ...currentList,
+            items: nextItems.slice(0, MAX_LIST_ITEMS),
+            updatedAt: Date.now(),
+          };
+        }),
+      );
+      setListFocusNonce((value) => value + 1);
+      return true;
+    }
+    const nextItems = [...list.items];
+    let changed = false;
+    for (const item of items) {
+      if (
+        !nextItems.some(
+          (existing) => existing.toLowerCase() === item.toLowerCase(),
+        )
+      ) {
+        nextItems.push(item);
+        changed = true;
+      }
+    }
+    if (!changed) return false;
+
     latestListMutationRef.current = {
       listId,
       item: items[items.length - 1] ?? null,
       action: "add",
     };
-    let changed = false;
     setAssistantLists((currentLists) =>
-      currentLists.map((list) => {
-        if (list.id !== listId) return list;
-        const nextItems = [...list.items];
-        for (const item of items) {
-          if (
-            !nextItems.some(
-              (existing) => existing.toLowerCase() === item.toLowerCase(),
-            )
-          ) {
-            nextItems.push(item);
-            changed = true;
-          }
-        }
-        return changed
-          ? {
-              ...list,
-              items: nextItems.slice(0, MAX_LIST_ITEMS),
-              updatedAt: Date.now(),
-            }
-          : list;
+      currentLists.map((currentList) => {
+        if (currentList.id !== listId) return currentList;
+        return {
+          ...currentList,
+          items: nextItems.slice(0, MAX_LIST_ITEMS),
+          updatedAt: Date.now(),
+        };
       }),
     );
     setListFocusNonce((value) => value + 1);
-    return changed;
-  }, []);
+    return true;
+  }, [assistantLists]);
 
   const removeItemsFromList = useCallback((listId: string, items: string[]) => {
     if (items.length === 0) return false;
+    const list = assistantLists.find((item) => item.id === listId);
+    if (!list) return false;
+    const nextItems = list.items.filter(
+      (item) => !items.some((removeItem) => itemKeysMatch(item, removeItem)),
+    );
+    const changed = nextItems.length !== list.items.length;
+    if (!changed) return false;
+
     latestListMutationRef.current = {
       listId,
       item: items[0] ?? null,
       action: "remove",
     };
-    let changed = false;
     setAssistantLists((currentLists) =>
-      currentLists.map((list) => {
-        if (list.id !== listId) return list;
-        const nextItems = list.items.filter(
-          (item) => !items.some((removeItem) => itemKeysMatch(item, removeItem)),
-        );
-        changed = nextItems.length !== list.items.length;
-        return changed ? { ...list, items: nextItems, updatedAt: Date.now() } : list;
-      }),
+      currentLists.map((currentList) =>
+        currentList.id === listId
+          ? {
+              ...currentList,
+              items: nextItems,
+              updatedAt: Date.now(),
+            }
+          : currentList,
+      ),
     );
     setListFocusNonce((value) => value + 1);
-    return changed;
-  }, []);
+    return true;
+  }, [assistantLists]);
 
   const removeListItemAtIndex = useCallback(
     (listId: string, itemIndex: number) => {
@@ -1725,7 +1832,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const startAccountSetup = useCallback(
     async (email: string) => {
       const normalizedEmail = email.trim().toLowerCase();
-      setAccountNotice(`Sending account link to ${normalizedEmail}`);
+      setAccountNotice("Sending Account Link");
       setAccountVerificationUrl(null);
       try {
         const response = await fetch("/api/account/start", {
@@ -1760,10 +1867,10 @@ const LiveAvatarSessionComponent: React.FC<{
             : "I saved your email, but the email sender is not fully connected yet. I made a note for G to finish account email before this goes live.";
         setAccountNotice(
           data?.emailSent
-            ? `Account link sent to ${normalizedEmail}`
+            ? "Account Link Sent"
             : verificationUrl
-              ? "Account link ready for this test"
-              : "Account email needs setup",
+              ? "Account Link Ready for This Test"
+              : "Account Email Needs Setup",
         );
         setAccountVerificationUrl(verificationUrl);
         await repeat(spoken);
@@ -1771,6 +1878,7 @@ const LiveAvatarSessionComponent: React.FC<{
         lastVisionResponseTimeRef.current = Date.now();
         accountSetupOfferMadeRef.current = false;
         accountSetupDeclinedAtRef.current = 0;
+        accountSetupEmailMissCountRef.current = 0;
         setEmailEntryOpen(false);
         setTypedAccountEmail("");
         return true;
@@ -1802,6 +1910,25 @@ const LiveAvatarSessionComponent: React.FC<{
     [repeat],
   );
 
+  const handleEmailMiss = useCallback(
+    async (spokenBeforeTypedFallback?: string) => {
+      accountSetupEmailMissCountRef.current += 1;
+      if (accountSetupEmailMissCountRef.current >= 2) {
+        return openEmailEntry(
+          spokenBeforeTypedFallback ||
+            "I'm still not catching it cleanly. Why don't you go ahead and type your email address in here?",
+        );
+      }
+      const spoken =
+        "I did not catch a complete email address yet. No rush. Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [openEmailEntry, repeat],
+  );
+
   const confirmAccountEmailCandidate = useCallback(
     async (email: string) => {
       const normalizedEmail = email.trim().toLowerCase();
@@ -1814,6 +1941,8 @@ const LiveAvatarSessionComponent: React.FC<{
       accountSetupRejectedEmailRef.current = null;
       accountSetupAwaitingEmailRef.current = false;
       accountSetupAwaitingReadyRef.current = false;
+      accountSetupEmailMissCountRef.current = 0;
+      setEmailEntryOpen(false);
       setTypedAccountEmail(normalizedEmail);
       const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
       await repeat(spoken);
@@ -1854,6 +1983,7 @@ const LiveAvatarSessionComponent: React.FC<{
     accountSetupAwaitingEmailRef.current = false;
     accountSetupPendingEmailRef.current = null;
     accountSetupRejectedEmailRef.current = null;
+    accountSetupEmailMissCountRef.current = 0;
     const spoken =
       customSpoken ||
       "Let's get that account set up. It's just a quick email click. Then next time I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
@@ -1908,10 +2038,8 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupPendingEmailRef.current = null;
           accountSetupAwaitingEmailRef.current = true;
           accountSetupAwaitingReadyRef.current = false;
-          setEmailEntryOpen(true);
-          setTypedAccountEmail(accountSetupRejectedEmailRef.current ?? "");
-          return openEmailEntry(
-            "Okay, I will not send it. I opened the email box too, so you can type it or say it again slowly.",
+          return handleEmailMiss(
+            "Okay, I will not send it. I'm still not catching it cleanly. Why don't you go ahead and type your email address in here?",
           );
         }
         const spoken =
@@ -1927,9 +2055,7 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (accountSetupAwaitingEmailRef.current) {
-        return openEmailEntry(
-          "I did not catch a complete email address. No rush. I opened the email box so you can type it, or say it slowly like name at domain dot com.",
-        );
+        return handleEmailMiss();
       }
 
       if (accountSetupAwaitingReadyRef.current) {
@@ -1940,6 +2066,7 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupRejectedEmailRef.current = null;
           accountSetupDeclinedAtRef.current = Date.now();
           accountSetupOfferMadeRef.current = false;
+          accountSetupEmailMissCountRef.current = 0;
           setEmailEntryOpen(false);
           const spoken =
             "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
@@ -1953,9 +2080,11 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupAwaitingEmailRef.current = true;
           accountSetupPendingEmailRef.current = null;
           accountSetupRejectedEmailRef.current = null;
-          setEmailEntryOpen(true);
+          accountSetupEmailMissCountRef.current = 0;
+          setEmailEntryOpen(false);
+          setTypedAccountEmail("");
           const spoken =
-            "Great. What email address should I send the link to? You can say it, or type it in the email box I opened.";
+            "Great. What email address should I send the link to? Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -1971,6 +2100,7 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupAwaitingEmailRef.current = false;
         accountSetupPendingEmailRef.current = null;
         accountSetupRejectedEmailRef.current = null;
+        accountSetupEmailMissCountRef.current = 0;
         const spoken =
           "You can use the site right now, but if you want me to remember everything next time, let's get that account set up. It's just a quick email click. Then when you come back, I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
         await repeat(spoken);
@@ -1981,7 +2111,13 @@ const LiveAvatarSessionComponent: React.FC<{
 
       return false;
     },
-    [confirmAccountEmailCandidate, openEmailEntry, repeat, startAccountSetup],
+    [
+      confirmAccountEmailCandidate,
+      handleEmailMiss,
+      openEmailEntry,
+      repeat,
+      startAccountSetup,
+    ],
   );
 
   const handlePromptSizeSpeech = useCallback(
@@ -2282,8 +2418,8 @@ const LiveAvatarSessionComponent: React.FC<{
         setOnlineLookupSources(sources);
         setOnlineLookupNotice(
           sources.length > 0
-            ? `Sources ready for ${topic}`
-            : "Online lookup complete",
+            ? `Sources Ready for ${topic}`
+            : null,
         );
         const spoken =
           sources.length > 0
@@ -2352,6 +2488,14 @@ const LiveAvatarSessionComponent: React.FC<{
           await requestSharedLocation();
           return true;
         }
+        if (soundsLikeInvalidZipCode(text)) {
+          const spoken =
+            "That ZIP code does not sound quite right. ZIP codes are five digits. Tell me the five-digit ZIP code, or say share location.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
         const location =
           extractLocationHint(text) ?? (isLikelyTypedLocation(text) ? text : null);
         if (!location) return false;
@@ -2372,7 +2516,7 @@ const LiveAvatarSessionComponent: React.FC<{
       setOnlineLookupSources([]);
       setOnlineLookupNotice("Tell 6 where to look");
       const spoken =
-        "I can look that up online. Tell me your city or ZIP code, or say share location and your phone or browser will ask permission first. What kind of cool things do you like?";
+        "I can look that up online. Do you want to tell me your ZIP code, or wanna share your phone's location? If you share location, your phone or browser will ask permission first. What kind of cool things do you like?";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
@@ -2419,11 +2563,30 @@ const LiveAvatarSessionComponent: React.FC<{
       try {
         await ensureAudioOutputReady();
         await interrupt();
+        if (listIntent) {
+          const ensured = lastEnsuredListRef.current;
+          const pendingCustomization = pendingListCustomizationPromptRef.current;
+          const hasPendingCustomization =
+            Boolean(pendingCustomization) &&
+            pendingCustomization?.id === ensured?.id;
+          const spoken =
+            hasPendingCustomization && pendingCustomization
+              ? `I made the ${pendingCustomization.title}. Want this one a different color, a different shade, bullets instead of numbers, or anything else that makes it easier to scan?`
+              : `I ${ensured?.wasNew ? "started" : "opened"} the ${ensured?.title ?? listIntent.title}. Just tell me what goes on it.`;
+          if (hasPendingCustomization) {
+            pendingListCustomizationPromptRef.current = null;
+          }
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(prompt);
+          return;
+        }
         if (prompt === "Explore aiASAP" || prompt === "Quick Tour") {
           const spoken =
             prompt === "Quick Tour"
-              ? "a-i-asap is the easy way into AI. You talk to me, and I help with lists, reminders, planning, making money, and eventually building whole companies. What should we try first?"
-              : "a-i-asap is built so you can just talk to me and I help you get things done. Lists, reminders, weekend plans, money ideas, and bigger things later. Want the quick tour, or want to start with something useful?";
+              ? "A. I. A-S-A-P. is the easy way into AI. You talk to me, and I help with lists, reminders, planning, making money, and eventually building whole companies. What should we try first?"
+              : "A. I. A-S-A-P. is built so you can just talk to me and I help you get things done. Lists, reminders, weekend plans, money ideas, and bigger things later. Want the quick tour, or want to start with something useful?";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -3274,7 +3437,8 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       lastUserTextRef.current = userText;
 
-      const lastAssistantText = lastAvatarResponseRef.current.toLowerCase();
+      const rawLastAssistantText = lastAvatarResponseRef.current;
+      const lastAssistantText = rawLastAssistantText.toLowerCase();
       const isAnsweringNamePrompt =
         /\b(?:what should i call you|what'?s your name|your name|full name|call you)\b/i.test(
           lastAssistantText,
@@ -3348,43 +3512,84 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
         setIsShoppingMode(false);
-        void interrupt();
+        await interrupt();
+        const spoken = "I closed shopping mode.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
         schedulePromptBrain(userText);
         return;
       }
 
       if (LIST_CLOSE_RE.test(userText)) {
         setIsShoppingMode(false);
-        if (listIntent && LIST_COMMAND_ONLY_RE.test(userText)) {
+        let spoken = "I closed the list.";
+        if (listIntent) {
           ensureAssistantList(listIntent);
+          const ensured = lastEnsuredListRef.current;
+          spoken = `I opened the ${ensured?.title ?? listIntent.title}.`;
         } else {
           setActiveListId(null);
         }
-        void interrupt();
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
         schedulePromptBrain(userText);
         return;
       }
 
       if (LIST_NAV_NEXT_RE.test(userText)) {
-        moveActiveList(1);
+        const nextList = moveActiveList(1);
+        if (nextList) {
+          const spoken = `I opened the ${nextList.title}.`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
       } else if (LIST_NAV_PREV_RE.test(userText)) {
-        moveActiveList(-1);
+        const previousList = moveActiveList(-1);
+        if (previousList) {
+          const spoken = `I opened the ${previousList.title}.`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
       }
 
-      const targetListId = listIntent
-        ? ensureAssistantList(listIntent)
+      const referencedAssistantItems =
+        LIST_START_WITH_REFERENCED_ITEMS_RE.test(userText)
+          ? extractReferencedAssistantListItems(rawLastAssistantText)
+          : [];
+      const inferredListIntent =
+        listIntent ??
+        (referencedAssistantItems.length > 0
+          ? { title: "Shopping List", kind: "shopping" as const }
+          : null);
+
+      const targetListId = inferredListIntent
+        ? ensureAssistantList(inferredListIntent)
         : activeListId;
       const enteringShoppingMode = SHOPPING_MODE_OPEN_RE.test(userText);
 
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
         if (enteringShoppingMode) {
           setIsShoppingMode(true);
-          void interrupt();
+          await interrupt();
         }
 
         const displayStyle = detectListDisplayStyle(userText);
+        let listActionSpoken: string | null = null;
         if (displayStyle) {
           setListDisplayStyle(targetListId, displayStyle);
+          listActionSpoken =
+            displayStyle === "bulleted"
+              ? "Done. I'll show it with bullets."
+              : "Done. I'll show it with numbers.";
         }
 
         const targetListBeforeChange =
@@ -3392,16 +3597,26 @@ const LiveAvatarSessionComponent: React.FC<{
         const accentUpdate = detectListAccentUpdate(userText, targetListBeforeChange);
         if (accentUpdate) {
           setListAccentColor(targetListId, accentUpdate);
+          listActionSpoken = `Done. I made it ${accentUpdate.accentLabel?.toLowerCase() ?? "that color"}.`;
         }
 
         const removeItems = extractRemoveItems(userText);
-        const addItems = extractListItems(userText, {
-          allowBareItems: Boolean(activeListId || listIntent),
-        });
+        const addItems =
+          referencedAssistantItems.length > 0
+            ? referencedAssistantItems
+            : extractListItems(userText, {
+                allowBareItems: Boolean(activeListId || inferredListIntent),
+              });
         if (removeItems.length > 0) {
-          removeItemsFromList(targetListId, removeItems);
+          const removed = removeItemsFromList(targetListId, removeItems);
+          listActionSpoken = removed
+            ? `I took ${formatListItemsForSpeech(removeItems)} off the list.`
+            : `I do not see ${formatListItemsForSpeech(removeItems)} on this list.`;
         } else if (addItems.length > 0) {
-          addItemsToList(targetListId, addItems);
+          const added = addItemsToList(targetListId, addItems);
+          listActionSpoken = added
+            ? `Added ${formatListItemsForSpeech(addItems)}.`
+            : `${formatListItemsForSpeech(addItems)} is already on the list.`;
         } else {
           const mentionedItem = findMentionedListItem(activeList, userText);
           if (mentionedItem) {
@@ -3411,6 +3626,7 @@ const LiveAvatarSessionComponent: React.FC<{
               action: "mention",
             };
             setListFocusNonce((value) => value + 1);
+            listActionSpoken = `I found ${mentionedItem} on the list.`;
           }
         }
 
@@ -3430,6 +3646,12 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
 
+        if (!listActionSpoken && inferredListIntent) {
+          const ensured = lastEnsuredListRef.current;
+          const action = ensured?.wasNew ? "started" : "opened";
+          listActionSpoken = `I ${action} the ${ensured?.title ?? inferredListIntent.title}. Just tell me what goes on it.`;
+        }
+
         if (
           !accountEmail &&
           !isShoppingMode &&
@@ -3445,8 +3667,25 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
 
-        if (isShoppingMode || enteringShoppingMode) {
-          void interrupt();
+        if (enteringShoppingMode) {
+          const spoken =
+            "Got it. I'll keep the list up and stay out of the way. Tell me what to remove, or tap the X next to an item.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+
+        if (listActionSpoken) {
+          await repeat(listActionSpoken);
+          lastAvatarResponseRef.current = listActionSpoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+
+        if (isShoppingMode) {
           schedulePromptBrain(userText);
           return;
         }
@@ -4385,11 +4624,25 @@ const LiveAvatarSessionComponent: React.FC<{
       {emailEntryOpen && !isShoppingMode && (
         <form
           onSubmit={(event) => void handleTypedAccountEmailSubmit(event)}
-          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+4.75rem)] z-[76] flex w-[min(92%,30rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-[#e0aa62]/28 bg-black/86 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur"
+          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+5.2rem)] z-[76] flex w-[min(92%,30rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-[#e0aa62]/28 bg-[#120b06]/90 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur"
         >
-          <label htmlFor="account-email-entry" className="text-sm font-bold">
-            Type Email Address
-          </label>
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="account-email-entry" className="text-sm font-bold">
+              Type Email Address
+            </label>
+            <button
+              type="button"
+              aria-label="Close email box"
+              title="Close email box"
+              onClick={() => {
+                setEmailEntryOpen(false);
+                setTypedAccountEmail("");
+              }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e0aa62]/12 text-[#f1c477]"
+            >
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
           <div className="flex gap-2">
             <input
               id="account-email-entry"
@@ -4402,7 +4655,7 @@ const LiveAvatarSessionComponent: React.FC<{
               value={typedAccountEmail}
               onChange={(event) => setTypedAccountEmail(event.target.value)}
               placeholder="name@example.com"
-              className="min-w-0 flex-1 rounded-md border border-white/12 bg-white px-3 py-2 text-base font-semibold text-black outline-none"
+              className="min-w-0 flex-1 rounded-md border border-[#e0aa62]/30 bg-[#211309] px-3 py-2 text-base font-semibold text-[#f8d7a2] outline-none placeholder:text-[#e0aa62]/45 focus:border-[#f1c477]/70"
             />
             <button
               type="submit"
@@ -4414,8 +4667,8 @@ const LiveAvatarSessionComponent: React.FC<{
         </form>
       )}
 
-      {onlineLookupNotice && !isShoppingMode && (
-        <div className="fixed left-1/2 top-[52%] z-[74] w-[min(90%,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#e0aa62]/25 bg-black/78 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur">
+      {onlineLookupNotice && !isShoppingMode && !emailEntryOpen && (
+        <div className="fixed left-1/2 top-[46%] z-[74] w-[min(88%,26rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#e0aa62]/25 bg-black/78 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-semibold">{onlineLookupNotice}</p>
@@ -4469,7 +4722,7 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="relative top-[0.78rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="relative top-[0.95rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
@@ -4640,11 +4893,11 @@ const LiveAvatarSessionComponent: React.FC<{
       {shouldShowLoadingSurface && (
         <div className="fixed inset-x-0 bottom-[10.75rem] z-30 flex justify-center px-4 pointer-events-none">
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
-            <p className="text-[0.82rem] font-bold uppercase tracking-[0.2em] text-[#f1c477]/78">
+            <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
               Loading
             </p>
-            <div className="mx-auto mt-2 h-1 w-28 overflow-hidden rounded-full bg-white/10">
-              <span className="block h-full w-1/2 animate-[loading-sweep_1.15s_ease-in-out_infinite] rounded-full bg-[#e0aa62]" />
+            <div className="mx-auto mt-3 h-1.5 w-36 overflow-hidden rounded-full bg-white/10">
+              <span className="block h-full w-1/2 animate-[loading-sweep_2.15s_ease-in-out_infinite] rounded-full bg-[#e0aa62]" />
             </div>
           </div>
         </div>
@@ -4882,7 +5135,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   </ol>
                 ) : (
                   <p className="pt-16 text-center text-2xl font-bold opacity-70">
-                    Add Things by Telling 6
+                    No items yet
                   </p>
                 )}
               </div>
@@ -4956,7 +5209,7 @@ const LiveAvatarSessionComponent: React.FC<{
                     </ol>
                   ) : (
                     <p className="pt-6 text-center text-[1.2rem] font-semibold leading-snug opacity-80">
-                      Add Things by Telling 6
+                      No items yet
                     </p>
                   )}
                 </div>
@@ -4968,14 +5221,15 @@ const LiveAvatarSessionComponent: React.FC<{
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             isActive &&
-            !activeList && (
+            !activeList &&
+            !emailEntryOpen && (
               <div
                 className="fixed left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none"
                 style={{
                   bottom: `calc(env(safe-area-inset-bottom) + ${2.75 + promptSizeLevel * 0.25}rem)`,
                 }}
               >
-                {thoughtPrompts.slice(0, 4).map((prompt, index) => {
+                {thoughtPrompts.slice(0, onlineLookupNotice ? 3 : 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
                   const compactPrompt = prompt.length > 25;
                   return (
@@ -4984,7 +5238,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.45rem] w-[min(100%,18.5rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2 whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.72rem] w-[min(100%,17.25rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2.5 whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"

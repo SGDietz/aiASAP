@@ -14,7 +14,7 @@ const OPENAI_MODEL =
 const FALLBACK_PROMPTS = [
   "Explore aiASAP",
   "Start a Grocery List",
-  "Create To Do List",
+  "To Do List",
   "Plan This Weekend",
 ];
 
@@ -45,6 +45,9 @@ function toPromptTitleCase(value: string): string {
     .split(" ")
     .map((word, index) => {
       const lower = word.toLowerCase();
+      if (/^aiasap$/i.test(word) || /^ai[-\s]?asap$/i.test(word)) {
+        return "aiASAP";
+      }
       if (lower === "todo" || lower === "to-do") {
         return "To Do";
       }
@@ -68,7 +71,12 @@ function cleanPrompt(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const cleaned = value
     .replace(/^\s*(?:\d+[\).:-]?|[-*])\s*/u, "")
+    .replace(/\bAI\s+ASAP\b/g, "aiASAP")
+    .replace(/\bai[-\s]?asap\b/gi, "aiASAP")
     .replace(/\bto[-\s]?do\b/gi, "To Do")
+    .replace(/\bCreate\s+To\s+Do\s+List\b/gi, "To Do List")
+    .replace(/\bactivities\b/gi, "plans")
+    .replace(/\bactivity\b/gi, "plan")
     .replace(/[.!?。！？]+$/u, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -142,7 +150,7 @@ export async function POST(request: Request) {
       {
         role: "system",
         content:
-          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts for what the user is discussing right now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt 2 to 4 words. Use title case, but keep small connector words lowercase, such as a, an, and, for, of, the, this, and to. All four prompts should be useful: tightly related to the topic, or a natural segue toward improving the user's life. Never use Change Subject. Prefer concrete, practical help that improves daily life: reminders, lists, To Do lists, errands, birthdays, weekend plans, hikes, cool things to do, follow-ups, small next steps, useful personal organization, and ethical ways to make more money. Use Explore aiASAP as the first default prompt when the conversation is still general or just starting. Keep Plan This Weekend as a strong proactive option when weekend, free time, family, friends, energy, health, or getting out of the house fits. The exact prompt Create To Do List is preferred whenever tasks, chores, plans, work, family, or open loops are in the conversation. If the user already has or is building a grocery list, prefer Add to Grocery List over Start a Grocery List. If reminders are relevant, prefer Add Reminder, not Set Reminder for G. Never create prompts about adding contacts named G, setting reminders for G, calling G, texting G, or emailing G; G is the Creator/Builder/Founder/Financier/CEO aiASAP, not a random contact. Avoid stale ideas, vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
+          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts for what the user is discussing right now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt 2 to 4 words. Use title case, but keep the brand exactly aiASAP and keep small connector words lowercase, such as a, an, and, for, of, the, this, and to. All four prompts should be useful: tightly related to the topic, or a natural segue toward improving the user's life. Never use Change Subject. Avoid the word activities; say plans, cool things to do, places, or plain words that fit. Prefer concrete, practical help that improves daily life: reminders, lists, To Do lists, errands, birthdays, weekend plans, hikes, cool things to do, follow-ups, small next steps, useful personal organization, and ethical ways to make more money. Use Explore aiASAP as the first default prompt when the conversation is still general or just starting. Keep Plan This Weekend as a strong proactive option when weekend, free time, family, friends, energy, health, or getting out of the house fits. The exact prompt To Do List is preferred whenever tasks, chores, plans, work, family, or open loops are in the conversation. If the user already has or is building a grocery list, prefer Add to Grocery List over Start a Grocery List. If reminders are relevant, prefer Add Reminder, not Set Reminder for G. Never create prompts about adding contacts named G, setting reminders for G, calling G, texting G, or emailing G; G is the Creator/Builder/Founder/Financier/CEO aiASAP, not a random contact. Avoid stale ideas, vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
       },
       {
         role: "user",
