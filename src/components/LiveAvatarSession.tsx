@@ -1124,14 +1124,6 @@ function extractAccountEmailCandidate(
   return extractSpokenEmailCandidate(text) ?? fallbackEmail?.trim().toLowerCase() ?? null;
 }
 
-function base64ToBinaryString(base64: string): string | null {
-  try {
-    return window.atob(base64);
-  } catch {
-    return null;
-  }
-}
-
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
   onSessionStopped: (opts?: SessionStoppedReason) => void;
@@ -1161,13 +1153,7 @@ const LiveAvatarSessionComponent: React.FC<{
     unmute,
   } = useVoiceChat();
 
-  const {
-    interrupt,
-    repeat: repeatTextCommand,
-    repeatAudio,
-    startListening,
-    stopListening,
-  } =
+  const { interrupt, repeat, startListening, stopListening } =
     useAvatarActions(mode);
 
   const { sendMessage } = useTextChat(mode);
@@ -1204,11 +1190,6 @@ const LiveAvatarSessionComponent: React.FC<{
   // Tracks the last non-silent vision analysis so Grok can compare frames and only break
   // silence when something meaningful has actually changed.
   const lastAnalysisRef = useRef<string>("");
-  const lastAvatarSpeechStartedAtRef = useRef(0);
-  const recentHandledUserTextsRef = useRef<Map<string, number>>(new Map());
-  const userTranscriptHandlerRef = useRef<
-    ((event: { text: string }) => Promise<void>) | null
-  >(null);
 
   const isAttachedRef = useRef<boolean>(false);
   const greetingTriggeredRef = useRef<boolean>(false);
@@ -1218,7 +1199,6 @@ const LiveAvatarSessionComponent: React.FC<{
   const dbSessionIdRef = useRef<string | null>(null);
   /** Cursor for GET /v1/sessions/{id}/transcript (LiveAvatar `next_timestamp`). */
   const transcriptCursorRef = useRef<number | null>(null);
-  const speechFallbackTranscriptCursorRef = useRef<number | null>(null);
   const lastSyncedLaSessionIdRef = useRef<string | null>(null);
   /** Mic/voice chat is held inactive until the user taps Start (SDK enables voice on connect). */
   const voiceHeldUntilUserStartRef = useRef(false);
@@ -1297,74 +1277,6 @@ const LiveAvatarSessionComponent: React.FC<{
     [activeListId, assistantLists],
   );
   const activeListTheme = listColorThemeFor(activeList);
-
-  const shouldHandleUserText = useCallback((text: string) => {
-    const key = text.toLowerCase().replace(/\s+/g, " ").trim();
-    if (!key) return false;
-    const now = Date.now();
-    const handled = recentHandledUserTextsRef.current;
-    for (const [handledKey, handledAt] of handled) {
-      if (now - handledAt > 20_000) {
-        handled.delete(handledKey);
-      }
-    }
-    const lastHandledAt = handled.get(key);
-    if (lastHandledAt && now - lastHandledAt < 8_000) {
-      return false;
-    }
-    handled.set(key, now);
-    return true;
-  }, []);
-
-  const repeat = useCallback(
-    async (message: string) => {
-      const spoken = message.trim();
-      if (!spoken) return undefined;
-
-      let result: string | void = undefined;
-      const sentAt = Date.now();
-      try {
-        result = await repeatTextCommand(spoken);
-      } catch (error) {
-        console.error("LiveAvatar text repeat failed:", error);
-      }
-
-      if (mode !== "FULL") {
-        return result;
-      }
-
-      await new Promise((resolve) => window.setTimeout(resolve, 1100));
-      if (lastAvatarSpeechStartedAtRef.current >= sentAt) {
-        return result;
-      }
-
-      try {
-        const response = await fetch("/api/elevenlabs-text-to-speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: spoken }),
-        });
-        const data = await response.json().catch(() => null);
-        const audioBase64 =
-          typeof data?.audio === "string" ? data.audio.trim() : "";
-        const audio = audioBase64 ? base64ToBinaryString(audioBase64) : null;
-        if (!response.ok || !audio) {
-          throw new Error(data?.error || "No fallback audio returned");
-        }
-        return repeatAudio(audio);
-      } catch (error) {
-        console.error("LiveAvatar audio fallback failed:", error);
-        return result;
-      }
-    },
-    [mode, repeatAudio, repeatTextCommand],
-  );
-
-  useEffect(() => {
-    if (isAvatarTalking) {
-      lastAvatarSpeechStartedAtRef.current = Date.now();
-    }
-  }, [isAvatarTalking]);
 
   useEffect(() => {
     deviceProfileRef.current = deviceProfile;
@@ -2305,7 +2217,6 @@ const LiveAvatarSessionComponent: React.FC<{
       const cursor = transcriptCursorRef.current;
       dbSessionIdRef.current = null;
       transcriptCursorRef.current = null;
-      speechFallbackTranscriptCursorRef.current = null;
       lastSyncedLaSessionIdRef.current = null;
       if (sid) {
         void fetch("/api/liveavatar/session-transcript/sync", {
@@ -2324,7 +2235,6 @@ const LiveAvatarSessionComponent: React.FC<{
       const sid = sessionRef.current.sessionId;
       if (lastSyncedLaSessionIdRef.current !== sid) {
         transcriptCursorRef.current = null;
-        speechFallbackTranscriptCursorRef.current = null;
         lastSyncedLaSessionIdRef.current = sid;
       }
       dbSessionIdRef.current = sid;
@@ -2363,76 +2273,6 @@ const LiveAvatarSessionComponent: React.FC<{
     const id = setInterval(runSync, intervalMs);
     return () => clearInterval(id);
   }, [sessionState, sessionRef]);
-
-  // Failsafe speech path: if the SDK's USER_TRANSCRIPTION event stalls, poll
-  // LiveAvatar directly and send new user transcript lines through the same
-  // local handler. This skips Supabase writes so it is not blocked by DB load.
-  useEffect(() => {
-    if (
-      sessionState !== SessionState.CONNECTED ||
-      !hasUserPressedVoiceStart
-    ) {
-      return;
-    }
-    const sid = sessionRef.current?.sessionId;
-    if (!sid) return;
-
-    let cancelled = false;
-    let polling = false;
-
-    const runFallbackTranscriptPoll = async () => {
-      if (polling) return;
-      polling = true;
-      try {
-        const body: Record<string, unknown> = {
-          liveAvatarSessionId: sid,
-          returnTranscript: true,
-          skipPersist: true,
-        };
-        if (speechFallbackTranscriptCursorRef.current != null) {
-          body.startTimestamp = speechFallbackTranscriptCursorRef.current;
-        }
-
-        const response = await fetch("/api/liveavatar/session-transcript/sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data) return;
-
-        if (typeof data.nextTimestamp === "number") {
-          speechFallbackTranscriptCursorRef.current = data.nextTimestamp;
-        }
-
-        const transcriptData = Array.isArray(data.transcriptData)
-          ? data.transcriptData
-          : [];
-        for (const row of transcriptData) {
-          if (cancelled) break;
-          if (
-            row?.role !== "user" ||
-            typeof row.message !== "string" ||
-            !row.message.trim()
-          ) {
-            continue;
-          }
-          await userTranscriptHandlerRef.current?.({ text: row.message });
-        }
-      } catch (error) {
-        console.error("LiveAvatar transcript fallback poll failed:", error);
-      } finally {
-        polling = false;
-      }
-    };
-
-    void runFallbackTranscriptPoll();
-    const intervalId = window.setInterval(runFallbackTranscriptPoll, 2500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [hasUserPressedVoiceStart, sessionRef, sessionState]);
 
   // Function to reset to home screen (close camera, clear uploads, but keep session)
   const resetToHomeScreen = useCallback(() => {
@@ -3636,9 +3476,6 @@ const LiveAvatarSessionComponent: React.FC<{
       if (isInternalSignal(userText)) {
         return;
       }
-      if (!shouldHandleUserText(userText)) {
-        return;
-      }
       lastUserTextRef.current = userText;
 
       const rawLastAssistantText = lastAvatarResponseRef.current;
@@ -4075,7 +3912,6 @@ const LiveAvatarSessionComponent: React.FC<{
       "Setting up USER_TRANSCRIPTION listener, vision mode:",
       visionMode,
     );
-    userTranscriptHandlerRef.current = handleUserTranscription;
     sessionRef.current.on(
       AgentEventsEnum.USER_TRANSCRIPTION,
       handleUserTranscription,
@@ -4087,9 +3923,6 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       if (promptBrainTimeoutRef.current) {
         clearTimeout(promptBrainTimeoutRef.current);
-      }
-      if (userTranscriptHandlerRef.current === handleUserTranscription) {
-        userTranscriptHandlerRef.current = null;
       }
       if (sessionRef.current) {
         console.log("Cleaning up USER_TRANSCRIPTION listener");
@@ -4134,7 +3967,6 @@ const LiveAvatarSessionComponent: React.FC<{
     offerAccountSetupForMemory,
     removeItemsFromList,
     schedulePromptBrain,
-    shouldHandleUserText,
     setListAccentColor,
     setListDisplayStyle,
     speakGeneralAssistantResponse,

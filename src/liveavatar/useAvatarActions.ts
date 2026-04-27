@@ -24,13 +24,6 @@ export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
     [sessionRef, mode],
   );
 
-  const repeatAudio = useCallback(
-    async (audio: string) => {
-      return sessionRef.current.repeatAudio(audio);
-    },
-    [sessionRef],
-  );
-
   const startListening = useCallback(() => {
     return sessionRef.current.startListening();
   }, [sessionRef]);
@@ -42,7 +35,6 @@ export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
   return {
     interrupt,
     repeat,
-    repeatAudio,
     startListening,
     stopListening,
   };

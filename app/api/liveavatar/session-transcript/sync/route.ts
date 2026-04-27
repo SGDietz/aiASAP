@@ -85,12 +85,7 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const {
-      liveAvatarSessionId: rawSessionId,
-      startTimestamp,
-      returnTranscript,
-      skipPersist,
-    } = body;
+    const { liveAvatarSessionId: rawSessionId, startTimestamp } = body;
 
     if (!isSafeTranscriptionSessionId(rawSessionId)) {
       return new Response(JSON.stringify({ error: "Invalid liveAvatarSessionId" }), {
@@ -157,6 +152,8 @@ export async function POST(request: Request) {
       );
     }
 
+    const { url, serviceRoleKey } = getSupabaseAdminConfig();
+
     const rows = parsed.transcriptData.map((row) => ({
       session_id: liveAvatarSessionId,
       role: row.role === "avatar" ? "assistant" : "user",
@@ -165,8 +162,7 @@ export async function POST(request: Request) {
       source: "liveavatar_api",
     }));
 
-    if (!skipPersist && rows.length > 0) {
-      const { url, serviceRoleKey } = getSupabaseAdminConfig();
+    if (rows.length > 0) {
       const insertRes = await fetch(
         `${url}/rest/v1/conversation_messages?on_conflict=session_id,role,la_absolute_timestamp`,
         {
@@ -187,17 +183,15 @@ export async function POST(request: Request) {
     }
 
     let leadCaptureErrors = 0;
-    if (!skipPersist) {
-      for (const row of parsed.transcriptData) {
-        if (row.role !== "user") continue;
-        const line = row.transcript.trim();
-        if (!line || !shouldRunLeadCaptureOnUserTranscript(line)) continue;
-        try {
-          await persistUserUtteranceLeadCapture(liveAvatarSessionId, line);
-        } catch (err) {
-          leadCaptureErrors++;
-          console.error("Lead capture from transcript sync failed:", err);
-        }
+    for (const row of parsed.transcriptData) {
+      if (row.role !== "user") continue;
+      const line = row.transcript.trim();
+      if (!line || !shouldRunLeadCaptureOnUserTranscript(line)) continue;
+      try {
+        await persistUserUtteranceLeadCapture(liveAvatarSessionId, line);
+      } catch (err) {
+        leadCaptureErrors++;
+        console.error("Lead capture from transcript sync failed:", err);
       }
     }
 
@@ -208,14 +202,6 @@ export async function POST(request: Request) {
         nextTimestamp: parsed.nextTimestamp,
         received: parsed.transcriptData.length,
         leadCaptureErrors,
-        transcriptData: returnTranscript
-          ? rows.map((row) => ({
-              role: row.role,
-              message: row.message,
-              absoluteTimestamp: row.la_absolute_timestamp,
-              source: row.source,
-            }))
-          : undefined,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
