@@ -118,11 +118,15 @@
 ## Social CENTCOM Handoff - 2026-04-27
 
 - Current internal social dashboard route: `/social`.
-- Latest preview smoke test sent to Telegram: `Smoke test gmx8c41k6`.
-- Latest preview URL: `https://ai-asap-gmx8c41k6-team-dietz.vercel.app/social`.
+- Latest social shutdown smoke test sent to Telegram: `Smoke test 11806aa`.
+- Latest preview URL: `https://ai-asap-msa70mst6-team-dietz.vercel.app/social`.
 - Page name in UI: `aiASAP Social CENTCOM`.
 - Current social platforms in scope: X, TikTok, Instagram, Facebook, Threads, YouTube.
 - Threads account URL: `https://www.threads.com/@aiasap.ai`.
+- YouTube/Google: G said the existing Google Brand Account should be used for aiASAP. Do not commit the internal Google `myaccount`/brand-account URL or ID; use/store a public YouTube channel URL only after it exists.
+- Social tokens and drafts are stored as encrypted JSON in private Supabase Storage bucket `aiasap-accounts`, not `social_*` tables. Latest post-smoke check found the bucket ready and `users/` social object count `0`, expected until account connections happen.
+- Vercel social envs already installed: `INTEGRATION_TOKEN_ENCRYPTION_KEY`, `INTEGRATION_STATE_SECRET`. Missing provider envs: Meta, Threads, X, TikTok, Google/YouTube client IDs/secrets.
+- Stable social callback URLs use production domain `https://ai-asap.vercel.app/api/social/{provider}/callback`; do not use temporary Vercel preview domains in provider consoles.
 - DM/messaging apps such as WhatsApp, Messenger, Discord, and Telegram are deferred until the messaging workflow is appropriate; do not add them to the public social platform card list yet.
 - Social dashboard purpose: internal control panel for account connection status, drafts, Telegram approval, and later posting/logging.
 - Future product-track note: the setup work G is doing for aiASAP should later become an aiASAP user workflow that helps people create accounts, connect social platforms, set up developer apps/API keys, build approval workflows, create content, post/log results, and add messaging apps when useful.

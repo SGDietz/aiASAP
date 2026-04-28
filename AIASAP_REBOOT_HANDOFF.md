@@ -6,6 +6,33 @@
 - Claude is iSolve only.
 - Do not touch iSolve from this repo/thread.
 
+## Shutdown Handoff - 2026-04-28 Social Integration
+
+- Current repo path/lane: `C:\Users\sgdie\Dropbox\Codex\aiASAP`. Codex stays on aiASAP only.
+- Current pushed HEAD: `11806aa Use stable social callback URLs`.
+- Latest desktop social smoke-test link: `https://ai-asap-msa70mst6-team-dietz.vercel.app/social`.
+- Latest smoke test sent to Telegram: `Smoke test 11806aa`; action line told G to use desktop to copy checklist/callbacks for Shelly.
+- `/social` is the internal `aiASAP Social CENTCOM` dashboard for X, TikTok, Instagram, Facebook, Threads, and YouTube.
+- Social tokens and drafts are stored as encrypted JSON in Supabase Storage bucket `aiasap-accounts`; they are not stored in `social_*` tables.
+- Supabase post-smoke check: `aiasap-accounts` bucket exists, private, 1 MB limit, `application/json`; `users/` social storage objects count was `0`, which is expected until accounts are connected.
+- Vercel envs installed by Codex: `INTEGRATION_TOKEN_ENCRYPTION_KEY` and `INTEGRATION_STATE_SECRET` for production/preview/development.
+- Vercel envs still missing and needed from provider setup/keymaster: `META_APP_ID`, `META_APP_SECRET`, `THREADS_CLIENT_ID`, `THREADS_CLIENT_SECRET`, `X_CLIENT_ID`, `X_CLIENT_SECRET`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+- Stable callback URLs to give provider consoles and Shelly:
+  - Meta: `https://ai-asap.vercel.app/api/social/meta/callback`
+  - Threads: `https://ai-asap.vercel.app/api/social/threads/callback`
+  - X: `https://ai-asap.vercel.app/api/social/x/callback`
+  - TikTok: `https://ai-asap.vercel.app/api/social/tiktok/callback`
+  - YouTube: `https://ai-asap.vercel.app/api/social/youtube/callback`
+- Public social accounts known:
+  - X: `https://x.com/aiASAPai`
+  - TikTok: `https://www.tiktok.com/@aiasap.ai`
+  - Instagram: `https://www.instagram.com/aiasap.ai/`
+  - Facebook: `https://www.facebook.com/aiasapai`
+  - Threads: `https://www.threads.com/@aiasap.ai`
+- YouTube/Google: G said the existing Google Brand Account should be used for aiASAP. Do not commit the internal Google `myaccount`/brand-account URL or ID; only store/use a public YouTube channel URL after it exists.
+- Next setup path: bring Shelly/keymaster in for keys. Start with Meta because it covers Instagram + Facebook, then Threads, then X, TikTok, and Google/YouTube.
+- Dirty working tree at shutdown included unrelated files not to revert unless G asks: modified `telegram_codex_bot.py`, untracked `app/api/integrations/`, untracked `src/lib/googleIntegration.ts`.
+
 ## LiveAvatar Status
 
 - G resumed LiveAvatar testing on 2026-04-28 and said not to worry too much about credits; get it right.
