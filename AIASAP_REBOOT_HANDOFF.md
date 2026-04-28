@@ -93,6 +93,7 @@ npm.cmd run typecheck
 ## User Preferences To Remember
 
 - Reboot contract: G keeps a sticky-note list because assistants forget. Treat these rules as startup requirements, not suggestions.
+- Lane rule: stay only in the assigned lane, either aiASAP or iSolve, and never cross lanes unless G knows it.
 - Send Telegram link when a test build is ready, always.
 - If Telegram is needed, use `.env` `TELEGRAM_BOT_TOKEN` plus `TELEGRAM_ALLOWED_USER_IDS`; direct Bot API send was verified on 2026-04-27 with `ok=True`.
 - Telegram voice notes are supported in `telegram_codex_bot.py`: Telegram `voice` audio is downloaded, transcribed with OpenAI audio transcriptions using `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`, then answered through the normal chat path. G's latest voice-note transcript appeared in `telegram_conversations.json` on 2026-04-27.
@@ -101,6 +102,9 @@ npm.cmd run typecheck
 - Verify access routes into Vercel, Supabase, GitHub, Resend, Telegram, and other aiASAP services before saying a service is unavailable. Check local `.env`, Vercel env/project state, repo remotes, service CLIs/APIs, and helper scripts; fix or route around access problems where possible.
 - Every smoke test is sent to Telegram unless G explicitly says otherwise.
 - Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes plus what G should do next.
+- When possible, provide desktop links in chat because integrations are easier for G on the computer. Use Telegram/mobile links when necessary or explicitly requested.
+- If G says to check the latest screenshots, look in Dropbox first.
+- If G needs to copy/paste something, provide a copyable block or local file/link automatically and make it easy to copy.
 - Every final work brief must be super brief. Put any questions at the end under `Questions:` because G will not see buried questions.
 - Always security review before deploy.
 - Keep aiASAP separate from iSolve.

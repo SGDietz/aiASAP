@@ -1,6 +1,7 @@
 # aiASAP Project Memory
 
 - Work only inside `C:\Users\sgdie\Dropbox\Codex\aiASAP` for aiASAP tasks.
+- Lane rule: stay only in the assigned lane, either aiASAP or iSolve, and never cross lanes unless G knows it.
 - Reboot contract: after every startup, re-read this file and `AIASAP_REBOOT_HANDOFF.md`, then act from these rules instead of relying on chat history.
 - `T` is G's shorthand for Telegram in operational notes. In UI and user-facing copy, spell it out as `Telegram` unless G explicitly wants the shorthand.
 - If G needs a message on Telegram, send it through the local Telegram Bot API path instead of saying it cannot be done. Use `.env` `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS`; direct sending was verified on 2026-04-27 with `ok=True`.
@@ -9,6 +10,9 @@
 - Startup service access rule: verify working routes into Vercel, Supabase, GitHub, Resend, Telegram, and other aiASAP services before claiming a service is unavailable. Check local `.env`, Vercel env/project state, repo remotes, service CLIs/APIs, and existing helper scripts; fix or route around access problems where possible.
 - Smoke test delivery rule: every smoke test is sent to Telegram unless G explicitly says otherwise.
 - Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes plus what G should do next. No long explanation.
+- When possible, provide desktop links in chat because integrations are easier for G on the computer. Use Telegram/mobile links when necessary or explicitly requested.
+- If G says to check the latest screenshots, look in Dropbox first.
+- If G needs to copy/paste something, provide a copyable block or local file/link automatically and make it easy to copy.
 - End-of-work format: every final brief should be super brief. Put any questions at the very end under `Questions:` so G can see them.
 - The Telegram bot's user-facing name is Codex.
 - The aiASAP Telegram bot should be fast to operate from Telegram, but avoid persistent bottom command buttons unless directly relevant.
