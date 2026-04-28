@@ -30,6 +30,8 @@ type StatusResponse = {
 };
 
 const DEFAULT_PLATFORMS: PlatformId[] = ["instagram", "facebook", "threads", "x", "tiktok"];
+const STABLE_SITE_ORIGIN =
+  process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://ai-asap.vercel.app";
 const SOCIAL_STATUS_MESSAGES: Record<string, string> = {
   account_required: "Set up or verify an aiASAP account before connecting social accounts.",
   setup_required: "Developer app keys are missing. Use the setup checklist below for Shelly/keymaster.",
@@ -165,7 +167,6 @@ function missingEnvSummary(platform: PlatformStatus) {
 export function SocialPostingHub() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [drafts, setDrafts] = useState<SocialDraft[]>([]);
-  const [origin, setOrigin] = useState("");
   const [title, setTitle] = useState("First aiASAP intro post");
   const [body, setBody] = useState(
     "Meet aiASAP: practical AI help for getting real-life tasks done faster.",
@@ -191,7 +192,6 @@ export function SocialPostingHub() {
   }
 
   useEffect(() => {
-    setOrigin(window.location.origin);
     const socialStatus = new URLSearchParams(window.location.search).get("social");
     if (socialStatus) {
       setNotice(SOCIAL_STATUS_MESSAGES[socialStatus] ?? `Social status: ${socialStatus}`);
@@ -236,7 +236,7 @@ export function SocialPostingHub() {
   }
 
   function callbackUrl(path: string) {
-    return origin ? `${origin}${path}` : path;
+    return `${STABLE_SITE_ORIGIN}${path}`;
   }
 
   function setupChecklistText() {
@@ -411,7 +411,7 @@ export function SocialPostingHub() {
               <li>1. Open `/social` after each deploy to see connection gaps.</li>
               <li>2. Connect Instagram to the Facebook Page in Meta account center.</li>
               <li>3. Create Meta/Threads, X, TikTok, and Google developer apps.</li>
-              <li>4. Add each callback URL to the developer app and Vercel env vars.</li>
+              <li>4. Add each stable callback URL to the developer app and Vercel env vars.</li>
               <li>5. OAuth login once per platform, then store encrypted tokens.</li>
               <li>6. Add Telegram approval: draft, approve, post, log.</li>
             </ol>
@@ -429,6 +429,9 @@ export function SocialPostingHub() {
                 </button>
               </div>
               {copyNotice && <p className="mt-2 text-xs font-black text-[#f1c477]">{copyNotice}</p>}
+              <p className="mt-3 text-xs font-semibold leading-relaxed text-white/55">
+                Use these stable production callbacks, not temporary preview-domain callbacks.
+              </p>
               <div className="mt-4 space-y-3">
                 {PROVIDER_SETUP.map((provider) => (
                   <article key={provider.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
