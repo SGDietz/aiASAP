@@ -1,13 +1,13 @@
 # aiASAP Project Memory
 
 - Work only inside `C:\Users\sgdie\Dropbox\Codex\aiASAP` for aiASAP tasks.
-- Lane rule: stay only in the assigned lane, either aiASAP or iSolve, and never cross lanes unless G knows it.
+- Assistant-wide lane rule: Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
 - Reboot contract: after every startup, re-read this file and `AIASAP_REBOOT_HANDOFF.md`, then act from these rules instead of relying on chat history.
 - `T` is G's shorthand for Telegram in operational notes. In UI and user-facing copy, spell it out as `Telegram` unless G explicitly wants the shorthand.
 - If G needs a message on Telegram, send it through the local Telegram Bot API path instead of saying it cannot be done. Use `.env` `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS`; direct sending was verified on 2026-04-27 with `ok=True`.
 - Telegram voice notes are handled by `telegram_codex_bot.py`: download the Telegram `voice` file, send it to OpenAI audio transcriptions with `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`, then feed the transcript into the normal Codex reply path. This was verified from G's voice-note transcript on 2026-04-27.
 - After every smoke test, inspect Supabase and report what the latest database/session/conversation evidence says before making the next product decision.
-- Startup service access rule: verify working routes into Vercel, Supabase, GitHub, Resend, Telegram, and other aiASAP services before claiming a service is unavailable. Check local `.env`, Vercel env/project state, repo remotes, service CLIs/APIs, and existing helper scripts; fix or route around access problems where possible.
+- Startup service access rule for Codex and Claude: before saying a connected service is unavailable, check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers for Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other required services.
 - Smoke test delivery rule: every smoke test is sent to Telegram unless G explicitly says otherwise.
 - Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes plus what G should do next. No long explanation.
 - When possible, provide desktop links in chat because integrations are easier for G on the computer. Use Telegram/mobile links when necessary or explicitly requested.

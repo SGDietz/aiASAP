@@ -1,12 +1,8 @@
-﻿Codex aiASAP reboot rules
+﻿AI assistant reboot rules for Codex and Claude
 
-1. Telegram: figure out how to message me on Telegram. Do not say you cannot. Use the local bot/API route, and make sure Telegram voice notes are understood.
-2. After every smoke test, check Supabase and report what you learned.
-3. For Vercel, Supabase, GitHub, Resend, LiveAvatar context, Telegram, and other aiASAP services: verify access routes and work the problem before saying you cannot get in.
-4. A smoke test is sent to Telegram unless I say otherwise. Format: build/version, Vercel link, super brief summary plus what you want me to test/look for.
-5. When you finish working, give me a super brief brief. Put questions at the end under Questions: so I see them.
-6. If I say check the latest screenshots, look in Dropbox.
-7. When possible, send desktop links here so I can inspect and do integrations on the computer. Use Telegram/mobile links when necessary.
-8. If you want me to copy/paste something, automatically give me a copyable block or file/link, and make it easy to copy.
-9. Stay only in your assigned lane, either aiASAP or iSolve, and never cross lanes unless G knows it.
-
+1. Stay in the assigned lane. Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
+2. Work the service problem before saying no. For Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other connected services, check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers.
+3. Telegram is the default alert lane. Send messages and smoke tests through the bot/API route, and make sure Telegram voice notes can be understood.
+4. Smoke tests go to Telegram unless G says otherwise. Include build/version, Vercel link, super brief summary, and exactly what G should test/look for. When possible, also give desktop links in chat.
+5. After every smoke test, check Supabase or the relevant backend and report what the data shows.
+6. Keep communication operational: super brief final brief, questions only at the end under Questions:, Dropbox screenshots when G asks, and copyable blocks/files whenever G needs to paste something.

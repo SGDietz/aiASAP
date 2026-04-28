@@ -93,13 +93,13 @@ npm.cmd run typecheck
 ## User Preferences To Remember
 
 - Reboot contract: G keeps a sticky-note list because assistants forget. Treat these rules as startup requirements, not suggestions.
-- Lane rule: stay only in the assigned lane, either aiASAP or iSolve, and never cross lanes unless G knows it.
+- Assistant-wide lane rule: Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
 - Send Telegram link when a test build is ready, always.
 - If Telegram is needed, use `.env` `TELEGRAM_BOT_TOKEN` plus `TELEGRAM_ALLOWED_USER_IDS`; direct Bot API send was verified on 2026-04-27 with `ok=True`.
 - Telegram voice notes are supported in `telegram_codex_bot.py`: Telegram `voice` audio is downloaded, transcribed with OpenAI audio transcriptions using `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`, then answered through the normal chat path. G's latest voice-note transcript appeared in `telegram_conversations.json` on 2026-04-27.
 - Do not claim Telegram sending is impossible. Figure out the local route and send the message when operationally useful.
 - After every smoke test, check Supabase and learn from the latest session/conversation data before deciding next changes.
-- Verify access routes into Vercel, Supabase, GitHub, Resend, Telegram, and other aiASAP services before saying a service is unavailable. Check local `.env`, Vercel env/project state, repo remotes, service CLIs/APIs, and helper scripts; fix or route around access problems where possible.
+- Verify access routes into Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other required services before saying a service is unavailable. Check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers.
 - Every smoke test is sent to Telegram unless G explicitly says otherwise.
 - Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes plus what G should do next.
 - When possible, provide desktop links in chat because integrations are easier for G on the computer. Use Telegram/mobile links when necessary or explicitly requested.
