@@ -126,3 +126,14 @@
 - Preview Vercel domains needed a same-origin API guard fix in `src/lib/apiRouteSecurity.ts`; otherwise `/api/social/status` fell back to `Status unavailable` on smoke-test links.
 - Current dashboard cards correctly show missing setup counts/env gaps on preview links.
 - Connecting everything is not a two-hour clean finish. A realistic next session is to start Meta first because it covers Instagram, Facebook, and Threads. Full connection also needs external developer apps, redirect URLs, OAuth logins, credentials in Vercel env, and possibly platform review/approval delays.
+
+## LiveAvatar Debug Handoff - 2026-04-28
+
+- G resumed LiveAvatar testing and said not to worry too much about credits; get it right.
+- Discord clue: SDK `0.0.17` is current; David's working demo uses FULL mode with `avatar_persona.context_id` and `is_sandbox: true`. Anders' failing repro omitted `context_id` and `is_sandbox`.
+- Vendored `@heygen/liveavatar-web-sdk` was updated from `0.0.9` to `0.0.17`; package metadata was stripped of workspace-only dev deps so Vercel clean install succeeds.
+- Added `/liveavatar-debug` and `/api/liveavatar/debug-token` to test four token variants: `voice+context`, `voice+context+sandbox`, `voice only`, and `voice only+sandbox`.
+- Latest deployed diagnostic build: `b783657`, URL `https://ai-asap-368u6dnsq-team-dietz.vercel.app/liveavatar-debug`.
+- Smoke test sent to Telegram as `Smoke test b783657`.
+- Supabase after the smoke test had no new rows; latest LiveAvatar evidence remains the 2026-04-27 user-only session `0c74140e-c1a8-4482-9d86-13d66d5dc32b`.
+- Next manual test: open `/liveavatar-debug`, select `Sandbox: voice + context`, click `Start`, wait for stream ready/video, click `repeat()`, then if no speech click `message()`. Capture the session id and event log if it fails.

@@ -61,7 +61,7 @@ function timeStamp() {
 export function LiveAvatarDebugHarness() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sessionRef = useRef<LiveAvatarSession | null>(null);
-  const [variantId, setVariantId] = useState(VARIANTS[0].id);
+  const [variantId, setVariantId] = useState("sandbox");
   const [sessionState, setSessionState] = useState<string>(SessionState.INACTIVE);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -180,22 +180,24 @@ export function LiveAvatarDebugHarness() {
   }
 
   return (
-    <main className="min-h-screen bg-[#060302] px-4 py-6 text-[#f7dfbd]">
-      <section className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1fr_24rem]">
-        <div className="rounded-[1.5rem] border border-[#e0aa62]/20 bg-black p-4">
+    <main className="min-h-screen overflow-x-hidden bg-[#060302] px-3 py-4 text-[#f7dfbd] sm:px-4 sm:py-6">
+      <section className="mx-auto flex w-full max-w-6xl flex-col gap-4 lg:grid lg:grid-cols-[1fr_24rem] lg:gap-5">
+        <div className="order-2 rounded-[1.25rem] border border-[#e0aa62]/20 bg-black p-3 lg:order-1 lg:rounded-[1.5rem] lg:p-4">
           <video
             ref={videoRef}
             autoPlay
             playsInline
-            className="aspect-[9/16] max-h-[78vh] w-full rounded-[1.25rem] bg-[#120a05] object-contain"
+            className="aspect-[9/16] max-h-[64vh] w-full rounded-[1rem] bg-[#120a05] object-contain lg:max-h-[78vh] lg:rounded-[1.25rem]"
           />
         </div>
 
-        <aside className="rounded-[1.5rem] border border-[#e0aa62]/20 bg-[#140b05] p-4">
+        <aside className="order-1 w-full rounded-[1.25rem] border border-[#e0aa62]/20 bg-[#140b05] p-4 lg:order-2 lg:rounded-[1.5rem]">
           <p className="text-xs font-black uppercase tracking-[0.24em] text-[#e0aa62]">
-            LiveAvatar isolated debug
+            LiveAvatar debug
           </p>
-          <h1 className="mt-3 text-3xl font-black text-[#f1c477]">Speech path test</h1>
+          <h1 className="mt-3 text-2xl font-black leading-tight text-[#f1c477] sm:text-3xl">
+            Speech path test
+          </h1>
           <p className="mt-2 text-sm font-semibold text-white/62">
             Tests SDK 0.0.17 without aiASAP conversation logic.
           </p>
@@ -203,17 +205,23 @@ export function LiveAvatarDebugHarness() {
           <label className="mt-5 block text-xs font-black uppercase tracking-[0.18em] text-white/50">
             Token variant
           </label>
-          <select
-            value={variantId}
-            onChange={(event) => setVariantId(event.target.value)}
-            className="mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-3 py-3 font-bold text-white"
-          >
+          <div className="mt-2 grid gap-2">
             {VARIANTS.map((item) => (
-              <option key={item.id} value={item.id}>
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setVariantId(item.id)}
+                className={`rounded-2xl border px-4 py-3 text-left text-sm font-black transition ${
+                  item.id === variant.id
+                    ? "border-[#f1c477] bg-[#f1c477] text-black"
+                    : "border-white/10 bg-black/35 text-white"
+                }`}
+              >
+                {item.id === "sandbox" ? "Try first: " : ""}
                 {item.label}
-              </option>
+              </button>
             ))}
-          </select>
+          </div>
 
           <label className="mt-4 block text-xs font-black uppercase tracking-[0.18em] text-white/50">
             Test text

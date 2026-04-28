@@ -8,12 +8,17 @@
 
 ## LiveAvatar Status
 
-- We are paused on LiveAvatar testing to avoid burning credits. G explicitly said to stop on 2026-04-27 because the same issues remain.
+- G resumed LiveAvatar testing on 2026-04-28 and said not to worry too much about credits; get it right.
 - aiASAP FULL mode issue: avatar/video can connect, but FULL brain/speech path does not respond.
 - Smoke tests showed commands publish to `agent-control`, but no `agent-response`, no `avatar.speak_started`, and no transcription events.
 - Latest 2026-04-27 smoke test still failed after a narrow app-side patch that sends normal FULL transcripts to the avatar brain. User saw same behavior; Supabase still showed user transcript evidence only, with no assistant response/speak evidence.
-- Discord evidence showed other LiveAvatar users having similar timeout/agent issues.
-- LiveAvatar team acknowledged reports and is checking with their team.
+- Discord evidence on 2026-04-28 showed LiveAvatar SDK `0.0.17` and FULL mode are the current troubleshooting target. David's working demo includes `avatar_persona.context_id` and `is_sandbox: true`; Anders' failing test omitted `context_id` and `is_sandbox`.
+- Local SDK was updated from vendored `0.0.9` to `0.0.17`.
+- Added diagnostic page `/liveavatar-debug` with variants for `voice+context`, `voice+context+sandbox`, `voice only`, and `voice only+sandbox`, plus `repeat()` and `message()` buttons and event logs.
+- Latest deployed diagnostic build: commit `b783657 Fix LiveAvatar SDK vendored install`.
+- Latest diagnostic smoke test sent to Telegram: `Smoke test b783657`.
+- Latest diagnostic URL: `https://ai-asap-368u6dnsq-team-dietz.vercel.app/liveavatar-debug`.
+- Supabase checked after that smoke test: no new LiveAvatar/session rows yet; latest rows remain 2026-04-27 session `0c74140e-c1a8-4482-9d86-13d66d5dc32b` with user-only transcript evidence.
 - Wildworks avatar reportedly works perfectly, so issue may be account/context/session/FULL-agent specific, not universal.
 
 ## Current Deployed aiASAP State
