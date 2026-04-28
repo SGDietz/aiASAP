@@ -7,6 +7,20 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.aiasap.ai",
 ]);
 
+function originMatchesRequestHost(value: string, request: Request): boolean {
+  try {
+    const incoming = new URL(value);
+    const current = new URL(request.url);
+    return incoming.protocol === current.protocol && incoming.host === current.host;
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedRequestOrigin(value: string, request: Request): boolean {
+  return ALLOWED_ORIGINS.has(value) || originMatchesRequestHost(value, request);
+}
+
 /**
  * Returns a 403 Response if the request origin is not allowed, otherwise null.
  * Skipped in non-production to allow local dev without CORS config.
@@ -16,7 +30,7 @@ export function assertAllowedOrigin(request: Request): Response | null {
 
   const origin = request.headers.get("origin");
   if (origin !== null) {
-    if (ALLOWED_ORIGINS.has(origin)) return null;
+    if (isAllowedRequestOrigin(origin, request)) return null;
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
       headers: { "Content-Type": "application/json" },
@@ -25,7 +39,8 @@ export function assertAllowedOrigin(request: Request): Response | null {
 
   const referer = request.headers.get("referer");
   if (referer !== null) {
-    const ok = [...ALLOWED_ORIGINS].some((o) => referer.startsWith(o));
+    const ok = [...ALLOWED_ORIGINS].some((o) => referer.startsWith(o)) ||
+      originMatchesRequestHost(referer, request);
     if (ok) return null;
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,

@@ -1,7 +1,15 @@
 # aiASAP Project Memory
 
 - Work only inside `C:\Users\sgdie\Dropbox\Codex\aiASAP` for aiASAP tasks.
-- Telegram is referred to as `t`.
+- Reboot contract: after every startup, re-read this file and `AIASAP_REBOOT_HANDOFF.md`, then act from these rules instead of relying on chat history.
+- `T` is G's shorthand for Telegram in operational notes. In UI and user-facing copy, spell it out as `Telegram` unless G explicitly wants the shorthand.
+- If G needs a message on Telegram, send it through the local Telegram Bot API path instead of saying it cannot be done. Use `.env` `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS`; direct sending was verified on 2026-04-27 with `ok=True`.
+- Telegram voice notes are handled by `telegram_codex_bot.py`: download the Telegram `voice` file, send it to OpenAI audio transcriptions with `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`, then feed the transcript into the normal Codex reply path. This was verified from G's voice-note transcript on 2026-04-27.
+- After every smoke test, inspect Supabase and report what the latest database/session/conversation evidence says before making the next product decision.
+- Startup service access rule: verify working routes into Vercel, Supabase, GitHub, Resend, Telegram, and other aiASAP services before claiming a service is unavailable. Check local `.env`, Vercel env/project state, repo remotes, service CLIs/APIs, and existing helper scripts; fix or route around access problems where possible.
+- Smoke test delivery rule: every smoke test is sent to Telegram unless G explicitly says otherwise.
+- Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes. No long explanation.
+- End-of-work format: every final brief should be super brief. Put any questions at the very end under `Questions:` so G can see them.
 - The Telegram bot's user-facing name is Codex.
 - The aiASAP Telegram bot should be fast to operate from Telegram, but avoid persistent bottom command buttons unless directly relevant.
 - The bot should support typed messages and Telegram voice notes.
@@ -102,3 +110,19 @@
 - Required terminology/workflow: security audit before production deployment or live-domain promotion.
 - OpenAI prompt brain is implemented and verified working through `app/api/prompt-brain/route.ts`; `OPENAI_API_KEY` is set in Vercel Production env and must not be written into repo files.
 - Always send the ready/smoke-test link in Telegram when a build, deploy, or review URL is ready. Use the minimal message: `aiASAP build <commit>` and `https://ai-asap.vercel.app`. Helper script: `tools/send_telegram_smoke_test.ps1 -Commit <commit>`.
+
+## Social CENTCOM Handoff - 2026-04-27
+
+- Current internal social dashboard route: `/social`.
+- Latest preview smoke test sent to Telegram: `Smoke test gmx8c41k6`.
+- Latest preview URL: `https://ai-asap-gmx8c41k6-team-dietz.vercel.app/social`.
+- Page name in UI: `aiASAP Social CENTCOM`.
+- Current social platforms in scope: X, TikTok, Instagram, Facebook, Threads, YouTube.
+- Threads account URL: `https://www.threads.com/@aiasap.ai`.
+- DM/messaging apps such as WhatsApp, Messenger, Discord, and Telegram are deferred until the messaging workflow is appropriate; do not add them to the public social platform card list yet.
+- Social dashboard purpose: internal control panel for account connection status, drafts, Telegram approval, and later posting/logging.
+- Future product-track note: the setup work G is doing for aiASAP should later become an aiASAP user workflow that helps people create accounts, connect social platforms, set up developer apps/API keys, build approval workflows, create content, post/log results, and add messaging apps when useful.
+- Current social implementation includes API routes under `app/api/social/`, page `app/social/page.tsx`, UI `src/components/SocialPostingHub.tsx`, and helpers `src/lib/socialPosting.ts`.
+- Preview Vercel domains needed a same-origin API guard fix in `src/lib/apiRouteSecurity.ts`; otherwise `/api/social/status` fell back to `Status unavailable` on smoke-test links.
+- Current dashboard cards correctly show missing setup counts/env gaps on preview links.
+- Connecting everything is not a two-hour clean finish. A realistic next session is to start Meta first because it covers Instagram, Facebook, and Threads. Full connection also needs external developer apps, redirect URLs, OAuth logins, credentials in Vercel env, and possibly platform review/approval delays.
