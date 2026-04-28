@@ -1,4 +1,9 @@
 import { SessionInfo } from "./types";
+export declare class SessionApiError extends Error {
+    errorCode: number;
+    status: number | null;
+    constructor(message: string, errorCode?: number, status?: number);
+}
 export declare class SessionAPIClient {
     private readonly sessionToken;
     private readonly apiUrl;

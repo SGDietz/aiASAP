@@ -1,7 +1,7 @@
 export { LiveAvatarSession } from "./LiveAvatarSession";
-export type { SessionConfig, SessionInfo } from "./LiveAvatarSession";
+export type { SessionConfig, SessionInfo, SessionApiError, } from "./LiveAvatarSession";
 export type { VoiceChat, VoiceChatConfig } from "./VoiceChat";
 export { ConnectionQuality } from "./QualityIndicator";
-export { SessionEvent, SessionState, Language, SessionDisconnectReason, AgentEventsEnum, CommandEventsEnum, } from "./LiveAvatarSession";
-export type { AgentEvent } from "./LiveAvatarSession";
-export { VoiceChatState, VoiceChatEvent } from "./VoiceChat";
+export { SessionEvent, SessionState, SessionMode, Language, SessionDisconnectReason, AgentEventsEnum, AgentEvent, CommandEventsEnum, } from "./LiveAvatarSession";
+export type { ElevenLabsAgentEventPayload } from "./LiveAvatarSession";
+export { VoiceChatState, VoiceChatEvent, SessionInteractivityMode, } from "./VoiceChat";

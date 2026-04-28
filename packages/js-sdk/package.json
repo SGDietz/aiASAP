@@ -1,6 +1,6 @@
 {
   "name": "@heygen/liveavatar-web-sdk",
-  "version": "0.0.9",
+  "version": "0.0.17",
   "files": [
     "lib",
     "dist",
@@ -40,11 +40,12 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "docs": "typedoc --out docs",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
   },
   "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
     "@rollup/plugin-commonjs": "^26.0.1",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^15.2.3",

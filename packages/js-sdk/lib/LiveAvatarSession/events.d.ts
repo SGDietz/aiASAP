@@ -18,19 +18,35 @@ export declare enum AgentEventsEnum {
     USER_SPEAK_STARTED = "user.speak_started",
     USER_SPEAK_ENDED = "user.speak_ended",
     USER_TRANSCRIPTION = "user.transcription",
+    USER_TRANSCRIPTION_CHUNK = "user.transcription.chunk",
     AVATAR_TRANSCRIPTION = "avatar.transcription",
+    AVATAR_TRANSCRIPTION_CHUNK = "avatar.transcription.chunk",
     AVATAR_SPEAK_STARTED = "avatar.speak_started",
-    AVATAR_SPEAK_ENDED = "avatar.speak_ended"
+    AVATAR_SPEAK_ENDED = "avatar.speak_ended",
+    ELEVENLABS_AGENT_EVENT = "elevenlabs_agent_event",
+    SESSION_STOPPED = "session.stopped"
 }
 export type AgentEventData<T extends AgentEventsEnum, U extends object = object> = {
     event_id: string;
     event_type: T;
+    source_event_id?: string;
+    session_id?: string;
 } & U;
+export type ElevenLabsAgentEventPayload = {
+    elevenlabs_event_type: string;
+    data: Record<string, any>;
+};
 export type AgentEvent = AgentEventData<AgentEventsEnum.USER_SPEAK_STARTED> | AgentEventData<AgentEventsEnum.USER_SPEAK_ENDED> | AgentEventData<AgentEventsEnum.USER_TRANSCRIPTION, {
+    text: string;
+}> | AgentEventData<AgentEventsEnum.USER_TRANSCRIPTION_CHUNK, {
     text: string;
 }> | AgentEventData<AgentEventsEnum.AVATAR_TRANSCRIPTION, {
     text: string;
-}> | AgentEventData<AgentEventsEnum.AVATAR_SPEAK_STARTED> | AgentEventData<AgentEventsEnum.AVATAR_SPEAK_ENDED>;
+}> | AgentEventData<AgentEventsEnum.AVATAR_TRANSCRIPTION_CHUNK, {
+    text: string;
+}> | AgentEventData<AgentEventsEnum.AVATAR_SPEAK_STARTED> | AgentEventData<AgentEventsEnum.AVATAR_SPEAK_ENDED> | AgentEventData<AgentEventsEnum.ELEVENLABS_AGENT_EVENT, ElevenLabsAgentEventPayload> | AgentEventData<AgentEventsEnum.SESSION_STOPPED, {
+    stop_reason: string;
+}>;
 export type AgentEventCallbacks = {
     [AgentEventsEnum.USER_SPEAK_STARTED]: (event: AgentEventData<AgentEventsEnum.USER_SPEAK_STARTED>) => void;
     [AgentEventsEnum.USER_SPEAK_ENDED]: (event: AgentEventData<AgentEventsEnum.USER_SPEAK_ENDED>) => void;
@@ -39,8 +55,18 @@ export type AgentEventCallbacks = {
     [AgentEventsEnum.USER_TRANSCRIPTION]: (event: AgentEventData<AgentEventsEnum.USER_TRANSCRIPTION, {
         text: string;
     }>) => void;
+    [AgentEventsEnum.USER_TRANSCRIPTION_CHUNK]: (event: AgentEventData<AgentEventsEnum.USER_TRANSCRIPTION_CHUNK, {
+        text: string;
+    }>) => void;
     [AgentEventsEnum.AVATAR_TRANSCRIPTION]: (event: AgentEventData<AgentEventsEnum.AVATAR_TRANSCRIPTION, {
         text: string;
+    }>) => void;
+    [AgentEventsEnum.AVATAR_TRANSCRIPTION_CHUNK]: (event: AgentEventData<AgentEventsEnum.AVATAR_TRANSCRIPTION_CHUNK, {
+        text: string;
+    }>) => void;
+    [AgentEventsEnum.ELEVENLABS_AGENT_EVENT]: (event: AgentEventData<AgentEventsEnum.ELEVENLABS_AGENT_EVENT, ElevenLabsAgentEventPayload>) => void;
+    [AgentEventsEnum.SESSION_STOPPED]: (event: AgentEventData<AgentEventsEnum.SESSION_STOPPED, {
+        stop_reason: string;
     }>) => void;
 };
 export declare const getAgentEventEmitArgs: (event: AgentEvent) => AgentEventEmitArgs | null;
@@ -57,8 +83,6 @@ export declare enum CommandEventsEnum {
 type CommandEventData<T extends CommandEventsEnum, U extends object = object> = {
     event_id?: string;
     event_type: T;
-    session_id?: string | null;
-    source_event_id?: string | null;
 } & U;
 export type CommandEvent = CommandEventData<CommandEventsEnum.SESSION_UPDATE> | CommandEventData<CommandEventsEnum.SESSION_STOP> | CommandEventData<CommandEventsEnum.AVATAR_INTERRUPT> | CommandEventData<CommandEventsEnum.AVATAR_SPEAK_TEXT, {
     text: string;

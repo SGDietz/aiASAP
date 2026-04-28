@@ -25,6 +25,18 @@ import {
 
 export type SessionStoppedReason = { reason?: "inactivity" };
 
+function getLiveAvatarSessionId(session: unknown): string | null {
+  const maybeSession = session as
+    | { sessionId?: unknown; _sessionInfo?: { session_id?: unknown } }
+    | null
+    | undefined;
+  const rawSessionId =
+    maybeSession?.sessionId ?? maybeSession?._sessionInfo?.session_id;
+  return typeof rawSessionId === "string" && rawSessionId
+    ? rawSessionId
+    : null;
+}
+
 const AIASAP_FOUNDER_TITLE =
   "Creator/Builder/Founder/Financier/CEO aiASAP";
 
@@ -39,11 +51,31 @@ const RETURNING_GREETING_OPTIONS = [
 ];
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Explore aiASAP",
   "Start a Grocery List",
   "To Do List",
   "Plan This Weekend",
+  "Explore aiASAP",
 ];
+
+type TapPromptFontVariant = "default" | "rounded" | "classic" | "condensed";
+
+const TAP_PROMPT_FONT_OPTIONS: Record<TapPromptFontVariant, React.CSSProperties> = {
+  default: {
+    fontFamily:
+      '"Trebuchet MS", "Avenir Next", "Segoe UI", system-ui, sans-serif',
+  },
+  rounded: {
+    fontFamily:
+      '"Arial Rounded MT Bold", "Trebuchet MS", "Avenir Next Rounded", sans-serif',
+  },
+  classic: {
+    fontFamily: 'Georgia, "Times New Roman", serif',
+  },
+  condensed: {
+    fontFamily: 'Impact, "Arial Black", "Arial Narrow", sans-serif',
+    letterSpacing: "0.045em",
+  },
+};
 
 const PROMPT_SIZE_REQUEST_RE =
   /\b(?:make|show|turn)\s+(?:the\s+)?prompts?\s+(?:bigger|larger|easier to read)|\b(?:bigger|larger)\s+prompts?\b|\breading glasses\b/i;
@@ -1176,6 +1208,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const isDebugProcessingRef = useRef<boolean>(false);
   const lastAvatarResponseRef = useRef<string>("");
   const lastUserTextRef = useRef<string>("");
+  const lastFullModeMessageRef = useRef<{ text: string; at: number } | null>(
+    null,
+  );
   const lastVisionResponseTimeRef = useRef<number>(0);
   const hasAutoAnalyzedRef = useRef<boolean>(false);
   // Tracks the specific problem the user is trying to fix (persists across vision calls so
@@ -1226,6 +1261,15 @@ const LiveAvatarSessionComponent: React.FC<{
     null,
   );
   const [promptSizeLevel, setPromptSizeLevel] = useState(0);
+  const tapPromptFont = useMemo<React.CSSProperties>(() => {
+    if (typeof window === "undefined") return TAP_PROMPT_FONT_OPTIONS.default;
+    const requested = new URLSearchParams(window.location.search).get(
+      "promptFont",
+    ) as TapPromptFontVariant | null;
+    return requested && requested in TAP_PROMPT_FONT_OPTIONS
+      ? TAP_PROMPT_FONT_OPTIONS[requested]
+      : TAP_PROMPT_FONT_OPTIONS.default;
+  }, []);
   const [listFocusNonce, setListFocusNonce] = useState(0);
   const promptBrainHistoryRef = useRef<string[]>([]);
   const promptBrainSeqRef = useRef(0);
@@ -2194,8 +2238,9 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       return;
     }
-    if (sessionState === SessionState.CONNECTED && sessionRef.current?.sessionId) {
-      const sid = sessionRef.current.sessionId;
+    const activeSessionId = getLiveAvatarSessionId(sessionRef.current);
+    if (sessionState === SessionState.CONNECTED && activeSessionId) {
+      const sid = activeSessionId;
       if (lastSyncedLaSessionIdRef.current !== sid) {
         transcriptCursorRef.current = null;
         lastSyncedLaSessionIdRef.current = sid;
@@ -2207,7 +2252,7 @@ const LiveAvatarSessionComponent: React.FC<{
   // Poll LiveAvatar official transcript API while connected ([Get Session Transcript](https://docs.liveavatar.com/api-reference/sessions/get-session-transcript))
   useEffect(() => {
     if (sessionState !== SessionState.CONNECTED) return;
-    const sid = sessionRef.current?.sessionId;
+    const sid = getLiveAvatarSessionId(sessionRef.current);
     if (!sid) return;
 
     const runSync = async () => {
@@ -3116,7 +3161,7 @@ const LiveAvatarSessionComponent: React.FC<{
       void captureMedia({
         file: frameFile,
         source: "camera_snapshot",
-        sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+        sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
         geminiAnalysis: analysis,
         problem: currentProblemRef.current || null,
       });
@@ -3134,7 +3179,7 @@ const LiveAvatarSessionComponent: React.FC<{
         void captureMedia({
           file: frameFile,
           source: "camera_snapshot",
-          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
           problem: currentProblemRef.current || null,
           error: error instanceof Error ? error.message : "Failed to analyze photo",
         });
@@ -3290,7 +3335,7 @@ const LiveAvatarSessionComponent: React.FC<{
         void captureMedia({
           file: frameFile,
           source: "go_live_frame",
-          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
           geminiAnalysis: analysis,
           problem: currentProblemRef.current || null,
         });
@@ -3350,7 +3395,7 @@ const LiveAvatarSessionComponent: React.FC<{
           void captureMedia({
             file: frameFile,
             source: "go_live_frame",
-            sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+            sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
             problem: currentProblemRef.current || null,
             error:
               error instanceof Error
@@ -3703,6 +3748,23 @@ const LiveAvatarSessionComponent: React.FC<{
       if (mode === "CUSTOM" && visionMode !== "streaming") {
         schedulePromptBrain(userText);
         await sendMessage(userText);
+        return;
+      }
+      if (mode === "FULL" && visionMode !== "streaming") {
+        schedulePromptBrain(userText);
+        const normalizedUserText = userText.toLowerCase().replace(/\s+/g, " ");
+        const lastFullModeMessage = lastFullModeMessageRef.current;
+        const isDuplicateFullModeMessage =
+          lastFullModeMessage?.text === normalizedUserText &&
+          Date.now() - lastFullModeMessage.at < 2500;
+
+        if (!isDuplicateFullModeMessage) {
+          lastFullModeMessageRef.current = {
+            text: normalizedUserText,
+            at: Date.now(),
+          };
+          await sendMessage(userText);
+        }
         return;
       }
       schedulePromptBrain(userText);
@@ -4351,7 +4413,7 @@ const LiveAvatarSessionComponent: React.FC<{
         void captureMedia({
           file: recordedVideoFile,
           source: "video_recording",
-          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
           geminiAnalysis: data.analysis,
           problem: currentProblemRef.current || null,
         });
@@ -4368,7 +4430,7 @@ const LiveAvatarSessionComponent: React.FC<{
           void captureMedia({
             file: recordedVideoFile,
             source: "video_recording",
-            sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+            sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
             problem: currentProblemRef.current || null,
             error: error instanceof Error ? error.message : "Failed to analyze video",
           });
@@ -4571,7 +4633,7 @@ const LiveAvatarSessionComponent: React.FC<{
         void captureMedia({
           file,
           source: "gallery_image",
-          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
           geminiAnalysis: data.analysis,
           problem: currentProblemRef.current || null,
         });
@@ -4587,7 +4649,7 @@ const LiveAvatarSessionComponent: React.FC<{
         void captureMedia({
           file,
           source: "gallery_image",
-          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
           problem: currentProblemRef.current || null,
           error: error instanceof Error ? error.message : "Failed to analyze image",
         });
@@ -4623,7 +4685,7 @@ const LiveAvatarSessionComponent: React.FC<{
         void captureMedia({
           file,
           source: "gallery_video",
-          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
           geminiAnalysis: data.analysis,
           problem: currentProblemRef.current || null,
         });
@@ -4638,7 +4700,7 @@ const LiveAvatarSessionComponent: React.FC<{
         void captureMedia({
           file,
           source: "gallery_video",
-          sessionId: dbSessionIdRef.current ?? sessionRef.current?.sessionId ?? null,
+          sessionId: dbSessionIdRef.current ?? getLiveAvatarSessionId(sessionRef.current) ?? null,
           problem: currentProblemRef.current || null,
           error: error instanceof Error ? error.message : "Failed to analyze video",
         });
@@ -4655,7 +4717,7 @@ const LiveAvatarSessionComponent: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-black flex flex-col">
+    <div className="fixed inset-0 w-screen h-screen bg-black md:bg-[radial-gradient(circle_at_center,#251407_0%,#080403_58%,#000_100%)] flex flex-col">
       {/* Session start error (e.g. no credits) - show message and do not auto-restart */}
       {sessionStartError && (
         <div className="absolute inset-x-0 top-0 z-50 bg-red-900/95 text-white px-4 py-4 text-center shadow-lg">
@@ -4800,10 +4862,10 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {/* Text overlays at the top */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2">
+      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2 md:top-[calc(11.5vh-5.15rem)] md:pt-0">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="relative top-[0.95rem] inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="relative top-[0.95rem] -translate-x-1 sm:-translate-x-1.5 inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] md:text-[4rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
@@ -4827,7 +4889,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       {/* Full screen video */}
       <div
-        className={`relative w-full flex-1 flex items-center justify-center ${isCameraActive ? "pt-24" : ""}`}
+        className={`relative w-full flex-1 flex items-center justify-center md:px-8 ${isCameraActive ? "pt-24" : ""}`}
       >
         {/* Avatar video - full screen when camera inactive, small overlay in left corner when active */}
         <video
@@ -4839,7 +4901,7 @@ const LiveAvatarSessionComponent: React.FC<{
           className={`${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
-              : "h-full w-full object-contain"
+              : "h-full w-full object-contain md:h-[77vh] md:max-h-[62rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#e0aa62]/18 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(255,255,255,0.035),0_30px_90px_rgba(0,0,0,0.72)]"
           }`}
         />
 
@@ -4972,7 +5034,7 @@ const LiveAvatarSessionComponent: React.FC<{
       </div>
 
       {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 bottom-[10.75rem] z-30 flex justify-center px-4 pointer-events-none">
+        <div className="fixed inset-x-0 top-[54vh] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none">
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
             <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
               Loading
@@ -5051,7 +5113,7 @@ const LiveAvatarSessionComponent: React.FC<{
           )}
 
           {visionMode !== "streaming" && !isCameraActive && !voiceIsActive && (
-            <div className="fixed left-1/2 bottom-[11rem] sm:bottom-[11.5rem] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
+            <div className="fixed left-1/2 bottom-[10.875rem] sm:bottom-[11.375rem] md:bottom-[calc(11.5vh+13rem)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
                 isStreamReady && (
@@ -5060,13 +5122,14 @@ const LiveAvatarSessionComponent: React.FC<{
                       {voiceStartAwaitingReady ? (
                         <span className="block">Starting…</span>
                       ) : (
-                        <span className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1.5 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
-                          <span className="flex items-center gap-3 text-[0.82rem] font-bold uppercase tracking-[0.18em] text-[#f1c477]/78">
-                            <span className="h-px w-10 bg-gradient-to-r from-transparent to-[#e0aa62]/85" />
+                        <span
+                          className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
+                          style={tapPromptFont}
+                        >
+                          <span className="flex translate-y-0.5 items-center text-[0.92rem] font-extrabold uppercase tracking-[0.14em] text-[#f1c477]/82">
                             Tap Anywhere
-                            <span className="h-px w-10 bg-gradient-to-l from-transparent to-[#e0aa62]/85" />
                           </span>
-                          <span className="text-[1.42rem] font-black leading-none">
+                          <span className="text-[1.95rem] sm:text-[2.3rem] font-black tracking-[-0.025em] leading-none">
                             To Talk to 6
                           </span>
                         </span>
@@ -5305,10 +5368,10 @@ const LiveAvatarSessionComponent: React.FC<{
             !activeList &&
             !emailEntryOpen && (
               <div
-                className="fixed left-1/2 z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 text-center pointer-events-none"
+                className="fixed left-1/2 bottom-[calc(env(safe-area-inset-bottom)+var(--prompt-lift))] md:bottom-[calc(11.5vh+9rem)] z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 md:gap-2 text-center pointer-events-none"
                 style={{
-                  bottom: `calc(env(safe-area-inset-bottom) + ${2.75 + promptSizeLevel * 0.25}rem)`,
-                }}
+                  "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
+                } as React.CSSProperties}
               >
                 {thoughtPrompts.slice(0, onlineLookupNotice ? 3 : 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
@@ -5319,17 +5382,18 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.72rem] w-[min(100%,17.25rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2.5 whitespace-nowrap text-ellipsis font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.72rem] md:min-h-[3.12rem] w-[min(100%,17.25rem)] md:w-[min(100%,21rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
                       }`}
                       style={{
                         animationDelay: `${index * 80}ms`,
-                        fontSize: `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
+                        "--prompt-font-size": `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
+                        color: "#e0aa62",
                         fontFamily:
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
-                      }}
+                      } as React.CSSProperties}
                     >
                       {prompt}
                     </button>
@@ -5339,7 +5403,7 @@ const LiveAvatarSessionComponent: React.FC<{
             )}
 
           {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-auto md:top-[calc(88.5vh+1rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
               <Link
                 href="/terms"
                 target="_blank"

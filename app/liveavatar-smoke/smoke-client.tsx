@@ -31,6 +31,17 @@ function safeJson(value: unknown): string {
   }
 }
 
+function getLiveAvatarSessionId(session: LiveAvatarSession | null): string | null {
+  const maybeSession = session as
+    | { sessionId?: unknown; _sessionInfo?: { session_id?: unknown } }
+    | null;
+  const rawSessionId =
+    maybeSession?.sessionId ?? maybeSession?._sessionInfo?.session_id;
+  return typeof rawSessionId === "string" && rawSessionId
+    ? rawSessionId
+    : null;
+}
+
 export function LiveAvatarSmokeClient() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionRef = useRef<LiveAvatarSession | null>(null);
@@ -131,7 +142,9 @@ export function LiveAvatarSmokeClient() {
 
     try {
       await nextSession.start();
-      log(`session.start resolved, id=${nextSession.sessionId ?? "none"}`);
+      log(
+        `session.start resolved, id=${getLiveAvatarSessionId(nextSession) ?? "none"}`,
+      );
       const internalRoom = (nextSession as any).room;
       const rawRoomState = internalRoom?.state ?? "unknown";
       log(`internal room state=${rawRoomState}`);
@@ -236,7 +249,7 @@ export function LiveAvatarSmokeClient() {
     const payload = {
       event_id: eventId,
       event_type: eventType,
-      session_id: current.sessionId ?? null,
+      session_id: getLiveAvatarSessionId(current),
       source_event_id: null,
       text,
     };

@@ -1,4 +1,8 @@
 import { VoiceChatConfig } from "../VoiceChat";
+export declare enum SessionMode {
+    FULL = "FULL",
+    LITE = "LITE"
+}
 export declare enum SessionState {
     INACTIVE = "INACTIVE",
     CONNECTING = "CONNECTING",
@@ -9,7 +13,8 @@ export declare enum SessionState {
 export declare enum SessionDisconnectReason {
     UNKNOWN_REASON = "UNKNOWN_REASON",
     CLIENT_INITIATED = "CLIENT_INITIATED",
-    SESSION_START_FAILED = "SESSION_START_FAILED"
+    SESSION_START_FAILED = "SESSION_START_FAILED",
+    SERVER_INITIATED = "SERVER_INITIATED"
 }
 export interface SessionConfig {
     voiceChat?: VoiceChatConfig | boolean;

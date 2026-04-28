@@ -48,9 +48,13 @@ var AgentEventsEnum;
     AgentEventsEnum["USER_SPEAK_STARTED"] = "user.speak_started";
     AgentEventsEnum["USER_SPEAK_ENDED"] = "user.speak_ended";
     AgentEventsEnum["USER_TRANSCRIPTION"] = "user.transcription";
+    AgentEventsEnum["USER_TRANSCRIPTION_CHUNK"] = "user.transcription.chunk";
     AgentEventsEnum["AVATAR_TRANSCRIPTION"] = "avatar.transcription";
+    AgentEventsEnum["AVATAR_TRANSCRIPTION_CHUNK"] = "avatar.transcription.chunk";
     AgentEventsEnum["AVATAR_SPEAK_STARTED"] = "avatar.speak_started";
     AgentEventsEnum["AVATAR_SPEAK_ENDED"] = "avatar.speak_ended";
+    AgentEventsEnum["ELEVENLABS_AGENT_EVENT"] = "elevenlabs_agent_event";
+    AgentEventsEnum["SESSION_STOPPED"] = "session.stopped";
 })(AgentEventsEnum || (AgentEventsEnum = {}));
 const getAgentEventEmitArgs = (event) => {
     if ("event_type" in event) {
@@ -59,6 +63,8 @@ const getAgentEventEmitArgs = (event) => {
                 const payload = {
                     event_id: event.event_id,
                     event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
                 };
                 return [AgentEventsEnum.USER_SPEAK_STARTED, payload];
             }
@@ -66,6 +72,8 @@ const getAgentEventEmitArgs = (event) => {
                 const payload = {
                     event_id: event.event_id,
                     event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
                 };
                 return [AgentEventsEnum.USER_SPEAK_ENDED, payload];
             }
@@ -73,14 +81,28 @@ const getAgentEventEmitArgs = (event) => {
                 const payload = {
                     event_id: event.event_id,
                     event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
                     text: event.text,
                 };
                 return [AgentEventsEnum.USER_TRANSCRIPTION, payload];
+            }
+            case AgentEventsEnum.USER_TRANSCRIPTION_CHUNK: {
+                const payload = {
+                    event_id: event.event_id,
+                    event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
+                    text: event.text,
+                };
+                return [AgentEventsEnum.USER_TRANSCRIPTION_CHUNK, payload];
             }
             case AgentEventsEnum.AVATAR_SPEAK_STARTED: {
                 const payload = {
                     event_id: event.event_id,
                     event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
                 };
                 return [AgentEventsEnum.AVATAR_SPEAK_STARTED, payload];
             }
@@ -88,6 +110,8 @@ const getAgentEventEmitArgs = (event) => {
                 const payload = {
                     event_id: event.event_id,
                     event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
                 };
                 return [AgentEventsEnum.AVATAR_SPEAK_ENDED, payload];
             }
@@ -95,11 +119,45 @@ const getAgentEventEmitArgs = (event) => {
                 const payload = {
                     event_id: event.event_id,
                     event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
                     text: event.text,
                 };
                 return [AgentEventsEnum.AVATAR_TRANSCRIPTION, payload];
             }
+            case AgentEventsEnum.AVATAR_TRANSCRIPTION_CHUNK: {
+                const payload = {
+                    event_id: event.event_id,
+                    event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
+                    text: event.text,
+                };
+                return [AgentEventsEnum.AVATAR_TRANSCRIPTION_CHUNK, payload];
+            }
+            case AgentEventsEnum.ELEVENLABS_AGENT_EVENT: {
+                const payload = {
+                    event_id: event.event_id,
+                    event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
+                    elevenlabs_event_type: event.elevenlabs_event_type,
+                    data: event.data,
+                };
+                return [AgentEventsEnum.ELEVENLABS_AGENT_EVENT, payload];
+            }
+            case AgentEventsEnum.SESSION_STOPPED: {
+                const payload = {
+                    event_id: event.event_id,
+                    event_type: event.event_type,
+                    source_event_id: event.source_event_id,
+                    session_id: event.session_id,
+                    stop_reason: event.stop_reason,
+                };
+                return [AgentEventsEnum.SESSION_STOPPED, payload];
+            }
             default:
+                console.warn("Received event type:", event === null || event === void 0 ? void 0 : event.event_type);
                 console.warn("New unsupported event type");
                 return null;
         }
@@ -119,6 +177,11 @@ var CommandEventsEnum;
     CommandEventsEnum["AVATAR_STOP_LISTENING"] = "avatar.stop_listening";
 })(CommandEventsEnum || (CommandEventsEnum = {}));
 
+var SessionMode;
+(function (SessionMode) {
+    SessionMode["FULL"] = "FULL";
+    SessionMode["LITE"] = "LITE";
+})(SessionMode || (SessionMode = {}));
 var SessionState;
 (function (SessionState) {
     SessionState["INACTIVE"] = "INACTIVE";
@@ -132,7 +195,7 @@ var SessionDisconnectReason;
     SessionDisconnectReason["UNKNOWN_REASON"] = "UNKNOWN_REASON";
     SessionDisconnectReason["CLIENT_INITIATED"] = "CLIENT_INITIATED";
     SessionDisconnectReason["SESSION_START_FAILED"] = "SESSION_START_FAILED";
-    // Consider adding other reasons: INACTIVITY_TIMEOUT, SESSION_DURATION_EXCEEDED, OUT_OF_CREDITS, etc.
+    SessionDisconnectReason["SERVER_INITIATED"] = "SERVER_INITIATED";
 })(SessionDisconnectReason || (SessionDisconnectReason = {}));
 var Language;
 (function (Language) {
@@ -409,8 +472,19 @@ var VoiceChatEvent;
     VoiceChatEvent["UNMUTED"] = "UNMUTED";
     // DEVICE_CHANGED = "DEVICE_CHANGED",
     VoiceChatEvent["STATE_CHANGED"] = "STATE_CHANGED";
-    VoiceChatEvent["WARNING"] = "WARNING";
 })(VoiceChatEvent || (VoiceChatEvent = {}));
+var PushToTalkCommandEvent;
+(function (PushToTalkCommandEvent) {
+    PushToTalkCommandEvent["START"] = "user.start_push_to_talk";
+    PushToTalkCommandEvent["STOP"] = "user.stop_push_to_talk";
+})(PushToTalkCommandEvent || (PushToTalkCommandEvent = {}));
+var PushToTalkServerEvent;
+(function (PushToTalkServerEvent) {
+    PushToTalkServerEvent["START_SUCCESS"] = "user.push_to_talk_started";
+    PushToTalkServerEvent["START_FAILED"] = "user.push_to_talk_start_failed";
+    PushToTalkServerEvent["STOP_SUCCESS"] = "user.push_to_talk_stopped";
+    PushToTalkServerEvent["STOP_FAILED"] = "user.push_to_talk_stop_failed";
+})(PushToTalkServerEvent || (PushToTalkServerEvent = {}));
 
 var VoiceChatState;
 (function (VoiceChatState) {
@@ -418,17 +492,67 @@ var VoiceChatState;
     VoiceChatState["STARTING"] = "STARTING";
     VoiceChatState["ACTIVE"] = "ACTIVE";
 })(VoiceChatState || (VoiceChatState = {}));
+var SessionInteractivityMode;
+(function (SessionInteractivityMode) {
+    SessionInteractivityMode["CONVERSATIONAL"] = "CONVERSATIONAL";
+    SessionInteractivityMode["PUSH_TO_TALK"] = "PUSH_TO_TALK";
+})(SessionInteractivityMode || (SessionInteractivityMode = {}));
+
+const LIVEKIT_COMMAND_CHANNEL_TOPIC = "agent-control";
+const LIVEKIT_SERVER_RESPONSE_CHANNEL_TOPIC = "agent-response";
+const API_URL = "https://api.liveavatar.com";
+
+const initEventPromise = (room, eventType, rejectionEventType) => {
+    return new Promise((resolve, reject) => {
+        const messageHandler = (roomMessage, _, __, topic) => {
+            if (topic !== LIVEKIT_SERVER_RESPONSE_CHANNEL_TOPIC) {
+                return;
+            }
+            let eventData = null;
+            try {
+                const messageString = new TextDecoder().decode(roomMessage);
+                eventData = JSON.parse(messageString);
+            }
+            catch (_a) {
+                return;
+            }
+            if (eventData && "event_type" in eventData) {
+                const type = eventData.event_type;
+                if (type === eventType || type === rejectionEventType) {
+                    room.removeListener(RoomEvent.DataReceived, messageHandler);
+                    const isRejection = type === rejectionEventType;
+                    if (isRejection) {
+                        reject();
+                    }
+                    else {
+                        resolve();
+                    }
+                }
+            }
+        };
+        room.on(RoomEvent.DataReceived, messageHandler);
+    });
+};
 
 class VoiceChat extends EventEmitter {
     constructor(room) {
         super();
         this._state = VoiceChatState.INACTIVE;
         this.track = null;
+        this.mode = null;
+        this.pushToTalkStarted = false;
         this.room = room;
     }
     get isConnected() {
         return (this.room.state !== ConnectionState.Disconnected &&
             this.room.state !== ConnectionState.Connecting);
+    }
+    setMode(mode) {
+        if (this.mode) {
+            console.warn("Voice chat mode can only be set once");
+            return;
+        }
+        this.mode = mode;
     }
     get state() {
         return this._state;
@@ -448,7 +572,10 @@ class VoiceChat extends EventEmitter {
                 return;
             }
             this.state = VoiceChatState.STARTING;
-            const { defaultMuted, deviceId } = config;
+            const { defaultMuted, deviceId, mode } = config;
+            if (mode) {
+                this.setMode(mode);
+            }
             try {
                 this.track = yield createLocalAudioTrack({
                     echoCancellation: true,
@@ -456,30 +583,26 @@ class VoiceChat extends EventEmitter {
                     autoGainControl: true,
                     deviceId,
                 });
-                if (defaultMuted) {
-                    yield this.track.mute();
-                    this.emit(VoiceChatEvent.MUTED);
-                }
-                else {
-                    this.emit(VoiceChatEvent.UNMUTED);
-                }
-                yield this.room.localParticipant.publishTrack(this.track);
-                this.track.on(TrackEvent.Muted, () => {
-                    this.emit(VoiceChatEvent.MUTED);
-                });
-                this.track.on(TrackEvent.Unmuted, () => {
-                    this.emit(VoiceChatEvent.UNMUTED);
-                });
-                this.state = VoiceChatState.ACTIVE;
             }
             catch (error) {
-                // If microphone is not available, emit warning but don't fail
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                const warningMessage = `Microphone not available: ${errorMessage}. Session will continue without voice chat.`;
-                console.warn(warningMessage);
-                this.emit(VoiceChatEvent.WARNING, warningMessage);
                 this.state = VoiceChatState.INACTIVE;
+                throw error;
             }
+            if (defaultMuted) {
+                yield this.track.mute();
+                this.emit(VoiceChatEvent.MUTED);
+            }
+            else {
+                this.emit(VoiceChatEvent.UNMUTED);
+            }
+            yield this.room.localParticipant.publishTrack(this.track);
+            this.track.on(TrackEvent.Muted, () => {
+                this.emit(VoiceChatEvent.MUTED);
+            });
+            this.track.on(TrackEvent.Unmuted, () => {
+                this.emit(VoiceChatEvent.UNMUTED);
+            });
+            this.state = VoiceChatState.ACTIVE;
         });
     }
     stop() {
@@ -497,30 +620,27 @@ class VoiceChat extends EventEmitter {
     }
     mute() {
         return __awaiter(this, void 0, void 0, function* () {
-            if (this.state !== VoiceChatState.ACTIVE) {
-                console.warn("Voice chat can only be muted when active");
+            if (!this.assertActive("Voice chat can only be muted when active")) {
                 return;
             }
             if (this.track) {
-                this.track.mute();
+                yield this.track.mute();
             }
         });
     }
     unmute() {
         return __awaiter(this, void 0, void 0, function* () {
-            if (this.state !== VoiceChatState.ACTIVE) {
-                console.warn("Voice chat can only be unmuted when active");
+            if (!this.assertActive("Voice chat can only be unmuted when active")) {
                 return;
             }
             if (this.track) {
-                this.track.unmute();
+                yield this.track.unmute();
             }
         });
     }
     setDevice(deviceId) {
         return __awaiter(this, void 0, void 0, function* () {
-            if (this.state !== VoiceChatState.ACTIVE) {
-                console.warn("Voice chat device can only be set when active");
+            if (!this.assertActive("Voice chat device can only be set when active")) {
                 return false;
             }
             if (this.track) {
@@ -529,18 +649,73 @@ class VoiceChat extends EventEmitter {
             return false;
         });
     }
+    startPushToTalk() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.assertActive("Push to talk can only be started when voice chat is active")) {
+                return;
+            }
+            console.error("Session interactivity mode", this.mode);
+            if (this.mode !== SessionInteractivityMode.PUSH_TO_TALK) {
+                console.warn("Push to talk can only be started in push to talk mode");
+                return;
+            }
+            if (this.pushToTalkStarted) {
+                console.warn("Push to talk has already been started");
+                return;
+            }
+            this.pushToTalkStarted = true;
+            const promise = initEventPromise(this.room, PushToTalkServerEvent.START_SUCCESS, PushToTalkServerEvent.START_FAILED);
+            this.sendPushToTalkCommand(PushToTalkCommandEvent.START);
+            try {
+                yield promise;
+                yield this.unmute();
+            }
+            catch (e) {
+                console.error("Failed to start push to talk", e);
+                this.pushToTalkStarted = false;
+                throw e;
+            }
+        });
+    }
+    stopPushToTalk() {
+        return __awaiter(this, void 0, void 0, function* () {
+            if (!this.pushToTalkStarted) {
+                console.warn("Push to talk has not been started");
+                return;
+            }
+            const promise = initEventPromise(this.room, PushToTalkServerEvent.STOP_SUCCESS, PushToTalkServerEvent.STOP_FAILED);
+            this.sendPushToTalkCommand(PushToTalkCommandEvent.STOP);
+            try {
+                yield promise;
+                this.pushToTalkStarted = false;
+            }
+            catch (e) {
+                console.error("Failed to stop push to talk", e);
+                throw e;
+            }
+        });
+    }
+    sendPushToTalkCommand(command) {
+        const data = new TextEncoder().encode(JSON.stringify({ event_type: command }));
+        this.room.localParticipant.publishData(data, {
+            reliable: true,
+            topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
+        });
+    }
     set state(state) {
         if (this._state !== state) {
             this._state = state;
             this.emit(VoiceChatEvent.STATE_CHANGED, state);
         }
     }
+    assertActive(warnMessage) {
+        if (this.state !== VoiceChatState.ACTIVE) {
+            console.warn(warnMessage !== null && warnMessage !== void 0 ? warnMessage : "Voice chat is not active");
+            return false;
+        }
+        return true;
+    }
 }
-
-const LIVEKIT_COMMAND_CHANNEL_TOPIC = "agent-control";
-const LIVEKIT_SERVER_RESPONSE_CHANNEL_TOPIC = "agent-response";
-
-const API_URL = "https://api.liveavatar.com";
 
 const DEFAULT_ERROR_CODE = 500;
 const SUCCESS_CODE = 1000;
@@ -559,18 +734,15 @@ class SessionAPIClient {
     }
     request(path, params) {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a, _b, _c, _d, _e, _f;
             try {
                 const response = yield fetch(`${this.apiUrl}${path}`, Object.assign(Object.assign({}, params), { credentials: "include", headers: Object.assign({ Authorization: `Bearer ${this.sessionToken}`, "Content-Type": "application/json" }, params.headers) }));
                 if (!response.ok) {
                     const data = yield response.json();
-                    const message = (_c = (_b = (_a = data.data) === null || _a === void 0 ? void 0 : _a.message) !== null && _b !== void 0 ? _b : data.message) !== null && _c !== void 0 ? _c : `API request failed with status ${response.status}`;
-                    throw new SessionApiError(message, data.code, response.status);
+                    throw new SessionApiError(data.message || `API request failed with status ${response.status}`, data.code, response.status);
                 }
                 const data = yield response.json();
                 if (data.code !== SUCCESS_CODE) {
-                    const message = (_f = (_e = (_d = data.data) === null || _d === void 0 ? void 0 : _d.message) !== null && _e !== void 0 ? _e : data.message) !== null && _f !== void 0 ? _f : "API request failed";
-                    throw new SessionApiError(message);
+                    throw new SessionApiError(data.message || "API request failed");
                 }
                 return data.data;
             }
@@ -600,25 +772,48 @@ class SessionAPIClient {
 }
 
 /**
- * Splits a PCM 24KHz audio string (raw 16-bit signed PCM) into 20ms chunks.
- * @param pcmString - The raw PCM data as a string
- * @returns string[] - Array of 20ms PCM chunks as strings
+ * Splits a PCM 24KHz audio string (raw 16-bit signed PCM) into chunks.
  *
- * Each 20ms chunk at 24,000Hz, 16-bit mono = 24,000 * 0.02 = 480 samples.
- * Each sample = 2 bytes (16-bit), so 480 * 2 = 960 bytes per chunk.
- * Each JS string char is a single byte if encoded as binary string.
+ * The first chunk is 400ms to minimize time-to-first-audio; subsequent chunks
+ * are 1s to reduce message overhead once playback is underway.
+ *
+ * At 24,000Hz, 16-bit mono: 1 sample = 2 bytes.
+ *   400ms => 24000 * 0.4 * 2 = 19200 bytes
+ *   1000ms => 24000 * 1.0 * 2 = 48000 bytes
  */
 function splitPcm24kStringToChunks(pcmString) {
-    const bytesPerChunk = 480 * 2; // 960 bytes == 20ms at 24kHz mono, 16-bit
+    const firstChunkBytes = 24000 * 0.4 * 2; // 19200 bytes == 400ms
+    const subsequentChunkBytes = 24000 * 1.0 * 2; // 48000 bytes == 1s
     const totalLength = pcmString.length;
     const result = [];
-    for (let i = 0; i < totalLength; i += bytesPerChunk) {
-        result.push(pcmString.slice(i, i + bytesPerChunk));
+    if (totalLength === 0)
+        return result;
+    result.push(pcmString.slice(0, firstChunkBytes));
+    for (let i = firstChunkBytes; i < totalLength; i += subsequentChunkBytes) {
+        result.push(pcmString.slice(i, i + subsequentChunkBytes));
     }
     return result;
 }
 
 const HEYGEN_PARTICIPANT_ID = "heygen";
+const LIVEAVATAR_AGENT_PARTICIPANT_ID_PREFIX = "liveavatar-agent-";
+const REQUIRED_PARTICIPANTS_TIMEOUT_MS = 30000;
+function parseSessionModeFromToken(token) {
+    var _a;
+    try {
+        const [, payload] = token.split(".");
+        const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+        const mode = (_a = decoded === null || decoded === void 0 ? void 0 : decoded.start_session_data) === null || _a === void 0 ? void 0 : _a.mode;
+        if (mode === SessionMode.LITE)
+            return SessionMode.LITE;
+        if (mode === SessionMode.FULL)
+            return SessionMode.FULL;
+    }
+    catch (e) {
+        console.warn("Failed to parse session mode from token", e);
+    }
+    return SessionMode.FULL;
+}
 class LiveAvatarSession extends EventEmitter {
     constructor(sessionAccessToken, config) {
         super();
@@ -628,6 +823,7 @@ class LiveAvatarSession extends EventEmitter {
         this._state = SessionState.INACTIVE;
         this._remoteAudioTrack = null;
         this._remoteVideoTrack = null;
+        this._mode = parseSessionModeFromToken(sessionAccessToken);
         // Required to construct the room
         this.config = config !== null && config !== void 0 ? config : {};
         this.sessionClient = new SessionAPIClient(sessionAccessToken, this.config.apiUrl);
@@ -643,9 +839,17 @@ class LiveAvatarSession extends EventEmitter {
             },
         });
         this._voiceChat = new VoiceChat(this.room);
+        if (this.config.voiceChat &&
+            typeof this.config.voiceChat === "object" &&
+            this.config.voiceChat.mode) {
+            this._voiceChat.setMode(this.config.voiceChat.mode);
+        }
     }
     get state() {
         return this._state;
+    }
+    get mode() {
+        return this._mode;
     }
     get connectionQuality() {
         return this.connectionQualityIndicator.connectionQuality;
@@ -656,11 +860,6 @@ class LiveAvatarSession extends EventEmitter {
     get maxSessionDuration() {
         var _a, _b;
         return (_b = (_a = this._sessionInfo) === null || _a === void 0 ? void 0 : _a.max_session_duration) !== null && _b !== void 0 ? _b : null;
-    }
-    /** LiveAvatar server session id (available after {@link start} resolves). */
-    get sessionId() {
-        var _a, _b;
-        return (_b = (_a = this._sessionInfo) === null || _a === void 0 ? void 0 : _a.session_id) !== null && _b !== void 0 ? _b : null;
     }
     start() {
         return __awaiter(this, void 0, void 0, function* () {
@@ -679,6 +878,7 @@ class LiveAvatarSession extends EventEmitter {
                     // Track the different events from the room, server, and websocket
                     this.trackEvents();
                     yield this.room.connect(livekitRoomUrl, livekitClientToken);
+                    yield this.waitForRequiredParticipants();
                     this.connectionQualityIndicator.start(this.room);
                 }
                 // Connect to WebSocket if provided
@@ -732,11 +932,12 @@ class LiveAvatarSession extends EventEmitter {
     }
     message(message) {
         if (!this.assertConnected()) {
-            return;
+            throw new Error("Session needs to be connected to send command event");
         }
         const event_id = this.generateEventId();
+        console.warn("sending message command event", event_id);
         const data = {
-            event_id,
+            event_id: event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_RESPONSE,
             text: message,
         };
@@ -745,28 +946,29 @@ class LiveAvatarSession extends EventEmitter {
     }
     repeat(message) {
         if (!this.assertConnected()) {
-            return;
+            throw new Error("Session needs to be connected to send command event");
         }
         const event_id = this.generateEventId();
         const data = {
-            event_id,
+            event_id: event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_TEXT,
             text: message,
         };
+        console.warn("sending repeat command event", data);
         this.sendCommandEvent(data);
         return event_id;
     }
     repeatAudio(audio) {
         if (!this.assertConnected()) {
-            return;
+            throw new Error("Session needs to be connected to send command event");
         }
         if (!this._sessionEventSocket) {
             console.warn("Cannot repeat audio. Please check you're using a supported mode.");
-            return;
+            throw new Error("Session needs to be connected to send command event");
         }
         const event_id = this.generateEventId();
         const data = {
-            event_id,
+            event_id: event_id,
             event_type: CommandEventsEnum.AVATAR_SPEAK_AUDIO,
             audio: audio,
         };
@@ -775,11 +977,11 @@ class LiveAvatarSession extends EventEmitter {
     }
     startListening() {
         if (!this.assertConnected()) {
-            return;
+            throw new Error("Session needs to be connected to send command event");
         }
         const event_id = this.generateEventId();
         const data = {
-            event_id,
+            event_id: event_id,
             event_type: CommandEventsEnum.AVATAR_START_LISTENING,
         };
         this.sendCommandEvent(data);
@@ -787,19 +989,19 @@ class LiveAvatarSession extends EventEmitter {
     }
     stopListening() {
         if (!this.assertConnected()) {
-            return;
+            throw new Error("Session needs to be connected to send command event");
         }
         const event_id = this.generateEventId();
         const data = {
-            event_id,
             event_type: CommandEventsEnum.AVATAR_STOP_LISTENING,
+            event_id: event_id,
         };
         this.sendCommandEvent(data);
         return event_id;
     }
     interrupt() {
         if (!this.assertConnected()) {
-            return;
+            throw new Error("Session needs to be connected to send command event");
         }
         const data = {
             event_type: CommandEventsEnum.AVATAR_INTERRUPT,
@@ -849,8 +1051,13 @@ class LiveAvatarSession extends EventEmitter {
                 this.emit(event_type, ...event_data);
             }
         });
+        this.on(AgentEventsEnum.SESSION_STOPPED, (event) => {
+            console.warn("[SDK:SESSION_STOPPED] Server stopped session, reason:", event.stop_reason);
+            this.cleanup();
+            this.postStop(SessionDisconnectReason.SERVER_INITIATED);
+        });
         this.room.on(RoomEvent.ParticipantConnected, (participant) => {
-            console.warn("participantConnected", participant);
+            console.warn("participantConnected", participant.identity);
         });
         this.room.on(RoomEvent.TrackUnsubscribed, (track) => {
             console.warn("trackUnsubscribed", track);
@@ -859,8 +1066,48 @@ class LiveAvatarSession extends EventEmitter {
                 mediaStream.removeTrack(mediaTrack);
             }
         });
-        this.room.on(RoomEvent.Disconnected, () => {
+        this.room.on(RoomEvent.Disconnected, (reason) => {
+            console.warn("Room disconnected, reason:", reason);
             this.handleRoomDisconnect();
+        });
+        this.room.on(RoomEvent.TrackPublished, (track) => {
+            console.warn("trackPublished", track);
+        });
+    }
+    waitForRequiredParticipants() {
+        var _a;
+        if (this._mode !== SessionMode.FULL) {
+            return Promise.resolve();
+        }
+        const sessionId = (_a = this._sessionInfo) === null || _a === void 0 ? void 0 : _a.session_id;
+        if (!sessionId) {
+            return Promise.resolve();
+        }
+        const agentId = `${LIVEAVATAR_AGENT_PARTICIPANT_ID_PREFIX}${sessionId}`;
+        const required = new Set([HEYGEN_PARTICIPANT_ID, agentId]);
+        for (const p of this.room.remoteParticipants.values()) {
+            required.delete(p.identity);
+        }
+        if (required.size === 0) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve, reject) => {
+            const onConnected = (participant) => {
+                required.delete(participant.identity);
+                if (required.size === 0) {
+                    cleanup();
+                    resolve();
+                }
+            };
+            const timeout = setTimeout(() => {
+                cleanup();
+                reject(new Error(`Timed out waiting for required participants: ${Array.from(required).join(", ")}`));
+            }, REQUIRED_PARTICIPANTS_TIMEOUT_MS);
+            const cleanup = () => {
+                clearTimeout(timeout);
+                this.room.off(RoomEvent.ParticipantConnected, onConnected);
+            };
+            this.room.on(RoomEvent.ParticipantConnected, onConnected);
         });
     }
     connectWebSocket(websocketUrl) {
@@ -930,7 +1177,14 @@ class LiveAvatarSession extends EventEmitter {
     configureSession() {
         return __awaiter(this, void 0, void 0, function* () {
             if (this.config.voiceChat) {
-                yield this.voiceChat.start(typeof this.config.voiceChat === "boolean" ? {} : this.config.voiceChat);
+                try {
+                    yield this.voiceChat.start(typeof this.config.voiceChat === "boolean"
+                        ? {}
+                        : this.config.voiceChat);
+                }
+                catch (error) {
+                    console.warn("Failed to start voice chat (microphone may be unavailable):", error);
+                }
             }
         });
     }
@@ -985,26 +1239,16 @@ class LiveAvatarSession extends EventEmitter {
         this.postStop(SessionDisconnectReason.UNKNOWN_REASON);
     }
     sendCommandEvent(commandEvent) {
-        var _a, _b, _c, _d;
-        const enrichedCommandEvent = Object.assign({ event_id: (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId(), session_id: (_c = (_b = this._sessionInfo) === null || _b === void 0 ? void 0 : _b.session_id) !== null && _c !== void 0 ? _c : null, source_event_id: (_d = commandEvent.source_event_id) !== null && _d !== void 0 ? _d : null }, commandEvent);
-        // Current FULL-mode LiveAvatar commands are sent through LiveKit's
-        // `agent-control` topic. The legacy websocket path remains only for
-        // raw PCM audio in CUSTOM-style integrations.
-        const webSocketOnly = enrichedCommandEvent.event_type === CommandEventsEnum.AVATAR_SPEAK_AUDIO;
-        if (webSocketOnly &&
-            this._sessionEventSocket &&
+        // Use WebSocket if available, otherwise use LiveKit data channel
+        if (this._sessionEventSocket &&
             this._sessionEventSocket.readyState === WebSocket.OPEN) {
-            this.sendCommandEventToWebSocket(enrichedCommandEvent);
+            this.sendCommandEventToWebSocket(commandEvent);
         }
         else if (this.room.state === "connected") {
-            const data = new TextEncoder().encode(JSON.stringify(enrichedCommandEvent));
-            void this.room.localParticipant
-                .publishData(data, {
+            const data = new TextEncoder().encode(JSON.stringify(commandEvent));
+            this.room.localParticipant.publishData(data, {
                 reliable: true,
                 topic: LIVEKIT_COMMAND_CHANNEL_TOPIC,
-            })
-                .catch((error) => {
-                console.error("Failed to publish LiveAvatar command event:", error);
             });
         }
         else {
@@ -1024,14 +1268,13 @@ class LiveAvatarSession extends EventEmitter {
         });
     }
     sendCommandEventToWebSocket(commandEvent) {
-        var _a;
         if (!this._sessionEventSocket ||
             this._sessionEventSocket.readyState !== WebSocket.OPEN) {
             console.warn("WebSocket not open to send command event");
             return;
         }
         const event_type = commandEvent.event_type;
-        const event_id = (_a = commandEvent.event_id) !== null && _a !== void 0 ? _a : this.generateEventId();
+        const event_id = this.generateEventId();
         let audioChunks = [];
         switch (event_type) {
             case CommandEventsEnum.AVATAR_SPEAK_AUDIO:
@@ -1048,6 +1291,9 @@ class LiveAvatarSession extends EventEmitter {
                     event_id: event_id,
                 }));
                 return;
+            case CommandEventsEnum.AVATAR_SPEAK_TEXT:
+            case CommandEventsEnum.AVATAR_SPEAK_RESPONSE:
+                throw new Error("Not permitted in LITE mode");
             case CommandEventsEnum.AVATAR_INTERRUPT:
                 this._sessionEventSocket.send(JSON.stringify({
                     type: "agent.interrupt",
@@ -1080,4 +1326,4 @@ class LiveAvatarSession extends EventEmitter {
     }
 }
 
-export { AgentEventsEnum, CommandEventsEnum, ConnectionQuality, Language, LiveAvatarSession, SessionDisconnectReason, SessionEvent, SessionState, VoiceChatEvent, VoiceChatState };
+export { AgentEventsEnum, CommandEventsEnum, ConnectionQuality, Language, LiveAvatarSession, SessionDisconnectReason, SessionEvent, SessionInteractivityMode, SessionMode, SessionState, VoiceChatEvent, VoiceChatState };

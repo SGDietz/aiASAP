@@ -8,5 +8,6 @@ export declare class WebRTCIssueDetectorMock {
         onNetworkScoresUpdated?: (scores: NetworkScores) => void;
     });
     handleNewPeerConnection(_pc: globalThis.RTCPeerConnection): void;
+    stopWatchingNewPeerConnections(): void;
     _triggerNetworkScoresUpdated(scores: NetworkScores): void;
 }

@@ -114,12 +114,6 @@ const useVoiceChatState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
         VoiceChatEvent.STATE_CHANGED,
         setVoiceChatState,
       );
-      sessionRef.current.voiceChat.on(
-        VoiceChatEvent.WARNING,
-        (message: string) => {
-          setMicrophoneWarning(message);
-        },
-      );
     }
   }, [sessionRef]);
 
