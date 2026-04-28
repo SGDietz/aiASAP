@@ -61,7 +61,7 @@ function timeStamp() {
 export function LiveAvatarDebugHarness() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sessionRef = useRef<LiveAvatarSession | null>(null);
-  const [variantId, setVariantId] = useState("sandbox");
+  const [variantId, setVariantId] = useState("no-context");
   const [sessionState, setSessionState] = useState<string>(SessionState.INACTIVE);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -199,7 +199,8 @@ export function LiveAvatarDebugHarness() {
             Speech path test
           </h1>
           <p className="mt-2 text-sm font-semibold text-white/62">
-            Tests SDK 0.0.17 without aiASAP conversation logic.
+            Tests SDK 0.0.17 without aiASAP conversation logic. Sandbox returns
+            HTTP 400 on this account, so test no-context first.
           </p>
 
           <label className="mt-5 block text-xs font-black uppercase tracking-[0.18em] text-white/50">
@@ -217,7 +218,7 @@ export function LiveAvatarDebugHarness() {
                     : "border-white/10 bg-black/35 text-white"
                 }`}
               >
-                {item.id === "sandbox" ? "Try first: " : ""}
+                {item.id === "no-context" ? "Try first: " : ""}
                 {item.label}
               </button>
             ))}

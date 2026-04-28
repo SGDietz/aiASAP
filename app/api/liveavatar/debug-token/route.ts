@@ -76,11 +76,21 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify(requestBody),
     });
-    const data = await res.json().catch(() => null);
+    const rawBody = await res.text();
+    let data: Record<string, any> | null = null;
+    try {
+      data = rawBody ? JSON.parse(rawBody) : null;
+    } catch {
+      data = null;
+    }
     if (!res.ok) {
       return new Response(
         JSON.stringify({
-          error: data?.message || data?.error || "Failed to retrieve debug token",
+          error:
+            data?.message ||
+            data?.error ||
+            rawBody ||
+            `LiveAvatar token request failed with HTTP ${res.status}`,
           status: res.status,
         }),
         { status: res.status, headers: { "Content-Type": "application/json" } },
