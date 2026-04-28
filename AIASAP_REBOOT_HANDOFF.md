@@ -100,7 +100,7 @@ npm.cmd run typecheck
 - After every smoke test, check Supabase and learn from the latest session/conversation data before deciding next changes.
 - Verify access routes into Vercel, Supabase, GitHub, Resend, Telegram, and other aiASAP services before saying a service is unavailable. Check local `.env`, Vercel env/project state, repo remotes, service CLIs/APIs, and helper scripts; fix or route around access problems where possible.
 - Every smoke test is sent to Telegram unless G explicitly says otherwise.
-- Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes.
+- Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes plus what G should do next.
 - Every final work brief must be super brief. Put any questions at the end under `Questions:` because G will not see buried questions.
 - Always security review before deploy.
 - Keep aiASAP separate from iSolve.

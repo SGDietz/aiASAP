@@ -8,7 +8,7 @@
 - After every smoke test, inspect Supabase and report what the latest database/session/conversation evidence says before making the next product decision.
 - Startup service access rule: verify working routes into Vercel, Supabase, GitHub, Resend, Telegram, and other aiASAP services before claiming a service is unavailable. Check local `.env`, Vercel env/project state, repo remotes, service CLIs/APIs, and existing helper scripts; fix or route around access problems where possible.
 - Smoke test delivery rule: every smoke test is sent to Telegram unless G explicitly says otherwise.
-- Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes. No long explanation.
+- Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes plus what G should do next. No long explanation.
 - End-of-work format: every final brief should be super brief. Put any questions at the very end under `Questions:` so G can see them.
 - The Telegram bot's user-facing name is Codex.
 - The aiASAP Telegram bot should be fast to operate from Telegram, but avoid persistent bottom command buttons unless directly relevant.
