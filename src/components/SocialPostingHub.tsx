@@ -30,6 +30,65 @@ type StatusResponse = {
 };
 
 const DEFAULT_PLATFORMS: PlatformId[] = ["instagram", "facebook", "threads", "x", "tiktok"];
+const SOCIAL_STATUS_MESSAGES: Record<string, string> = {
+  account_required: "Set up or verify an aiASAP account before connecting social accounts.",
+  setup_required: "Developer app keys are missing. Use the setup checklist below for Shelly/keymaster.",
+  connected: "Social account connected. Status will update after refresh.",
+  invalid_state: "Connection expired. Start the platform connection again.",
+  declined: "Connection was declined or cancelled.",
+  missing_code: "Provider returned without an authorization code.",
+  unknown_provider: "Unknown social provider.",
+  error: "Social connection failed. Check the provider setup and callback URL.",
+};
+const PROVIDER_SETUP: Array<{
+  id: string;
+  label: string;
+  covers: string;
+  callbackPath: string;
+  env: string[];
+  priority: string;
+}> = [
+  {
+    id: "meta",
+    label: "Meta",
+    covers: "Instagram + Facebook",
+    callbackPath: "/api/social/meta/callback",
+    env: ["META_APP_ID", "META_APP_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
+    priority: "Start here",
+  },
+  {
+    id: "threads",
+    label: "Threads",
+    covers: "Threads",
+    callbackPath: "/api/social/threads/callback",
+    env: ["THREADS_CLIENT_ID", "THREADS_CLIENT_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
+    priority: "Next Meta app",
+  },
+  {
+    id: "x",
+    label: "X",
+    covers: "X / Twitter",
+    callbackPath: "/api/social/x/callback",
+    env: ["X_CLIENT_ID", "X_CLIENT_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
+    priority: "After Meta",
+  },
+  {
+    id: "tiktok",
+    label: "TikTok",
+    covers: "TikTok",
+    callbackPath: "/api/social/tiktok/callback",
+    env: ["TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
+    priority: "Review likely",
+  },
+  {
+    id: "youtube",
+    label: "YouTube",
+    covers: "YouTube",
+    callbackPath: "/api/social/youtube/callback",
+    env: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
+    priority: "Needs channel",
+  },
+];
 const FALLBACK_PLATFORM_STATUSES: PlatformStatus[] = [
   {
     id: "x",
@@ -106,12 +165,14 @@ function missingEnvSummary(platform: PlatformStatus) {
 export function SocialPostingHub() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [drafts, setDrafts] = useState<SocialDraft[]>([]);
+  const [origin, setOrigin] = useState("");
   const [title, setTitle] = useState("First aiASAP intro post");
   const [body, setBody] = useState(
     "Meet aiASAP: practical AI help for getting real-life tasks done faster.",
   );
   const [platforms, setPlatforms] = useState<PlatformId[]>(DEFAULT_PLATFORMS);
   const [notice, setNotice] = useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   async function refresh() {
     const [statusRes, draftsRes] = await Promise.all([
@@ -130,6 +191,11 @@ export function SocialPostingHub() {
   }
 
   useEffect(() => {
+    setOrigin(window.location.origin);
+    const socialStatus = new URLSearchParams(window.location.search).get("social");
+    if (socialStatus) {
+      setNotice(SOCIAL_STATUS_MESSAGES[socialStatus] ?? `Social status: ${socialStatus}`);
+    }
     void refresh().catch((error) => {
       console.error(error);
       setNotice("Could not load social hub status.");
@@ -167,6 +233,35 @@ export function SocialPostingHub() {
         ? current.filter((platform) => platform !== id)
         : [...current, id],
     );
+  }
+
+  function callbackUrl(path: string) {
+    return origin ? `${origin}${path}` : path;
+  }
+
+  function setupChecklistText() {
+    return [
+      "aiASAP Social CENTCOM setup checklist",
+      "",
+      "Start with Meta because it covers Instagram + Facebook.",
+      "",
+      ...PROVIDER_SETUP.flatMap((provider) => [
+        `${provider.label} (${provider.covers})`,
+        `Callback: ${callbackUrl(provider.callbackPath)}`,
+        `Env: ${provider.env.join(", ")}`,
+        "",
+      ]),
+      "Add env vars in Vercel, redeploy, then connect accounts from /social.",
+    ].join("\n");
+  }
+
+  async function copyText(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyNotice(`${label} copied`);
+    } catch {
+      setCopyNotice(`Could not copy ${label.toLowerCase()}`);
+    }
   }
 
   return (
@@ -321,15 +416,47 @@ export function SocialPostingHub() {
               <li>6. Add Telegram approval: draft, approve, post, log.</li>
             </ol>
             <div className="mt-6 rounded-2xl border border-[#e0aa62]/20 bg-black/24 p-4">
-              <p className="text-sm font-black uppercase tracking-[0.18em] text-[#e0aa62]">
-                Callback URLs to use
-              </p>
-              <div className="mt-3 space-y-2 text-xs font-semibold text-white/70">
-                <p>X: `/api/social/x/callback`</p>
-                <p>TikTok: `/api/social/tiktok/callback`</p>
-                <p>Meta: `/api/social/meta/callback`</p>
-                <p>Threads: `/api/social/threads/callback`</p>
-                <p>YouTube: `/api/social/youtube/callback`</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-black uppercase tracking-[0.18em] text-[#e0aa62]">
+                  Keymaster checklist
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void copyText("Setup checklist", setupChecklistText())}
+                  className="rounded-full bg-[#f1c477] px-4 py-2 text-xs font-black text-black"
+                >
+                  Copy all
+                </button>
+              </div>
+              {copyNotice && <p className="mt-2 text-xs font-black text-[#f1c477]">{copyNotice}</p>}
+              <div className="mt-4 space-y-3">
+                {PROVIDER_SETUP.map((provider) => (
+                  <article key={provider.id} className="rounded-2xl border border-white/10 bg-black/30 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-black text-white">
+                          {provider.label} <span className="text-white/45">({provider.covers})</span>
+                        </p>
+                        <p className="mt-1 text-xs font-black uppercase tracking-[0.14em] text-[#e0aa62]">
+                          {provider.priority}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void copyText(`${provider.label} callback`, callbackUrl(provider.callbackPath))}
+                        className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-black text-white"
+                      >
+                        Copy callback
+                      </button>
+                    </div>
+                    <p className="mt-3 break-all rounded-xl bg-black/40 p-2 font-mono text-[0.68rem] text-white/72">
+                      {callbackUrl(provider.callbackPath)}
+                    </p>
+                    <p className="mt-2 text-xs font-semibold leading-relaxed text-white/55">
+                      Env: {provider.env.join(", ")}
+                    </p>
+                  </article>
+                ))}
               </div>
             </div>
             <h3 className="mt-8 text-lg font-black text-[#f1c477]">Draft queue</h3>
