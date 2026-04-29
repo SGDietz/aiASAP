@@ -41,7 +41,7 @@ const AIASAP_FOUNDER_TITLE =
   "G Dietz, Creator and Builder of aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your a-i-ASAP helper. You know why they call me 6? Because I've got your back. So, how can I make your life easier today?";
+  "Hi, I'm 6, your a-i buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier, starting right now?";
 const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
@@ -1562,6 +1562,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const [deviceProfile, setDeviceProfile] =
     useState<DeviceProfile>(loadDeviceProfile);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [accountAuthChecked, setAccountAuthChecked] = useState(false);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
     string | null
@@ -1976,7 +1977,12 @@ const LiveAvatarSessionComponent: React.FC<{
         return response.json();
       })
       .then((data) => {
-        if (cancelled || !data?.authenticated) return;
+        if (cancelled) return;
+        if (!data?.authenticated) {
+          accountListsLoadedRef.current = true;
+          setAccountAuthChecked(true);
+          return;
+        }
         if (typeof data.user?.email === "string") {
           setAccountEmail(data.user.email);
           accountPendingStateTokenRef.current = null;
@@ -2092,8 +2098,15 @@ const LiveAvatarSessionComponent: React.FC<{
           );
         }
         accountListsLoadedRef.current = true;
+        setAccountAuthChecked(true);
       })
-      .catch((error) => console.warn("Account load failed:", error));
+      .catch((error) => {
+        console.warn("Account load failed:", error);
+        if (!cancelled) {
+          accountListsLoadedRef.current = true;
+          setAccountAuthChecked(true);
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -3527,6 +3540,54 @@ const LiveAvatarSessionComponent: React.FC<{
     [mode, sessionRef, startListening],
   );
 
+  const resetAnonymousSessionState = useCallback(() => {
+    if (accountEmail) return;
+
+    accountMemorySnapshotRef.current = null;
+    accountMemoryContextInjectedRef.current = false;
+    accountPendingStateTokenRef.current = null;
+    recentConversationRef.current = [];
+    lastUserTextRef.current = "";
+    lastAvatarResponseRef.current = "";
+    onlineLookupPendingQueryRef.current = null;
+    onlineLookupLocationRef.current = null;
+    latestListMutationRef.current = null;
+    pendingListDeleteRef.current = null;
+    pendingListCustomizationPromptRef.current = null;
+    endSessionConfirmationPendingRef.current = false;
+    endSessionConfirmationAskedAtRef.current = 0;
+    postVerifyGreetingSpokenRef.current = false;
+    accountSetupAwaitingReadyRef.current = false;
+    accountSetupAwaitingEmailRef.current = false;
+    accountSetupPendingEmailRef.current = null;
+    accountSetupRejectedEmailRef.current = null;
+    accountSetupEmailMissCountRef.current = 0;
+
+    try {
+      window.localStorage.removeItem(ASSISTANT_LISTS_STORAGE_KEY);
+      window.localStorage.removeItem(DEVICE_PROFILE_STORAGE_KEY);
+      window.localStorage.removeItem(ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY);
+    } catch {
+      // Best effort only. In-memory state is still cleared below.
+    }
+
+    setAssistantLists([]);
+    setActiveListId(null);
+    setIsShoppingMode(false);
+    setDeviceProfile(emptyDeviceProfile());
+    setPostVerifyGreeting(null);
+    setAccountNotice(null);
+    setAccountVerificationUrl(null);
+    setEmailEntryOpen(false);
+    setTypedAccountEmail("");
+    setOnlineLookupNotice(null);
+    setOnlineLookupSources([]);
+    setSourcePreview(null);
+    setIsOnlineLookupLoading(false);
+    setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
+    setDissolvingPrompt(null);
+  }, [accountEmail]);
+
   const handleVoiceStartStop = useCallback(async () => {
     if (voiceIsActive) {
       void interrupt();
@@ -3539,9 +3600,14 @@ const LiveAvatarSessionComponent: React.FC<{
       setHasUserPressedVoiceStart(false);
       return;
     }
-    if (sessionState !== SessionState.CONNECTED || !isStreamReady) {
+    if (
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady ||
+      !accountAuthChecked
+    ) {
       return;
     }
+    resetAnonymousSessionState();
     setVoiceStartAwaitingReady(true);
     try {
       const ok = await ensureAudioOutputReady();
@@ -3592,7 +3658,9 @@ const LiveAvatarSessionComponent: React.FC<{
     isStreamReady,
     ensureAudioOutputReady,
     accountEmail,
+    accountAuthChecked,
     rememberConversationLine,
+    resetAnonymousSessionState,
   ]);
 
   const shouldShowBeginSurface =
@@ -3602,6 +3670,7 @@ const LiveAvatarSessionComponent: React.FC<{
     !isAvatarTalking &&
     sessionState === SessionState.CONNECTED &&
     isStreamReady &&
+    accountAuthChecked &&
     !voiceStartAwaitingReady;
 
   const shouldShowLoadingSurface =
@@ -3610,7 +3679,10 @@ const LiveAvatarSessionComponent: React.FC<{
     !voiceIsActive &&
     !isAvatarTalking &&
     !shouldShowBeginSurface &&
-    (sessionState !== SessionState.CONNECTED || !isStreamReady || voiceIsLoading);
+    (sessionState !== SessionState.CONNECTED ||
+      !isStreamReady ||
+      !accountAuthChecked ||
+      voiceIsLoading);
 
   useEffect(() => {
     // console.log("isStreamReady: ", isStreamReady);
