@@ -41,7 +41,7 @@ const AIASAP_FOUNDER_TITLE =
   "G Dietz, Creator and Builder of aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your a-i buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier, starting right now?";
+  "Hi, I'm 6, your a-i buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier?";
 const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
@@ -154,8 +154,8 @@ const getThoughtPrompts = (text: string): string[] => {
   ) {
     return [
       "Find Local Hikes",
-      "Share Location",
-      "Check the Weather",
+      value.includes("weekend") ? "Check Weekend Weather" : "Check the Weather",
+      "Give ZIP Code",
       "Easy Hikes",
     ];
   }
@@ -197,6 +197,7 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
     .filter((prompt) => !/\b(?:contact|named g|for g|call g|text g|email g)\b/i.test(prompt))
     .filter((prompt) => !/^add the next item$/i.test(prompt))
     .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
+    .filter((prompt) => !/^share (?:my )?location$/i.test(prompt))
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
     .filter((prompt) => !/^change subject$/i.test(prompt))
     .slice(0, 4);
@@ -204,6 +205,7 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
     .filter((prompt) => !/^add the next item$/i.test(prompt))
     .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
+    .filter((prompt) => !/^share (?:my )?location$/i.test(prompt))
     .filter((prompt) => !/^change subject$/i.test(prompt))
     .slice(0, 4);
 }
@@ -217,10 +219,18 @@ function isHikingLookupQuery(query: string | null | undefined): boolean {
   );
 }
 
+function isWeekendLookupQuery(query: string | null | undefined): boolean {
+  return Boolean(
+    query &&
+      /\b(?:weekend|things to do|cool things|places to go|events?)\b/i.test(
+        query,
+      ),
+  );
+}
+
 function getLookupLocationPrompts(query: string | null | undefined): string[] {
   if (isHikingLookupQuery(query)) {
     return normalizeThoughtPrompts([
-      "Share Location",
       "Give ZIP Code",
       "Close Search",
       "Easy Local Hikes",
@@ -228,14 +238,12 @@ function getLookupLocationPrompts(query: string | null | undefined): string[] {
   }
   if (/\b(?:weather|forecast)\b/i.test(query ?? "")) {
     return normalizeThoughtPrompts([
-      "Share Location",
       "Give ZIP Code",
       "Close Search",
       "Enter City or ZIP",
     ]);
   }
   return normalizeThoughtPrompts([
-    "Share Location",
     "Give ZIP Code",
     "Close Search",
     "Tell What I Like",
@@ -256,7 +264,7 @@ function getLookupPreferencePrompts(
   return normalizeThoughtPrompts([
     "Share My Interests",
     "Find Cool Things",
-    "Check the Weather",
+    isWeekendLookupQuery(query) ? "Check Weekend Weather" : "Check the Weather",
     "Close Search",
   ]);
 }
@@ -331,7 +339,6 @@ const ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY =
   "aiasap.accountPendingStateToken.v1";
 const DEVICE_PROFILE_STORAGE_KEY = "aiasap.deviceProfile.v1";
 const MAX_LIST_ITEMS = 80;
-const MAX_ONLINE_LOOKUP_SOURCE_COUNT = 3;
 const MAX_PROMPT_SIZE_LEVEL = 3;
 const INTERNAL_SIGNAL_RE =
   /^\s*\[(?:USER HAS BEEN SILENT|SILENT|OBJECT_NOT_VISIBLE)[^\]]*\]/i;
@@ -1040,6 +1047,22 @@ function soundsLikeInvalidZipCode(text: string): boolean {
   return digits.length > 0 && digits.length < 5;
 }
 
+function getOnlineLookupResultLines(answer: string): string[] {
+  const numberedSegments = answer
+    .replace(/\r/g, "")
+    .split(/\n+|(?=\b\d{1,2}[.)]\s+)/)
+    .map((line) =>
+      line
+        .replace(/^\s*(?:[-*]|\d{1,2}[.)])\s*/, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+  return (numberedSegments.length > 1 ? numberedSegments : [answer.trim()])
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
 function extractListItems(
   text: string,
   options: { allowBareItems?: boolean } = {},
@@ -1576,7 +1599,10 @@ const LiveAvatarSessionComponent: React.FC<{
   const [onlineLookupSources, setOnlineLookupSources] = useState<
     OnlineLookupSource[]
   >([]);
-  const [sourcePreview, setSourcePreview] = useState<OnlineLookupSource | null>(
+  const [onlineLookupResultLines, setOnlineLookupResultLines] = useState<
+    string[]
+  >([]);
+  const [, setSourcePreview] = useState<OnlineLookupSource | null>(
     null,
   );
   const [isOnlineLookupLoading, setIsOnlineLookupLoading] = useState(false);
@@ -2070,6 +2096,7 @@ const LiveAvatarSessionComponent: React.FC<{
         onlineLookupPendingQueryRef.current = null;
         onlineLookupLocationRef.current = null;
         setOnlineLookupSources([]);
+        setOnlineLookupResultLines([]);
         setOnlineLookupNotice(null);
 
         if (cleanedLists.length > 0) {
@@ -2244,6 +2271,7 @@ const LiveAvatarSessionComponent: React.FC<{
         onlineLookupLocationRef.current = null;
         setOnlineLookupNotice(null);
         setOnlineLookupSources([]);
+        setOnlineLookupResultLines([]);
         setSourcePreview(null);
         setActiveListId(existing.id);
         return existing.id;
@@ -2281,6 +2309,7 @@ const LiveAvatarSessionComponent: React.FC<{
       onlineLookupLocationRef.current = null;
       setOnlineLookupNotice(null);
       setOnlineLookupSources([]);
+      setOnlineLookupResultLines([]);
       setSourcePreview(null);
       setActiveListId(id);
       return id;
@@ -3137,6 +3166,7 @@ const LiveAvatarSessionComponent: React.FC<{
       const topic = summarizeOnlineLookupTopic(query);
       setIsOnlineLookupLoading(true);
       setOnlineLookupSources([]);
+      setOnlineLookupResultLines([]);
       setSourcePreview(null);
       setOnlineLookupNotice(`Looking online for ${topic}`);
       try {
@@ -3149,27 +3179,11 @@ const LiveAvatarSessionComponent: React.FC<{
         if (!response.ok || typeof data?.answer !== "string") {
           throw new Error(data?.error || "Online lookup failed");
         }
-        const sources = Array.isArray(data.sources)
-          ? data.sources
-              .filter(
-                (source: unknown): source is OnlineLookupSource =>
-                  Boolean(source) &&
-                  typeof source === "object" &&
-                  typeof (source as OnlineLookupSource).title === "string" &&
-                  typeof (source as OnlineLookupSource).url === "string",
-              )
-              .slice(0, MAX_ONLINE_LOOKUP_SOURCE_COUNT)
-          : [];
-        setOnlineLookupSources(sources);
-        setOnlineLookupNotice(
-          sources.length > 0
-            ? `Sources Ready for ${topic}`
-            : null,
-        );
+        setOnlineLookupSources([]);
+        setOnlineLookupResultLines(getOnlineLookupResultLines(data.answer));
+        setOnlineLookupNotice(null);
         const spoken =
-          sources.length > 0
-            ? `${data.answer} Which one sounds best, or do you want three more?`
-            : `${data.answer} Which one sounds best?`;
+          `${data.answer} Which one sounds best, or do you want a few more?`;
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -3179,7 +3193,8 @@ const LiveAvatarSessionComponent: React.FC<{
         console.error("Online lookup failed:", error);
         const spoken =
           "I had trouble looking that up online. Try telling me the city or ZIP code again.";
-        setOnlineLookupNotice("Online lookup needs location");
+        setOnlineLookupNotice(null);
+        setOnlineLookupResultLines([]);
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -3201,50 +3216,17 @@ const LiveAvatarSessionComponent: React.FC<{
     const lookupQuery = onlineLookupPendingQueryRef.current ?? fallbackQuery;
     onlineLookupPendingQueryRef.current = lookupQuery;
     setOnlineLookupSources([]);
+    setOnlineLookupResultLines([]);
+    setSourcePreview(null);
+    setOnlineLookupNotice(null);
     setThoughtPrompts(getLookupLocationPrompts(lookupQuery));
-    if (!navigator.geolocation) {
-      const spoken =
-        "This browser is not letting me ask for location. Tell me your city or ZIP code and I'll look from there.";
-      setOnlineLookupNotice("Tell 6 your city or ZIP");
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
-      return;
-    }
-
-    setOnlineLookupNotice("Tap Share Location to let 6 use this device location.");
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const location = `${position.coords.latitude.toFixed(2)},${position.coords.longitude.toFixed(2)}`;
-        onlineLookupLocationRef.current = location;
-        setOnlineLookupNotice("Using shared location");
-        const query = onlineLookupPendingQueryRef.current;
-        if (!query) return;
-        if (!shouldAskPreferencesBeforeLookup(query)) {
-          onlineLookupPendingQueryRef.current = null;
-          void performOnlineLookup(query, location);
-          return;
-        }
-        const spoken = getLookupPreferenceQuestion(query);
-        setThoughtPrompts(getLookupPreferencePrompts(query));
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        rememberConversationLine("assistant", spoken);
-        lastVisionResponseTimeRef.current = Date.now();
-      },
-      async () => {
-        const spoken =
-          "No problem. Tell me your city or ZIP code instead, and I'll search around there.";
-        setOnlineLookupNotice("Tell 6 your city or ZIP");
-        setThoughtPrompts(getLookupLocationPrompts(lookupQuery));
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        rememberConversationLine("assistant", spoken);
-        lastVisionResponseTimeRef.current = Date.now();
-      },
-      { enableHighAccuracy: false, maximumAge: 0, timeout: 12000 },
-    );
-  }, [performOnlineLookup, rememberConversationLine, repeat]);
+    const spoken =
+      "Tell me your five-digit ZIP code, and I'll look around there.";
+    await repeat(spoken);
+    lastAvatarResponseRef.current = spoken;
+    rememberConversationLine("assistant", spoken);
+    lastVisionResponseTimeRef.current = Date.now();
+  }, [rememberConversationLine, repeat]);
 
   const handleOnlineLookupSpeech = useCallback(
     async (userText: string) => {
@@ -3269,7 +3251,7 @@ const LiveAvatarSessionComponent: React.FC<{
         }
         if (soundsLikeInvalidZipCode(text)) {
           const spoken =
-            "That ZIP code does not sound quite right. ZIP codes are five digits. Tell me the five-digit ZIP code, or say share location.";
+            "That ZIP code does not sound quite right. ZIP codes are five digits. Tell me the five-digit ZIP code.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -3302,7 +3284,8 @@ const LiveAvatarSessionComponent: React.FC<{
         onlineLookupLocationRef.current = location;
         if (shouldAskPreferencesBeforeLookup(pendingQuery)) {
           const spoken = getLookupPreferenceQuestion(pendingQuery);
-          setOnlineLookupNotice("Tell 6 what you like");
+          setOnlineLookupNotice(" ");
+          setOnlineLookupResultLines([]);
           setThoughtPrompts(getLookupPreferencePrompts(pendingQuery));
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -3321,7 +3304,8 @@ const LiveAvatarSessionComponent: React.FC<{
         if (shouldAskPreferencesBeforeLookup(text)) {
           onlineLookupPendingQueryRef.current = text;
           const spoken = getLookupPreferenceQuestion(text);
-          setOnlineLookupNotice("Tell 6 what you like");
+          setOnlineLookupNotice(" ");
+          setOnlineLookupResultLines([]);
           setThoughtPrompts(getLookupPreferencePrompts(text));
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -3334,9 +3318,10 @@ const LiveAvatarSessionComponent: React.FC<{
       onlineLookupPendingQueryRef.current = text;
       onlineLookupLocationRef.current = null;
       setOnlineLookupSources([]);
+      setOnlineLookupResultLines([]);
       setOnlineLookupNotice(null);
       const spoken =
-        "I can look that up online. Tell me your ZIP code, city, or tap Share Location.";
+        "I can look that up online. Tell me your five-digit ZIP code or city.";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
@@ -3432,15 +3417,12 @@ const LiveAvatarSessionComponent: React.FC<{
           );
           return;
         }
-        if (prompt === "Share Location") {
-          await requestSharedLocation();
-          return;
-        }
         if (/^close\s+(?:search|box|location)$/i.test(prompt)) {
           onlineLookupPendingQueryRef.current = null;
           onlineLookupLocationRef.current = null;
           setOnlineLookupNotice(null);
           setOnlineLookupSources([]);
+          setOnlineLookupResultLines([]);
           setSourcePreview(null);
           setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
           return;
@@ -3557,6 +3539,7 @@ const LiveAvatarSessionComponent: React.FC<{
     setTypedAccountEmail("");
     setOnlineLookupNotice(null);
     setOnlineLookupSources([]);
+    setOnlineLookupResultLines([]);
     setSourcePreview(null);
     setIsOnlineLookupLoading(false);
     setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
@@ -4443,6 +4426,7 @@ const LiveAvatarSessionComponent: React.FC<{
         onlineLookupLocationRef.current = null;
         setOnlineLookupNotice(null);
         setOnlineLookupSources([]);
+        setOnlineLookupResultLines([]);
         setSourcePreview(null);
         clearAccountEmailEntry();
         setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
@@ -4483,6 +4467,7 @@ const LiveAvatarSessionComponent: React.FC<{
         onlineLookupLocationRef.current = null;
         setOnlineLookupNotice(null);
         setOnlineLookupSources([]);
+        setOnlineLookupResultLines([]);
         setSourcePreview(null);
         setIsShoppingMode(false);
         setActiveListId(null);
@@ -5808,37 +5793,22 @@ const LiveAvatarSessionComponent: React.FC<{
         </form>
       )}
 
-      {onlineLookupNotice && !isShoppingMode && !emailEntryOpen && (
-        <div className="fixed left-1/2 top-[58%] z-[29] w-[min(94%,34rem)] min-h-[9.5rem] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#f1c477]/55 bg-[#100905]/88 px-5 py-5 text-[#f1c477] shadow-2xl backdrop-blur-md">
+      {(onlineLookupNotice || onlineLookupResultLines.length > 0) && !isShoppingMode && !emailEntryOpen && (
+        <div className="fixed left-1/2 top-[58%] z-[29] w-[min(86%,31rem)] min-h-[9.5rem] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#f1c477]/55 bg-[#100905]/88 px-5 py-5 text-[#f1c477] shadow-2xl backdrop-blur-md">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[1.35rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
-              {onlineLookupPendingQueryRef.current &&
-                !onlineLookupLocationRef.current && (
-                  <button
-                    type="button"
-                    onClick={() => void requestSharedLocation()}
-                    className="mt-4 w-full rounded-full border border-[#f1c477]/50 bg-[#f1c477] px-5 py-3 text-lg font-black text-[#120905] shadow-[0_10px_24px_rgba(0,0,0,0.25)]"
-                  >
-                    Share Location
-                  </button>
-                )}
-              {onlineLookupSources.length > 0 && (
-                <div className="mt-4 grid gap-2">
-                  {onlineLookupSources.map((source) => (
-                    <a
-                      key={source.url}
-                      href={source.url}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        void interrupt();
-                        setSourcePreview(source);
-                      }}
-                      rel="noreferrer"
-                      className="block truncate rounded-md border border-[#f1c477]/24 bg-[#2a170b]/82 px-3 py-2 text-base font-black text-[#f1c477] underline-offset-2 hover:underline"
+              {onlineLookupNotice?.trim() && (
+                <p className="text-[1.35rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
+              )}
+              {onlineLookupResultLines.length > 0 && (
+                <div className="grid gap-2">
+                  {onlineLookupResultLines.map((line, index) => (
+                    <div
+                      key={`${index}-${line}`}
+                      className="rounded-md border border-[#f1c477]/24 bg-[#2a170b]/82 px-3 py-2 text-base font-black leading-snug text-[#f1c477]"
                     >
-                      {source.title}
-                    </a>
+                      {line}
+                    </div>
                   ))}
                 </div>
               )}
@@ -5853,6 +5823,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   onlineLookupLocationRef.current = null;
                   setOnlineLookupNotice(null);
                   setOnlineLookupSources([]);
+                  setOnlineLookupResultLines([]);
                   setSourcePreview(null);
                   setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
                 }}
@@ -5861,43 +5832,6 @@ const LiveAvatarSessionComponent: React.FC<{
                 <X className="h-6 w-6" aria-hidden />
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {sourcePreview && !isShoppingMode && (
-        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+7rem)] z-[90] mx-auto flex max-w-[36rem] flex-col overflow-hidden rounded-lg border border-[#f1c477]/55 bg-[#100905]/94 text-[#f1c477] shadow-2xl backdrop-blur-md">
-          <div className="flex items-center justify-between gap-3 border-b border-[#f1c477]/20 px-4 py-3">
-            <p className="min-w-0 truncate text-base font-black">
-              {sourcePreview.title}
-            </p>
-            <div className="flex shrink-0 items-center gap-2">
-              <a
-                href={sourcePreview.url}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-full bg-[#f1c477] px-3 py-2 text-sm font-black text-[#120905]"
-              >
-                Open
-              </a>
-              <button
-                type="button"
-                aria-label="Close source preview"
-                title="Close source preview"
-                onClick={() => {
-                  setSourcePreview(null);
-                  if (hasUserPressedVoiceStart && !voiceIsActive) {
-                    void handleVoiceStartStop();
-                  }
-                }}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-[#f1c477]/30 bg-[#f1c477]/12 text-[#f1c477]"
-              >
-                <X className="h-5 w-5" aria-hidden />
-              </button>
-            </div>
-          </div>
-          <div className="px-4 py-5 text-sm font-semibold leading-relaxed text-[#f6d49a]">
-            <p>Open this source in a browser tab, then come right back to 6.</p>
           </div>
         </div>
       )}

@@ -75,7 +75,7 @@ function extractResponse(data: Record<string, unknown>): {
 
   return {
     answer: answer ? truncateUtf8String(answer, MAX_ANSWER_CHARS) : null,
-    sources: [...sources.values()].slice(0, 3),
+    sources: [...sources.values()].slice(0, 4),
   };
 }
 
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
           {
             role: "system",
             content:
-              "You help a-i-ASAP's voice assistant, 6, find current online information. Answer in 1 or 2 short, spoken-friendly sentences, under 55 words. Be practical. If the user asks for hikes, parks, cool things to do this weekend, or places to go, give exactly three useful starter ideas near the supplied location, then stop so 6 can discuss them before offering more. Never dump a top 10 list. Never assume a city, state, or country that was not supplied by the location field or current search results. If the location is vague or insufficient, say you need a ZIP code or city. Do not invent addresses, hours, closures, fees, or safety conditions. Do not monologue; source links are shown on screen.",
+              "You help a-i-ASAP's voice assistant, 6, find current online information. Return 3 or 4 short, useful starter ideas near the supplied location, formatted as plain numbered lines. Be practical and spoken-friendly. Never dump a top 10 list. Never assume a city, state, or country that was not supplied by the location field or current search results. If the location is vague or insufficient, say you need a ZIP code or city. Do not invent addresses, hours, closures, fees, or safety conditions. Do not include markdown links or tell the user to click links.",
           },
           {
             role: "user",
