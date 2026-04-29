@@ -22,13 +22,29 @@ export async function POST(request: Request) {
       );
     }
 
-    const res = await fetch(`${API_URL}/v1/sessions`, {
-      method: "DELETE",
+    const res = await fetch(`${API_URL}/v1/sessions/stop`, {
+      method: "POST",
       headers: {
         Authorization: authorizationBearerHeader(token),
         "Content-Type": "application/json",
       },
     });
+
+    if (res.status === 404) {
+      await recordSessionStreamStopped(token);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: "Session already stopped",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    }
 
     if (!res.ok) {
       const errorData = await res.json();

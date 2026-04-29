@@ -80,10 +80,22 @@ def save_conversations(conversations, path=CONVERSATIONS_PATH):
         for chat_id, messages in conversations.items()
         if messages
     }
-    tmp_path = f"{path}.tmp"
+    tmp_path = f"{path}.{uuid.uuid4().hex}.tmp"
     with open(tmp_path, "w", encoding="utf-8") as history_file:
         json.dump(serializable, history_file, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, path)
+    last_error = None
+    for _ in range(5):
+        try:
+            os.replace(tmp_path, path)
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.2)
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+    raise last_error
 
 
 def request_json(url, payload=None, headers=None, timeout=60):

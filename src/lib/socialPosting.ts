@@ -51,6 +51,17 @@ export const SOCIAL_PLATFORMS: SocialPlatformConfig[] = [
     ],
   },
   {
+    id: "youtube",
+    label: "YouTube",
+    handle: "aiASAP",
+    publicUrl: null,
+    requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
+    setupNotes: [
+      "Create an aiASAP Brand Channel under an existing Google account.",
+      "Enable YouTube Data API and OAuth in the Google Cloud project.",
+    ],
+  },
+  {
     id: "tiktok",
     label: "TikTok",
     handle: "@aiasap.ai",
@@ -59,17 +70,6 @@ export const SOCIAL_PLATFORMS: SocialPlatformConfig[] = [
     setupNotes: [
       "Create a TikTok Developer app with Content Posting API access.",
       "TikTok may keep posts private until the app is reviewed.",
-    ],
-  },
-  {
-    id: "instagram",
-    label: "Instagram",
-    handle: "@aiasap.ai",
-    publicUrl: "https://www.instagram.com/aiasap.ai/",
-    requiredEnv: ["META_APP_ID", "META_APP_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
-    setupNotes: [
-      "Use a Professional/Business Instagram account connected to the Facebook Page.",
-      "Meta app review is usually required for real public publishing.",
     ],
   },
   {
@@ -84,6 +84,17 @@ export const SOCIAL_PLATFORMS: SocialPlatformConfig[] = [
     ],
   },
   {
+    id: "instagram",
+    label: "Instagram",
+    handle: "@aiasap.ai",
+    publicUrl: "https://www.instagram.com/aiasap.ai/",
+    requiredEnv: ["META_APP_ID", "META_APP_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
+    setupNotes: [
+      "Use a Professional/Business Instagram account connected to the Facebook Page.",
+      "Meta app review is usually required for real public publishing.",
+    ],
+  },
+  {
     id: "threads",
     label: "Threads",
     handle: "@aiasap.ai",
@@ -92,17 +103,6 @@ export const SOCIAL_PLATFORMS: SocialPlatformConfig[] = [
     setupNotes: [
       "Create or update a Meta app with the Threads use case.",
       "Threads uses separate publishing scopes from Instagram/Facebook.",
-    ],
-  },
-  {
-    id: "youtube",
-    label: "YouTube",
-    handle: "aiASAP",
-    publicUrl: null,
-    requiredEnv: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "INTEGRATION_TOKEN_ENCRYPTION_KEY"],
-    setupNotes: [
-      "Create an aiASAP Brand Channel under an existing Google account.",
-      "Enable YouTube Data API and OAuth in the Google Cloud project.",
     ],
   },
 ];
@@ -214,7 +214,14 @@ export function getSocialOAuthConfig(
       redirectUri: oauthRedirectUri(request, provider),
       authUrl: "https://twitter.com/i/oauth2/authorize",
       tokenUrl: "https://api.twitter.com/2/oauth2/token",
-      scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"],
+      scopes: [
+        "tweet.read",
+        "tweet.write",
+        "users.read",
+        "dm.read",
+        "dm.write",
+        "offline.access",
+      ],
       scopeSeparator: " ",
       encryptionSecret,
       stateSecret,
@@ -232,7 +239,7 @@ export function getSocialOAuthConfig(
       redirectUri: oauthRedirectUri(request, provider),
       authUrl: "https://www.tiktok.com/v2/auth/authorize/",
       tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
-      scopes: ["user.info.basic", "video.publish", "video.upload"],
+      scopes: ["user.info.basic", "video.list"],
       scopeSeparator: ",",
       encryptionSecret,
       stateSecret,

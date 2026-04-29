@@ -61,6 +61,7 @@ function timeStamp() {
 export function LiveAvatarDebugHarness() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const sessionRef = useRef<LiveAvatarSession | null>(null);
+  const sessionTokenRef = useRef<string | null>(null);
   const [variantId, setVariantId] = useState("no-context");
   const [sessionState, setSessionState] = useState<string>(SessionState.INACTIVE);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -185,6 +186,7 @@ export function LiveAvatarDebugHarness() {
         throw new Error(data?.error || `Token failed (${res.status})`);
       }
       setSessionId(data.session_id ?? null);
+      sessionTokenRef.current = data.session_token;
       log("token.ok", { variant: variant.id, session_id: data.session_id, payload: data.payload });
       const session = new LiveAvatarSession(data.session_token, {
         apiUrl: window.location.origin + "/api",
@@ -204,7 +206,15 @@ export function LiveAvatarDebugHarness() {
   async function stop() {
     setBusy(true);
     try {
+      const token = sessionTokenRef.current;
+      if (token) {
+        await fetch("/api/v1/sessions/stop", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch((error) => log("server_stop.error", String(error)));
+      }
       await sessionRef.current?.stop();
+      sessionTokenRef.current = null;
       log("stop.done");
     } catch (error) {
       log("stop.error", error instanceof Error ? error.message : String(error));

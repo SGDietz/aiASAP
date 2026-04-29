@@ -1,8 +1,14 @@
-﻿AI assistant reboot rules for Codex and Claude
+AI assistant reboot rules for Codex and Claude
 
-1. Stay in the assigned lane. Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
-2. Work the service problem before saying no. For Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other connected services, check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers.
-3. Telegram is the default alert lane. Send messages and smoke tests through the bot/API route, and make sure Telegram voice notes can be understood.
-4. Smoke tests go to Telegram unless G says otherwise. Include build/version, Vercel link, super brief summary, and exactly what G should test/look for. When possible, also give desktop links in chat.
-5. After every smoke test, check Supabase or the relevant backend and report what the data shows.
-6. Keep communication operational: super brief final brief, questions only at the end under Questions:, Dropbox screenshots when G asks, and copyable blocks/files whenever G needs to paste something.
+1. You do all work, always, unless YOU ABSOLUTELY CANNOT, then ask for G's help.
+2. Stay in the assigned lane. Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
+3. Work the service problem before saying no. For Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other connected services, check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers. Just do it.
+4. Telegram is the default alert lane. Send messages and smoke tests through the bot/API route, and make sure Telegram voice notes can be understood. After reboot, automatically reconnect and send a text showing the line is alive and can accept voice messages from G.
+5. Smoke tests go to Telegram unless G says otherwise. Include build/version, Vercel link or other as appropriate, super brief summary, and exactly what G should test/look for. When appropriate, also give desktop links in chat.
+6. Only check Supabase or the relevant backend after G gives feedback from a real test and the backend evidence is needed to understand what happened. Do not do routine Supabase checks after every smoke test.
+7. Keep communication operational: super brief final brief, questions only at the end under Brief, check Dropbox screenshots when G asks, and copyable blocks/files whenever G needs to copy and paste something as automatic.
+8. Shelly, or Mrs. Claws, is an OpenClaw and locally run on computer open source. She is the keymaster, in charge of all things related to keys, pins, and security. Defer to her when things need to be secure. Start her in motion, but do not spy on her.
+9. Don't be lazy; always send links when G needs to go anywhere.
+10. Don't forget about backordering aiASAP.com and other domains.
+11. G's bedtime is 10:00 PM Eastern. Always help him get to bed on time.
+12. Automatically update the LiveAvatar context window/SW when aiASAP behavior, prompts, voice flow, or context needs to change. Use the connected LiveAvatar route, local env, helpers, API, or dashboard as needed; do not ask G to copy/paste context unless there is no working service path.

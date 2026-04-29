@@ -6,6 +6,7 @@ import {
   CONTEXT_ID,
   LANGUAGE,
 } from "../secrets";
+import { resolveLiveAvatarVoice } from "../liveavatarVoice";
 import { assertCanMintSessionToken } from "../../../src/lib/liveavatarCredits";
 
 export async function POST() {
@@ -39,8 +40,14 @@ export async function POST() {
   let session_token = "";
   let session_id = "";
   try {
+    const voiceResolution = await resolveLiveAvatarVoice();
+    if (voiceResolution.usedFallback) {
+      console.warn(
+        `LiveAvatar primary voice ${voiceResolution.primaryVoiceId} has no preview audio; using fallback voice ${voiceResolution.voiceId}`,
+      );
+    }
     const avatarPersona: Record<string, string> = {
-      voice_id: VOICE_ID,
+      voice_id: voiceResolution.voiceId,
       context_id: CONTEXT_ID,
     };
     if (LANGUAGE.trim()) {

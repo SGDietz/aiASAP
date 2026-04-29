@@ -49,6 +49,16 @@
       0 1px 0 rgba(0, 0, 0, 0.4),
       0 -1px 0 rgba(255, 255, 255, 0.06);
   }
+
+  .aiasap-logo-mark {
+    font-family: "Arial Black", Impact, "Arial Narrow", sans-serif;
+    font-style: italic;
+    font-weight: 800;
+    letter-spacing: 0;
+    transform: skewX(-8deg) scaleX(0.94);
+    transform-origin: center;
+    -webkit-text-stroke: 0.006em rgba(255, 221, 154, 0.12);
+  }
 }
 
 @layer utilities {

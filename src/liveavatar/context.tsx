@@ -19,6 +19,7 @@ import { LiveAvatarSessionMessage } from "./types";
 
 type LiveAvatarContextProps = {
   sessionRef: React.RefObject<LiveAvatarSession>;
+  sessionAccessToken: string;
 
   isMuted: boolean;
   voiceChatState: VoiceChatState;
@@ -42,6 +43,7 @@ export const LiveAvatarContext = createContext<LiveAvatarContextProps>({
   sessionRef: {
     current: null,
   } as unknown as React.RefObject<LiveAvatarSession>,
+  sessionAccessToken: "",
   connectionQuality: ConnectionQuality.UNKNOWN,
   isMuted: true,
   voiceChatState: VoiceChatState.INACTIVE,
@@ -355,6 +357,7 @@ export const LiveAvatarContextProvider = ({
     <LiveAvatarContext.Provider
       value={{
         sessionRef,
+        sessionAccessToken,
         sessionState,
         isStreamReady,
         connectionQuality,

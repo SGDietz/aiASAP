@@ -228,7 +228,7 @@ export const LiveAvatarDemo = () => {
           Thank you for using aiASAP
         </div>
         <div className="text-inset text-center text-base opacity-90">
-          Wanna use again? Press the button below 👇
+          👇 Wanna use again? Press the button below 👇
         </div>
         <button
           type="button"

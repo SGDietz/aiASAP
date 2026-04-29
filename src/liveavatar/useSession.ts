@@ -2,7 +2,13 @@ import { useCallback } from "react";
 import { useLiveAvatarContext } from "./context";
 
 export const useSession = () => {
-  const { sessionRef, sessionState, isStreamReady, connectionQuality } =
+  const {
+    sessionRef,
+    sessionAccessToken,
+    sessionState,
+    isStreamReady,
+    connectionQuality,
+  } =
     useLiveAvatarContext();
 
   const startSession = useCallback(async () => {
@@ -10,8 +16,19 @@ export const useSession = () => {
   }, [sessionRef]);
 
   const stopSession = useCallback(async () => {
-    return await sessionRef.current.stop();
-  }, [sessionRef]);
+    try {
+      if (sessionAccessToken) {
+        await fetch("/api/v1/sessions/stop", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${sessionAccessToken}` },
+        });
+      }
+    } catch (error) {
+      console.warn("LiveAvatar server stop failed:", error);
+    } finally {
+      return await sessionRef.current.stop();
+    }
+  }, [sessionAccessToken, sessionRef]);
 
   const keepAlive = useCallback(async () => {
     return await sessionRef.current.keepAlive();

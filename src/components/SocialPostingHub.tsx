@@ -29,7 +29,7 @@ type StatusResponse = {
   platforms: PlatformStatus[];
 };
 
-const DEFAULT_PLATFORMS: PlatformId[] = ["instagram", "facebook", "threads", "x", "tiktok"];
+const DEFAULT_PLATFORMS: PlatformId[] = ["x", "youtube", "tiktok", "facebook", "instagram", "threads"];
 const STABLE_SITE_ORIGIN =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://ai-asap.vercel.app";
 const SOCIAL_STATUS_MESSAGES: Record<string, string> = {
@@ -103,20 +103,20 @@ const FALLBACK_PLATFORM_STATUSES: PlatformStatus[] = [
     setupNotes: [],
   },
   {
-    id: "tiktok",
-    label: "TikTok",
-    handle: "@aiasap.ai",
-    publicUrl: "https://www.tiktok.com/@aiasap.ai",
+    id: "youtube",
+    label: "YouTube",
+    handle: "aiASAP",
+    publicUrl: null,
     configured: false,
     connected: false,
     missingEnv: ["status API unavailable"],
     setupNotes: [],
   },
   {
-    id: "instagram",
-    label: "Instagram",
+    id: "tiktok",
+    label: "TikTok",
     handle: "@aiasap.ai",
-    publicUrl: "https://www.instagram.com/aiasap.ai/",
+    publicUrl: "https://www.tiktok.com/@aiasap.ai",
     configured: false,
     connected: false,
     missingEnv: ["status API unavailable"],
@@ -133,20 +133,20 @@ const FALLBACK_PLATFORM_STATUSES: PlatformStatus[] = [
     setupNotes: [],
   },
   {
-    id: "threads",
-    label: "Threads",
+    id: "instagram",
+    label: "Instagram",
     handle: "@aiasap.ai",
-    publicUrl: "https://www.threads.com/@aiasap.ai",
+    publicUrl: "https://www.instagram.com/aiasap.ai/",
     configured: false,
     connected: false,
     missingEnv: ["status API unavailable"],
     setupNotes: [],
   },
   {
-    id: "youtube",
-    label: "YouTube",
-    handle: "aiASAP",
-    publicUrl: null,
+    id: "threads",
+    label: "Threads",
+    handle: "@aiasap.ai",
+    publicUrl: "https://www.threads.com/@aiasap.ai",
     configured: false,
     connected: false,
     missingEnv: ["status API unavailable"],
@@ -167,6 +167,9 @@ function missingEnvSummary(platform: PlatformStatus) {
 export function SocialPostingHub() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [drafts, setDrafts] = useState<SocialDraft[]>([]);
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [title, setTitle] = useState("First aiASAP intro post");
   const [body, setBody] = useState(
     "Meet aiASAP: practical AI help for getting real-life tasks done faster.",
@@ -225,6 +228,33 @@ export function SocialPostingHub() {
     }
     setNotice("Draft saved. Next step is Telegram approval + real platform connections.");
     await refresh();
+  }
+
+  async function startAccount() {
+    setAccountNotice(null);
+    const res = await fetch("/api/account/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: accountEmail, fullName: accountName }),
+    });
+    const json = (await res.json().catch(() => null)) as {
+      error?: string;
+      emailSent?: boolean;
+      verificationUrl?: string | null;
+    } | null;
+    if (!res.ok) {
+      setAccountNotice(json?.error ?? "Account setup failed.");
+      return;
+    }
+    if (json?.verificationUrl) {
+      setAccountNotice(`Verification link: ${json.verificationUrl}`);
+      return;
+    }
+    setAccountNotice(
+      json?.emailSent
+        ? "Check your email for the aiASAP sign-in link, then return here."
+        : "Account link created. Check email delivery settings if no message arrives.",
+    );
   }
 
   function togglePlatform(id: PlatformId) {
@@ -339,7 +369,7 @@ export function SocialPostingHub() {
                 </a>
               )}
               <p className="mt-3 text-[0.65rem] font-semibold uppercase tracking-[0.18em] text-white/45 sm:mt-4 sm:text-xs">
-                Missing
+                {platform.missingEnv.length ? "Missing setup" : "Connection"}
               </p>
               <p className="mt-1 text-xs text-white/70 sm:min-h-10 sm:text-sm">
                 <span className="sm:hidden">{missingEnvSummary(platform)}</span>
@@ -351,13 +381,70 @@ export function SocialPostingHub() {
               </p>
               <a
                 className="mt-3 inline-flex w-full justify-center rounded-full bg-[#f1c477] px-3 py-2 text-xs font-black text-black sm:mt-4 sm:w-auto"
-                href={`/api/social/${oauthProviderForPlatform(platform.id)}/start?returnTo=/social`}
+                href={
+                  status?.authenticated
+                    ? `/api/social/${oauthProviderForPlatform(platform.id)}/start?returnTo=/social`
+                    : "#account-setup"
+                }
+                onClick={() => {
+                  if (!status?.authenticated) {
+                    setNotice("Create or verify an aiASAP account first, then connect YouTube.");
+                  }
+                }}
               >
                 {platform.connected ? "Reconnect" : "Connect"}
               </a>
             </article>
           ))}
         </section>
+
+        {!status?.authenticated && (
+          <section
+            id="account-setup"
+            className="rounded-[1.8rem] border border-[#e0aa62]/30 bg-[#140b05] p-5 sm:p-6"
+          >
+            <h2 className="text-2xl font-black text-[#f1c477]">Create aiASAP account</h2>
+            <p className="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-white/65">
+              This signs you into aiASAP so connected Google, YouTube, and social tokens can be
+              stored to your account.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <label className="block">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-white/50">
+                  Email
+                </span>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base font-bold text-white outline-none focus:border-[#e0aa62]"
+                  value={accountEmail}
+                  onChange={(event) => setAccountEmail(event.target.value)}
+                  placeholder="wildworkslandscaping@gmail.com"
+                  type="email"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-black uppercase tracking-[0.16em] text-white/50">
+                  Name
+                </span>
+                <input
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-base font-bold text-white outline-none focus:border-[#e0aa62]"
+                  value={accountName}
+                  onChange={(event) => setAccountName(event.target.value)}
+                  placeholder="G"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void startAccount()}
+                className="rounded-full bg-[#f1c477] px-6 py-3 text-sm font-black text-black"
+              >
+                Send sign-in link
+              </button>
+            </div>
+            {accountNotice && (
+              <p className="mt-4 break-words text-sm font-bold text-[#f1c477]">{accountNotice}</p>
+            )}
+          </section>
+        )}
 
         <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="rounded-[1.8rem] border border-[#e0aa62]/20 bg-[#140b05] p-5 sm:p-6">

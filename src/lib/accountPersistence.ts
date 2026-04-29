@@ -26,6 +26,15 @@ export type AccountResumeState = {
   isShoppingMode: boolean;
   lastUserText: string | null;
   lastAssistantText: string | null;
+  recentConversation: Array<{ role: "user" | "assistant"; text: string }>;
+  onlineLookup: {
+    query: string | null;
+    location: string | null;
+    notice: string | null;
+    sources: Array<{ title: string; url: string }>;
+    needsLocation: boolean;
+    awaitingPreferences: boolean;
+  } | null;
   updatedAt: string;
 };
 
@@ -47,9 +56,9 @@ const VALID_LIST_KIND = new Set(["grocery", "shopping", "todo", "custom"]);
 const VALID_LIST_STYLE = new Set(["numbered", "bulleted"]);
 const VALID_LIST_COLOR = new Set(["amber", "blue", "green", "rose", "purple", "white"]);
 const LIST_ITEM_CHATTER_RE =
-  /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|you mean|what are you|what is|what's)\b/i;
+  /\b(?:i mean|i know|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|you mean|what are you|what is|what's)\b/i;
 const LIST_ITEM_FILLER_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|i mean|i guess|all those|it|that|this|them|they|those|these|god|got)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|i guess|actually|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|grocery|groceries|shopping|walmart|list|lista|listas|liste)$/i;
 const LIST_ITEM_VAGUE_RE = /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
 function supabaseHeaders(serviceRoleKey: string) {
@@ -70,12 +79,24 @@ function cleanText(value: unknown, max: number): string | null {
 function cleanStoredListItem(value: unknown): string | null {
   const cleaned = cleanText(value, MAX_ITEM_CHARS)
     ?.replace(
-      /^(?:and\s+)?(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+/i,
+      /^(?:(?:and|y|e|et|und)\s+)?(?:(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|ich brauche|ich will|fuege hinzu|f\u00fcge hinzu|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen)\s+/i,
       "",
     )
     .trim();
   if (!cleaned) return null;
   if (/[?]/.test(cleaned)) return null;
+  const normalizedKey = cleaned
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  if (
+    /^(?:cose|cos|close|stop|avatar|six|6|to|the|and|great|thanks|thankyou|iknow|lets|letsmake|letsmakea|makeit|makeitblack|evendarker|darker|lighter|half|ineed|ineedhalf|somehalf|iwant|iwantsome|justputsomeonthere|putsomeonthere|someonthere|onthere|some|me|meon|lista|liste)$/.test(
+      normalizedKey,
+    )
+  ) {
+    return null;
+  }
   if (LIST_ITEM_CHATTER_RE.test(cleaned)) return null;
   if (LIST_ITEM_FILLER_RE.test(cleaned)) return null;
   if (LIST_ITEM_VAGUE_RE.test(cleaned)) return null;
@@ -153,7 +174,11 @@ async function getAccountJson<T>(path: string): Promise<T | null> {
     headers: supabaseHeaders(serviceRoleKey),
   });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`account storage read failed (${res.status})`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (res.status === 400 && text.includes('"statusCode":"404"')) return null;
+    throw new Error(`account storage read failed (${res.status})`);
+  }
   return (await res.json()) as T;
 }
 
@@ -227,12 +252,58 @@ export function sanitizeAccountResumeState(value: unknown): AccountResumeState |
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   const updatedAt = cleanText(raw.updatedAt, 40) ?? new Date().toISOString();
+  const online =
+    raw.onlineLookup && typeof raw.onlineLookup === "object"
+      ? (raw.onlineLookup as Record<string, unknown>)
+      : null;
+  const sources = Array.isArray(online?.sources)
+    ? online.sources
+        .map((source) => {
+          if (!source || typeof source !== "object") return null;
+          const item = source as Record<string, unknown>;
+          const title = cleanText(item.title, 140);
+          const url = cleanText(item.url, 600);
+          if (!title || !url) return null;
+          return { title, url };
+        })
+        .filter((source): source is { title: string; url: string } =>
+          Boolean(source),
+        )
+        .slice(0, 5)
+    : [];
+  const onlineLookup = online
+    ? {
+        query: cleanText(online.query, 280),
+        location: cleanText(online.location, 160),
+        notice: cleanText(online.notice, 160),
+        sources,
+        needsLocation: online.needsLocation === true,
+        awaitingPreferences: online.awaitingPreferences === true,
+      }
+    : null;
   return {
     activeListId: cleanText(raw.activeListId, 80),
     activeListTitle: cleanText(raw.activeListTitle, 120),
     isShoppingMode: raw.isShoppingMode === true,
     lastUserText: cleanText(raw.lastUserText, 280),
     lastAssistantText: cleanText(raw.lastAssistantText, 280),
+    recentConversation: Array.isArray(raw.recentConversation)
+      ? raw.recentConversation
+          .flatMap((item): Array<{ role: "user" | "assistant"; text: string }> => {
+            if (!item || typeof item !== "object") return [];
+            const row = item as Record<string, unknown>;
+            const role =
+              row.role === "assistant"
+                ? "assistant"
+                : row.role === "user"
+                  ? "user"
+                  : null;
+            const text = cleanText(row.text, 280);
+            return role && text ? [{ role, text }] : [];
+          })
+          .slice(-12)
+      : [],
+    onlineLookup,
     updatedAt,
   };
 }
@@ -255,18 +326,18 @@ export async function sendAccountEmail(args: {
     "After that, 6 can remember your lists and pick up the same task where you left off.",
   ].join("\n");
   const html = `
-    <div style="font-family: Arial, sans-serif; color: #171717; line-height: 1.5; max-width: 560px;">
-      <h1 style="font-size: 22px; margin: 0 0 12px;">Finish setting up your aiASAP account</h1>
-      <p style="margin: 0 0 18px;">Tap the button below to finish setting up your account with 6.</p>
+    <div style="font-family: Arial, sans-serif; color: #f8d7a2; line-height: 1.5; max-width: 560px; background: #090604; padding: 24px; border-radius: 14px;">
+      <h1 style="font-size: 24px; margin: 0 0 12px; color: #f2be73;">Finish setting up your aiASAP account</h1>
+      <p style="margin: 0 0 18px; color: #fff6e6;">Tap the button below to finish setting up your account with 6.</p>
       <p style="margin: 0 0 22px;">
-        <a href="${args.verificationUrl}" style="display: inline-block; background: #171717; color: #ffffff; text-decoration: none; font-weight: 700; padding: 12px 18px; border-radius: 8px;">
+        <a href="${args.verificationUrl}" style="display: inline-block; background: #f2be73; color: #090604; text-decoration: none; font-weight: 900; padding: 14px 20px; border-radius: 8px; border: 2px solid #fff2d2;">
           Finish Account Setup
         </a>
       </p>
-      <p style="margin: 0 0 10px;">After that, 6 can remember your lists and pick up the same task where you left off.</p>
-      <p style="font-size: 13px; color: #666666; margin: 18px 0 0;">
+      <p style="margin: 0 0 10px; color: #fff6e6;">After that, 6 can remember your lists and pick up the same task where you left off.</p>
+      <p style="font-size: 13px; color: #d7a05a; margin: 18px 0 0;">
         If the button does not open, copy and paste this link:<br />
-        <a href="${args.verificationUrl}" style="color: #8a5a1f;">${args.verificationUrl}</a>
+        <a href="${args.verificationUrl}" style="color: #9ccfff;">${args.verificationUrl}</a>
       </p>
     </div>
   `;
@@ -302,6 +373,7 @@ export async function createPendingAccountLink(args: {
   email: string;
   fullName: string | null;
   tokenHash: string;
+  stateTokenHash: string;
   sessionId: string | null;
   lists: StoredAssistantList[];
   resumeState: AccountResumeState | null;
@@ -311,12 +383,51 @@ export async function createPendingAccountLink(args: {
     email: args.email,
     full_name: args.fullName,
     token_hash: args.tokenHash,
+    state_token_hash: args.stateTokenHash,
     session_id: args.sessionId,
     captured_lists: args.lists,
     resume_state: args.resumeState,
     expires_at: args.expiresAt,
     created_at: new Date().toISOString(),
   });
+  await putAccountJson(`pending-state/${args.stateTokenHash}.json`, {
+    token_hash: args.tokenHash,
+    expires_at: args.expiresAt,
+    created_at: new Date().toISOString(),
+  });
+}
+
+export async function updatePendingAccountLinkState(args: {
+  stateToken: string;
+  sessionId: string | null;
+  lists: StoredAssistantList[];
+  resumeState: AccountResumeState | null;
+}): Promise<boolean> {
+  if (args.stateToken.length < 20 || args.stateToken.length > 200) return false;
+  const stateTokenHash = hashToken(args.stateToken);
+  const pointer = await getAccountJson<{
+    token_hash?: string;
+    expires_at?: string;
+  }>(`pending-state/${stateTokenHash}.json`);
+  if (
+    !pointer?.token_hash ||
+    !pointer.expires_at ||
+    Date.parse(pointer.expires_at) < Date.now()
+  ) {
+    return false;
+  }
+  const pending = await getAccountJson<Record<string, unknown>>(
+    `pending/${pointer.token_hash}.json`,
+  );
+  if (!pending?.email || pending.used_at) return false;
+  await putAccountJson(`pending/${pointer.token_hash}.json`, {
+    ...pending,
+    session_id: args.sessionId,
+    captured_lists: args.lists,
+    resume_state: args.resumeState,
+    updated_at: new Date().toISOString(),
+  });
+  return true;
 }
 
 export async function consumePendingAccountLink(token: string): Promise<{
@@ -428,6 +539,16 @@ export async function createStorageAccountSession(
     last_seen_at: now,
   });
   return { user, sessionToken };
+}
+
+export async function storageAccountExists(email: string): Promise<boolean> {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return false;
+  const id = emailHash(normalizedEmail);
+  const profile = await getAccountJson<StoredUserProfile>(
+    `users/${id}/profile.json`,
+  );
+  return Boolean(profile?.email);
 }
 
 export async function getStorageAccountFromSessionToken(

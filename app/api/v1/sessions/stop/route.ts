@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       },
     });
     const data = await res.json();
-    if (res.ok && isLiveAvatarSuccessPayload(data)) {
+    if ((res.ok && isLiveAvatarSuccessPayload(data)) || res.status === 404) {
       await recordSessionStreamStopped(token);
     }
     return new Response(JSON.stringify(data), {

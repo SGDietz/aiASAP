@@ -6,6 +6,7 @@ import {
   LANGUAGE,
   VOICE_ID,
 } from "../../secrets";
+import { resolveLiveAvatarVoice } from "../../liveavatarVoice";
 import { assertCanMintSessionToken } from "../../../../src/lib/liveavatarCredits";
 
 type DebugTokenRequest = {
@@ -27,7 +28,6 @@ export async function POST(request: Request) {
   const input = (await request.json().catch(() => ({}))) as DebugTokenRequest;
   const includeContext = bool(input.includeContext, true);
   const includeVoice = bool(input.includeVoice, true);
-  const isSandbox = bool(input.isSandbox, false);
   const language = cleanLanguage(input.language) || LANGUAGE.trim();
 
   const missing = [
@@ -54,8 +54,9 @@ export async function POST(request: Request) {
     });
   }
 
+  const voiceResolution = includeVoice ? await resolveLiveAvatarVoice() : null;
   const avatarPersona: Record<string, string> = {};
-  if (includeVoice) avatarPersona.voice_id = VOICE_ID;
+  if (includeVoice && voiceResolution) avatarPersona.voice_id = voiceResolution.voiceId;
   if (includeContext) avatarPersona.context_id = CONTEXT_ID;
   if (language) avatarPersona.language = language;
 
@@ -64,7 +65,6 @@ export async function POST(request: Request) {
     avatar_id: AVATAR_ID,
     max_session_duration: 10 * 60,
     avatar_persona: avatarPersona,
-    is_sandbox: isSandbox,
   };
 
   try {
@@ -105,7 +105,11 @@ export async function POST(request: Request) {
           mode: requestBody.mode,
           has_avatar_id: Boolean(AVATAR_ID),
           avatar_persona_keys: Object.keys(avatarPersona),
-          is_sandbox: isSandbox,
+          voice_id_used: voiceResolution?.voiceId ?? null,
+          primary_voice_id: voiceResolution?.primaryVoiceId ?? null,
+          fallback_voice_id: voiceResolution?.fallbackVoiceId ?? null,
+          used_fallback_voice: voiceResolution?.usedFallback ?? false,
+          voice_resolution_reason: voiceResolution?.reason ?? null,
         },
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },

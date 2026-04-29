@@ -1,12 +1,16 @@
 # aiASAP Project Memory
 
+- Latest reboot-rule update from G on 2026-04-29 supersedes older caution wording: Codex does all work, always, unless Codex absolutely cannot, then asks G for help. Still protect secrets, preserve lane ownership, and keep G informed operationally.
+- Shelly / Mrs. Claws is the local OpenClaw keymaster for keys, pins, and security. Start her in motion when security work is needed, but do not spy on her.
+- Always send links when asking G to go anywhere.
+- Always help G get to bed by 10:00 PM Eastern.
 - Work only inside `C:\Users\sgdie\Dropbox\Codex\aiASAP` for aiASAP tasks.
 - Assistant-wide lane rule: Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
 - Reboot contract: after every startup, re-read this file and `AIASAP_REBOOT_HANDOFF.md`, then act from these rules instead of relying on chat history.
 - `T` is G's shorthand for Telegram in operational notes. In UI and user-facing copy, spell it out as `Telegram` unless G explicitly wants the shorthand.
 - If G needs a message on Telegram, send it through the local Telegram Bot API path instead of saying it cannot be done. Use `.env` `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USER_IDS`; direct sending was verified on 2026-04-27 with `ok=True`.
 - Telegram voice notes are handled by `telegram_codex_bot.py`: download the Telegram `voice` file, send it to OpenAI audio transcriptions with `OPENAI_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe`, then feed the transcript into the normal Codex reply path. This was verified from G's voice-note transcript on 2026-04-27.
-- After every smoke test, inspect Supabase and report what the latest database/session/conversation evidence says before making the next product decision.
+- Latest Supabase check rule from G on 2026-04-29: only inspect Supabase/backend after G gives feedback from a real test and the data is needed to understand what happened. Do not do routine Supabase checks after every smoke test.
 - Startup service access rule for Codex and Claude: before saying a connected service is unavailable, check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers for Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other required services.
 - Smoke test delivery rule: every smoke test is sent to Telegram unless G explicitly says otherwise.
 - Smoke test format in Telegram is exactly three lines: line 1 `Smoke test <build/version>`, line 2 the Vercel link, line 3 a super brief description of changes plus what G should do next. No long explanation.
@@ -76,7 +80,7 @@
 - Store-mode direction: when people are shopping, the active list should be able to fill the phone screen with the phone's light/dark background. 6 should stay quiet unless needed, keep listening for list commands, and use as little data as the current architecture allows.
 - `6` should usually ask when something is due or when the user needs it by.
 - `6` should ask for the user's name naturally and use the name naturally, without overdoing it.
-- Users can talk before creating an account. Lists/reminders can work for one session, but when saving persistent memory, `6` can explain with light humor: "You can use the site right now, but if you don't create an account, next time you open me up I'll be like, who are you? Have we met? Sorry, I can't place your face. Set up an account, and I'll remember your lists and what you need to remember." Account setup should be positioned as easy: 6 sends an email link, the user clicks it, and then 6 can remember and pick up where they left off.
+- Users can talk before creating an account. Lists/reminders can work for one session, but with an account `6` should explain in varied, friendly language that conversations are remembered, lists stay intact, likes/dislikes can be remembered, and we pick up where we left off every time. Account setup is optional, never forced. Use light humor: "do I know you? Have we met?" / "I never forget a face, but without an account I might not remember yours next time." Use the line where natural: "If you've got a phone, you've got a friend." Account setup should be easy: 6 sends an email link, the user clicks it, and then 6 can remember and pick up like a friend.
 - `6` should ask "You ready?" before collecting an email for account setup. Only if the user answers yes or seems positive should 6 ask for the email address.
 - Account capture should include name, email, and phone number.
 - Memory/data direction: use Supabase or similar for accounts, persistent user memory, reminders, lists, and notification preferences.

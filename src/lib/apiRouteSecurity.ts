@@ -25,7 +25,10 @@ function isAllowedRequestOrigin(value: string, request: Request): boolean {
  * Returns a 403 Response if the request origin is not allowed, otherwise null.
  * Skipped in non-production to allow local dev without CORS config.
  */
-export function assertAllowedOrigin(request: Request): Response | null {
+export function assertAllowedOrigin(
+  request: Request,
+  options: { allowDirectNavigation?: boolean } = {},
+): Response | null {
   if (process.env.NODE_ENV !== "production") return null;
 
   const origin = request.headers.get("origin");
@@ -46,6 +49,10 @@ export function assertAllowedOrigin(request: Request): Response | null {
       status: 403,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  if (options.allowDirectNavigation && request.method === "GET") {
+    return null;
   }
 
   // No origin or referer in production — block direct API calls

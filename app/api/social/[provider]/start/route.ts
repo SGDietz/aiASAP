@@ -22,7 +22,7 @@ export async function GET(
   request: Request,
   context: { params: Promise<{ provider: string }> },
 ) {
-  const originErr = assertAllowedOrigin(request);
+  const originErr = assertAllowedOrigin(request, { allowDirectNavigation: true });
   if (originErr) return originErr;
   const rateLimitErr = await checkRateLimit(request);
   if (rateLimitErr) return rateLimitErr;

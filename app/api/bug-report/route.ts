@@ -7,7 +7,7 @@ import {
 import { checkRateLimit } from "../../../src/lib/rateLimit";
 import { getSupabaseAdminConfig } from "../../../src/lib/supabaseAdmin";
 
-const AIASAP_FOUNDER_TITLE = "Creator/Builder/Founder/Financier/CEO aiASAP";
+const AIASAP_FOUNDER_TITLE = "G Dietz, Creator and Builder of aiASAP";
 const BUG_REPORT_BUCKET = process.env.AIASAP_ACCOUNT_BUCKET || "aiasap-accounts";
 const MAX_BUG_SUMMARY_CHARS = 900;
 const MAX_PAGE_URL_CHARS = 600;
@@ -128,7 +128,7 @@ async function emailBugReport(report: {
 
   const body = [
     `For: ${AIASAP_FOUNDER_TITLE}`,
-    report.storedId ? `Report ID: ${report.storedId}` : null,
+    report.storedId ? `Note ID: ${report.storedId}` : null,
     report.sessionId ? `Session ID: ${report.sessionId}` : null,
     report.pageUrl ? `Page: ${report.pageUrl}` : null,
     "",
@@ -148,7 +148,7 @@ async function emailBugReport(report: {
       body: JSON.stringify({
         from,
         to: report.founderEmail,
-        subject: `aiASAP bug report for ${AIASAP_FOUNDER_TITLE}`,
+        subject: `aiASAP note for ${AIASAP_FOUNDER_TITLE}`,
         text: body,
       }),
     });
@@ -234,6 +234,7 @@ export async function POST(request: Request) {
       JSON.stringify({
         ok: true,
         stored: Boolean(storedId || fallbackPath),
+        noteId: storedId,
         reportId: storedId,
         storagePath: fallbackPath,
         emailSent,
@@ -243,7 +244,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     console.error("bug-report route failed:", error);
-    return new Response(JSON.stringify({ error: "Failed to file bug report" }), {
+    return new Response(JSON.stringify({ error: "Failed to file note" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });

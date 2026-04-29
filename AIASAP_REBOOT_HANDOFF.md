@@ -1,5 +1,138 @@
 # aiASAP Reboot Handoff - 2026-04-27
 
+## Current Shutdown Handoff - 2026-04-29 12:48 PM ET
+
+G is heading out for a few hours. Pick up from here, not from the older stale sections below.
+
+### Current production state
+
+- Lane: Codex stays in `C:\Users\sgdie\Dropbox\Codex\aiASAP`. Do not touch iSolve unless G explicitly redirects.
+- Current git short HEAD at shutdown: `0007fc5`.
+- Latest production deploy: `dpl_6KytR2KoURwY7BA6N3Lh2i1UcUsF`.
+- Production URL: `https://aiasap.ai`.
+- Vercel production alias completed successfully.
+- Telegram smoke test sent as message `148`.
+- Local checks passed:
+  - `tsc --noEmit`
+  - `next build`
+  - homepage `https://aiasap.ai` returned `200`
+  - `/api/liveavatar/debug-token` used voice `a65a59af-39bd-4f57-8cc6-235449ca3348`
+  - `used_fallback_voice=false`
+  - `voice_resolution_reason=primary_preview_has_audio`
+- LiveAvatar context was updated successfully with `tools/update_liveavatar_context.py`.
+- Real account setup email route was tested with the configured G email in `.env`; response was `ok=true`, `emailSent=true`, `accountExists=false`. Do not expose the verification link or token in chat.
+
+### Latest user rule overrides
+
+- G changed the Supabase rule: only check Supabase after G gives feedback from a real test and asks/needs us to understand what happened. Do not check Supabase as a routine step after every smoke test.
+- Use the words `smoke test`, not `smoke`.
+- Keep final briefs very short.
+- Give links when asking G to go anywhere.
+- Use Telegram for smoke test messages unless G says otherwise.
+
+### What changed in the latest build
+
+- Fresh start should not auto-open grocery lists, search boxes, location boxes, or old UI panels.
+- Saved account lists are still available in the background, but the UI stays clean unless the user asks for a list.
+- Account restore now gives Six awareness of the last conversation/lists/search context without reopening UI.
+- Return/account memory language should feel like friends picking back up:
+  - With an account, conversations can be remembered.
+  - Lists stay intact.
+  - Likes/dislikes can be remembered.
+  - Six can pick up where the user left off every time.
+  - Optional account joke: avoids the awkward "do I know you? Have we met?" moment.
+  - Brand line added where appropriate: "If you've got a phone, you've got a friend."
+- Online lookup/location flow fixes:
+  - If user says "find local hikes", prompt bubbles should stay hiking/location focused.
+  - "Share location" should request browser geolocation instead of doing nothing.
+  - "Close the box" / "close location box" / "close search" should close only the lookup/location overlay, never the session.
+  - Lookup box is wider/lower and closer to the prompt bubbles.
+- Prompt cleanup:
+  - Removed bad bubble `Add the Next Item`.
+  - Hiking bubbles should not drift into business/branding.
+- Logo:
+  - aiASAP logo raised slightly.
+  - Desktop logo font now also used on mobile.
+- Account memory implementation:
+  - Recent conversation lines are captured in account resume state.
+  - A signed-in user gets memory context injected into the first LiveAvatar message path so Six can speak with awareness.
+  - Lists/search/location state is remembered as context, not forced open on screen.
+
+### Files most relevant to the latest changes
+
+- `src/components/LiveAvatarSession.tsx`
+- `src/lib/accountPersistence.ts`
+- `app/globals.css`
+- `tools/update_liveavatar_context.py`
+
+### What G should test next
+
+Use production: `https://aiasap.ai`
+
+1. Fresh computer start should show no grocery list and no search/location box.
+2. Say: "find local hikes".
+3. Then say: "share location".
+4. Browser location permission should appear.
+5. Say: "close the box".
+6. It should close only the box, not the session.
+7. Click the account setup email link that was sent to G.
+8. Screen should stay clean.
+9. Six should remember the last conversation/list context naturally, like a friend, without reopening UI.
+
+### If G reports a problem
+
+Then inspect Supabase/backend records to understand the real path. Focus on:
+
+- `conversation_messages`
+- LiveAvatar transcript sync rows
+- account storage objects in bucket `aiasap-accounts`
+- account resume JSON
+- bug report objects if the issue was reported through Six
+
+Do not check Supabase before G reports what happened.
+
+### Suggested restart phrase for G
+
+Copy/paste this when restarting:
+
+```text
+Read AIASAP_REBOOT_HANDOFF.md and continue from the 2026-04-29 12:48 PM ET shutdown handoff. Stay in aiASAP only. Do not touch iSolve. Latest production is https://aiasap.ai build dpl_6KytR2KoURwY7BA6N3Lh2i1UcUsF / 0007fc5. First, summarize current state in 5 bullets max, then help me test the fresh-start, location/share, close-box, and account-memory flow. Only check Supabase after I give test feedback.
+```
+
+## Emergency Reboot Handoff - 2026-04-29 ElevenLabs Key Rotation
+
+- G is rebooting the whole system because the machine/session is running slow.
+- Current lane: Codex stays in `C:\Users\sgdie\Dropbox\Codex\aiASAP`; do not touch iSolve unless G explicitly redirects.
+- Read these first after reboot:
+  - `C:\Users\sgdie\Dropbox\Codex\aiASAP\STICKY_REBOOT_RULES.txt`
+  - `C:\Users\sgdie\Dropbox\Codex\aiASAP\PROJECT_MEMORY.md`
+  - this file
+- Latest rule update: Codex does all work, always, unless Codex absolutely cannot, then asks G for help. Telegram is default alert/smoke lane. Always send links. Shelly / Mrs. Claws is keymaster for security. Rule 12: automatically update the LiveAvatar context window/SW through the connected helper/API/dashboard when aiASAP behavior or voice context changes.
+- ElevenLabs/LiveAvatar issue being worked: Discord evidence says custom avatar visible-but-not-speaking can be caused by an ElevenLabs API key problem even when credits and cloned voice are valid. Fix path is to create a fresh ElevenLabs API key on the same ElevenLabs account and use it instead.
+- G created a new ElevenLabs API key named `aiASAP LiveAvatar ElevenLabs TTS`.
+- New ElevenLabs key has been added locally to `.env` as `ELEVENLABS_API_KEY`; do not print it, commit it, or repeat it in chat.
+- Existing ElevenLabs voice ID remains in `.env` as `ELEVENLABS_VOICE_ID`. Do not change the voice unless G asks.
+- `.env.example` has been updated with safe placeholders for `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`.
+- `tools/set_vercel_env_from_local.ps1` already includes `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` in optional Vercel env keys.
+- Not yet done before reboot:
+  1. Push updated envs to Vercel with `.\tools\set_vercel_env_from_local.ps1`.
+  2. Deploy production with `npx.cmd vercel deploy --prod --yes`.
+  3. Smoke the TTS path without logging audio or secrets.
+  4. Send Telegram smoke note if deployment/voice smoke is meaningful.
+  5. Check Supabase/backend only if the smoke actually writes data; otherwise state no backend rows were expected.
+- Good next commands after reboot:
+
+```powershell
+cd C:\Users\sgdie\Dropbox\Codex\aiASAP
+git status --short
+Select-String -Path .env -Pattern '^(ELEVENLABS|LIVEAVATAR)_' | ForEach-Object { ($_.Line -split '=',2)[0] }
+.\tools\set_vercel_env_from_local.ps1
+npm.cmd run build
+npx.cmd vercel deploy --prod --yes
+```
+
+- Reminder for next assistant from G: "Read the handoff, continue ElevenLabs key rotation. The new key is already in local .env. Do not ask me for it again."
+
 ## Lane Ownership
 
 - Codex is aiASAP only.

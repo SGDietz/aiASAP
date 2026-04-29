@@ -11,6 +11,7 @@ import {
   sanitizeAccountResumeState,
   sanitizeAssistantLists,
   sendAccountEmail,
+  storageAccountExists,
 } from "../../../../src/lib/accountPersistence";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 
@@ -21,7 +22,7 @@ function siteOrigin(request: Request): string {
   if (configured) return configured.replace(/\/$/, "");
   const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
-  return "https://ai-asap.vercel.app";
+  return "https://aiasap.ai";
 }
 
 export async function POST(request: Request) {
@@ -48,8 +49,11 @@ export async function POST(request: Request) {
     const fullName = sanitizeAccountFullName(body.fullName);
     const lists = sanitizeAssistantLists(body.lists);
     const resumeState = sanitizeAccountResumeState(body.resumeState);
+    const accountExists = await storageAccountExists(email);
     const token = newToken();
     const tokenHash = hashToken(token);
+    const stateToken = newToken();
+    const stateTokenHash = hashToken(stateToken);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString();
     const verificationUrl = `${siteOrigin(
       request,
@@ -60,8 +64,9 @@ export async function POST(request: Request) {
       fullName,
       sessionId,
       tokenHash,
-      lists,
-      resumeState,
+      stateTokenHash,
+      lists: accountExists ? [] : lists,
+      resumeState: accountExists ? null : resumeState,
       expiresAt,
     });
 
@@ -71,11 +76,10 @@ export async function POST(request: Request) {
         ok: true,
         email,
         emailSent,
+        accountExists,
+        pendingStateToken: accountExists ? null : stateToken,
         expiresAt,
-        verificationUrl:
-          emailSent || process.env.NODE_ENV === "production"
-            ? null
-            : verificationUrl,
+        verificationUrl: emailSent ? null : verificationUrl,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );

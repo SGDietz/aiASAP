@@ -38,10 +38,21 @@ function getLiveAvatarSessionId(session: unknown): string | null {
 }
 
 const AIASAP_FOUNDER_TITLE =
-  "Creator/Builder/Founder/Financier/CEO aiASAP";
+  "G Dietz, Creator and Builder of aiASAP";
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your AI buddy. You know why they call me 6? 'Cuz I got your back. So what new and interesting things you got going on in your life right now?";
+  "Hi, I'm 6, your a-i-ASAP helper. You know why they call me 6? Because I've got your back. So, how can I make your life easier today?";
+const SESSION_END_CONFIRMATION_MESSAGE =
+  "Want me to close this session? Say stop or close to end it, or keep going.";
+const LIST_CLOSE_EDUCATION =
+  "If you want this list off the screen, just ask me to close the list.";
+
+const ACCOUNT_MEMORY_VALUE_LINES = [
+  "With an account, your lists stay intact, I remember the last conversation, and we pick up where we left off every time.",
+  "That account is how I remember your likes, dislikes, lists, and the thread of the conversation instead of acting like we just met.",
+  "If you've got a phone, you've got a friend. The account is what lets me remember you next time.",
+  "When you create an account, I will remember everything you ask me to keep.",
+];
 
 const RETURNING_GREETING_OPTIONS = [
   "Hey{name}, good to see you. What are we working on today?",
@@ -51,10 +62,10 @@ const RETURNING_GREETING_OPTIONS = [
 ];
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Start a Grocery List",
-  "To Do List",
-  "Plan This Weekend",
   "Explore aiASAP",
+  "Plan This Weekend",
+  "To Do List",
+  "Start a Grocery List",
 ];
 
 type TapPromptFontVariant = "default" | "rounded" | "classic" | "condensed";
@@ -124,9 +135,9 @@ const getThoughtPrompts = (text: string): string[] => {
     value.includes("list")
   ) {
     return [
-      value.includes("walmart") ? "Open Walmart List" : "Add to Grocery List",
+      value.includes("walmart") ? "Open Walmart List" : "Open Grocery List",
       "To Do List",
-      "Add the Next Item",
+      "Close List",
       "Open Another List",
     ];
   }
@@ -142,9 +153,9 @@ const getThoughtPrompts = (text: string): string[] => {
   ) {
     return [
       "Find Local Hikes",
-      "Plan This Weekend",
+      "Share Location",
       "Check the Weather",
-      "Share My Interests",
+      "Easy Hikes",
     ];
   }
 
@@ -183,13 +194,91 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
     .map(cleanThoughtPrompt)
     .filter(Boolean)
     .filter((prompt) => !/\b(?:contact|named g|for g|call g|text g|email g)\b/i.test(prompt))
+    .filter((prompt) => !/^add the next item$/i.test(prompt))
+    .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
     .filter((prompt) => !/^change subject$/i.test(prompt))
     .slice(0, 4);
   return [...cleaned, ...DEFAULT_THOUGHT_PROMPTS]
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
+    .filter((prompt) => !/^add the next item$/i.test(prompt))
+    .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
     .filter((prompt) => !/^change subject$/i.test(prompt))
     .slice(0, 4);
+}
+
+function isHikingLookupQuery(query: string | null | undefined): boolean {
+  return Boolean(
+    query &&
+      /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors)\b/i.test(
+        query,
+      ),
+  );
+}
+
+function getLookupLocationPrompts(query: string | null | undefined): string[] {
+  if (isHikingLookupQuery(query)) {
+    return normalizeThoughtPrompts([
+      "Share Location",
+      "Give ZIP Code",
+      "Close Search",
+      "Easy Local Hikes",
+    ]);
+  }
+  if (/\b(?:weather|forecast)\b/i.test(query ?? "")) {
+    return normalizeThoughtPrompts([
+      "Share Location",
+      "Give ZIP Code",
+      "Close Search",
+      "Enter City or ZIP",
+    ]);
+  }
+  return normalizeThoughtPrompts([
+    "Share Location",
+    "Give ZIP Code",
+    "Close Search",
+    "Tell What I Like",
+  ]);
+}
+
+function getLookupPreferencePrompts(
+  query: string | null | undefined,
+): string[] {
+  if (isHikingLookupQuery(query)) {
+    return normalizeThoughtPrompts([
+      "Easy Hikes",
+      "Hikes With Views",
+      "Quiet Trails",
+      "Close Search",
+    ]);
+  }
+  return normalizeThoughtPrompts([
+    "Share My Interests",
+    "Find Cool Things",
+    "Check the Weather",
+    "Close Search",
+  ]);
+}
+
+function getLookupPreferenceQuestion(query: string | null | undefined): string {
+  if (isHikingLookupQuery(query)) {
+    return "Got it. What are the things you really like to do?";
+  }
+  return "Got it. What are the things you really like to do?";
+}
+
+function isLookupPreferenceFiller(text: string): boolean {
+  const cleaned = text
+    .replace(/[^\p{L}0-9\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return (
+    cleaned.length < 3 ||
+    /^(?:i|and|um|uh|hmm|mm hmm|great|okay|ok|yeah|yes|no|they do|let me think|take your time)$/.test(
+      cleaned,
+    )
+  );
 }
 
 type AssistantListKind = "grocery" | "shopping" | "todo" | "custom";
@@ -226,7 +315,19 @@ type OnlineLookupSource = {
   url: string;
 };
 
+type MemoryConversationLine = {
+  role: "user" | "assistant";
+  text: string;
+};
+
+type AccountMemorySnapshot = {
+  greetingTopic: string | null;
+  contextText: string;
+};
+
 const ASSISTANT_LISTS_STORAGE_KEY = "aiasap.assistantLists.v1";
+const ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY =
+  "aiasap.accountPendingStateToken.v1";
 const DEVICE_PROFILE_STORAGE_KEY = "aiasap.deviceProfile.v1";
 const MAX_LIST_ITEMS = 80;
 const MAX_ONLINE_LOOKUP_SOURCE_COUNT = 3;
@@ -234,21 +335,25 @@ const MAX_PROMPT_SIZE_LEVEL = 3;
 const INTERNAL_SIGNAL_RE =
   /^\s*\[(?:USER HAS BEEN SILENT|SILENT|OBJECT_NOT_VISIBLE)[^\]]*\]/i;
 const LIST_TRIGGER_RE =
-  /\b(grocery|groceries|shopping|store|walmart|list|todo|to-do|to do|task)\b/i;
+  /\b(grocery|groceries|shopping|store|walmart|list|todo|to-do|to do|task|lista|listas|compras|mercado|tarea|tareas|liste|courses|einkaufsliste|einkauf|aufgaben)\b/i;
 const LIST_ITEM_PREFIX_RE =
-  /^(?:and\s+)?(?:(?:i\s+)?(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+|some\s+|a\s+|an\s+|the\s+)/i;
+  /^(?:(?:and|y|e|et|und)\s+)?(?:(?:i\s+)?(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+|(?:necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar)\s+|(?:j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter)\s+|(?:ich brauche|ich will|fuege hinzu|f\u00fcge hinzu|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen)\s+|some\s+|a\s+|an\s+|the\s+)/i;
 const LIST_COMMAND_ONLY_RE =
-  /\b(?:make|create|start|open|show|switch to|pull up|go to|toggle|another|new)\b.*\b(?:list|todo|to-do|to do)\b/i;
+  /\b(?:make|create|start|open|show|switch to|pull up|go to|toggle|another|new|abre|abrir|muestra|mostrar|cambia|crear|crea|haz|hacer|ouvre|ouvrir|montre|affiche|wechsel|oeffne|\u00f6ffne|zeige)\b.*\b(?:list|todo|to-do|to do|lista|listas|liste|einkaufsliste)\b|\bput me on\b.*\b(?:list|walmart|grocery|shopping|todo|to-do|to do)\b/i;
 const REMOVE_COMMAND_RE =
-  /\b(?:remove|delete|get rid of|take off|take out|cross off|cross out|check off|mark off|i got|got|grabbed|picked up)\b/i;
+  /\b(?:remove|delete|get rid of|take off|take out|take\s+.{1,60}?(?:\s+off)?|cross off|cross out|check off|mark off|i got|got|grabbed|picked up|quita|quitar|elimina|eliminar|borra|borrar|tacha|tachar|ya tengo|j'?ai pris|retire|retirer|supprime|supprimer|enleve|enlever|loesche|l\u00f6sche|streiche|abhaken)\b/i;
+const LIST_DELETE_RE =
+  /\b(?:delete|get rid of|remove|trash|erase)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\b|\b(?:delete|get rid of|remove|trash|erase)\s+(?:it|that|this)\b/i;
 const LIST_NAV_NEXT_RE = /\b(?:next|another|toggle|switch)\s+list\b/i;
 const LIST_NAV_PREV_RE = /\b(?:previous|prior|last|back)\s+list\b/i;
 const LIST_CLOSE_RE =
-  /\b(?:close|hide|dismiss|drop|put away|take down|minimize)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+(?:disappear|go away)\b|\b(?:take|remove|drop)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\s+(?:down|off|from)(?:\s+(?:the\s+)?screen)?\b|\bno\s+(?:visible\s+)?list\b|\bback\s+to\s+(?:the\s+)?(?:prompts|boxes)\b/i;
+  /\b(?:close|hide|dismiss|drop|put away|take down|minimize|cierra|cerrar|oculta|ocultar|quita|quitar|ferme|fermer|cache|cacher|schliesse|schlie\u00dfe|ausblenden)\s+(?:the|my|this|that|la|mi|esta|esa|le|ma|cette|die|meine|diese)?\s*(?:grocery|shopping|walmart|to[-\s]?do|compras|mercado|tareas|courses|einkauf)?\s*(?:list|lists|lista|listas|liste)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+(?:disappear|go away)\b|\b(?:take|remove|drop)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\s+(?:down|off|from)(?:\s+(?:the\s+)?screen)?\b|\bno\s+(?:visible\s+)?list\b|\bback\s+to\s+(?:the\s+)?(?:prompts|boxes)\b/i;
 const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
 const BUG_REPORT_TRIGGER_RE =
   /\b(?:report (?:a )?bug|file (?:a )?bug|bug report|this (?:is|looks) broken|the app (?:is|seems|looks) broken|something (?:is|went) wrong|this is not working|that did not work|issue with (?:the )?app)\b/i;
+const NOTE_TO_G_TRIGGER_RE =
+  /\b(?:tell|send|email|message|note)\s+(?:g|g dietz|him|the founder)\b|\b(?:can i tell|i want to tell|let g know|for g|for the website|site upgrade|website should|app should|hook up google calendar|integrated with my calendar)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
 const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
@@ -263,13 +368,19 @@ const LIST_DONE_RE =
   /\b(?:that'?s all|that is all|that'?s it|that is it|all done|done|finished|complete|nothing else|no more)\b/i;
 const ACCOUNT_SETUP_REOFFER_COOLDOWN_MS = 90_000;
 const END_CONVERSATION_RE =
-  /\b(?:end|stop|finish|wrap up|done with|all done|that'?s all)\s+(?:this\s+)?(?:conversation|session|chat|talk|for now)?\b|\bi'?m done\b/i;
+  /\b(?:end|stop|finish|quit|exit|close|shut\s+down|wrap up|done with|all done|that'?s all)(?:\s+(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6|for now))?\b|\bi'?m done\b/i;
+const END_SESSION_CONFIRM_RE =
+  /\b(?:yes|yeah|yep|yup|yea|sure|ok|okay|correct|right|do it|go ahead|close|stop|end|quit|exit|shut\s+(?:it\s+)?down|that'?s right|that is right|please)\b/i;
+const END_SESSION_CANCEL_RE =
+  /\b(?:no|nope|nah|not now|later|never mind|nevermind|cancel|keep going|continue|stay|don'?t|do not)\b/i;
 const ONLINE_LOOKUP_TOPIC_RE =
   /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
 const ONLINE_LOOKUP_ACTION_RE =
   /\b(?:find|look up|search|show me|where|nearby|near me|check|help me find|plan)\b/i;
 const ONLINE_LOOKUP_DIRECT_RE =
   /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|weekend|cool things to do|concert|concerts|show|shows|events?|restaurants?)\b/i;
+const ONLINE_LOOKUP_CLOSE_RE =
+  /\b(?:close|hide|dismiss|clear|stop|end|remove|take\s+(?:off|away|down)|get\s+rid\s+of)\s+(?:the|this|that|my|a|an)?\s*(?:search|results?|sources?|lookup|online\s+search|location(?:\s+(?:box|popup|pop\s*up|panel|window))?|box|popup|pop\s*up|panel|window|things\s+that\s+came\s+up)(?:\s+(?:from|off)\s+(?:the\s+)?screen)?\b/i;
 const LOCATION_HINT_RE =
   /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
 const LOCATION_SHARE_CHOICE_RE =
@@ -279,13 +390,13 @@ const SHOPPING_MODE_OPEN_RE =
 const SHOPPING_MODE_CLOSE_RE =
   /\b(?:close|exit|leave|stop)\s+(?:shopping|store|full screen)\s*mode\b/i;
 const LIST_MUTATION_SIGNAL_RE =
-  /\b(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up|also)\b/i;
+  /\b(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up|also|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|tambien|tambi\u00e9n|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|aussi|ich brauche|ich will|fuege|f\u00fcge|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen|auch)\b/i;
 const LIST_START_WITH_REFERENCED_ITEMS_RE =
   /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
-  /\b(?:i mean|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|that'?s what|you mean|what are you|what is|what's)\b/i;
+  /\b(?:i mean|i know|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|i mean|i guess|all those|it|that|this|them|they|those|these|god|got|well|so|you|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|i guess|actually|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
@@ -346,7 +457,7 @@ type ListAccentUpdate = {
 
 const CUSTOM_LIST_COLOR_MAP: Record<string, string> = {
   amber: "#e8b46b",
-  black: "#f3f4f6",
+  black: "#050505",
   blue: "#8ec5ff",
   brown: "#b8895b",
   coral: "#ff9f8c",
@@ -509,43 +620,73 @@ function emptyDeviceProfile(): DeviceProfile {
 function loadDeviceProfile(): DeviceProfile {
   if (typeof window === "undefined") return emptyDeviceProfile();
   try {
-    const raw = window.localStorage.getItem(DEVICE_PROFILE_STORAGE_KEY);
-    if (!raw) return emptyDeviceProfile();
-    const parsed = JSON.parse(raw) as Partial<DeviceProfile>;
-    const name =
-      typeof parsed.name === "string" && parsed.name.trim()
-        ? /^(?:just|yeah|yep|okay|ok)$/i.test(parsed.name.trim())
-          ? null
-          : parsed.name.trim().slice(0, 40)
-        : null;
-    const greetingCount =
-      typeof parsed.greetingCount === "number" && Number.isFinite(parsed.greetingCount)
-        ? Math.max(0, Math.floor(parsed.greetingCount))
-        : 0;
-    const updatedAt =
-      typeof parsed.updatedAt === "number" && Number.isFinite(parsed.updatedAt)
-        ? parsed.updatedAt
-        : Date.now();
-    return { name, greetingCount, updatedAt };
+    window.localStorage.removeItem(DEVICE_PROFILE_STORAGE_KEY);
   } catch {
-    return emptyDeviceProfile();
+    // Anonymous sessions should not inherit device memory.
   }
+  return emptyDeviceProfile();
 }
 
 function storeDeviceProfile(profile: DeviceProfile) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(
-      DEVICE_PROFILE_STORAGE_KEY,
-      JSON.stringify(profile),
-    );
+    window.localStorage.removeItem(DEVICE_PROFILE_STORAGE_KEY);
   } catch {
-    // Device memory is best-effort only.
+    // Anonymous device memory is intentionally disabled.
   }
 }
 
 function isInternalSignal(text: string): boolean {
   return INTERNAL_SIGNAL_RE.test(text.trim());
+}
+
+function hasEndSessionIntent(text: string): boolean {
+  if (isInternalSignal(text)) return false;
+  if (
+    LIST_CLOSE_RE.test(text) ||
+    SHOPPING_MODE_CLOSE_RE.test(text) ||
+    ONLINE_LOOKUP_CLOSE_RE.test(text)
+  ) {
+    return false;
+  }
+  return END_CONVERSATION_RE.test(text);
+}
+
+function confirmsEndSession(text: string): boolean {
+  if (END_SESSION_CANCEL_RE.test(text)) return false;
+  return END_SESSION_CONFIRM_RE.test(text) || hasEndSessionIntent(text);
+}
+
+function isListRoutingOnlyCommand(text: string): boolean {
+  const value = text.trim().toLowerCase();
+  if (/\bput me on\b.*\b(?:list|walmart|grocery|shopping|todo|to-do|to do)\b/i.test(value)) {
+    return true;
+  }
+  if (
+    /\b(?:open|show|switch to|pull up|go to|abre|abrir|muestra|mostrar|cambia a|ouvre|ouvrir|montre|affiche|wechsel|oeffne|\u00f6ffne|zeige)\b.*\b(?:list|walmart|grocery|shopping|todo|to-do|to do|lista|listas|compras|mercado|liste|courses|einkaufsliste|einkauf)\b/i.test(
+      value,
+    )
+  ) {
+    return !LIST_MUTATION_SIGNAL_RE.test(value);
+  }
+  if (
+    /\b(?:start|make|create|new|crear|crea|haz|hacer|nueva|nouvelle|neue)\b.*\b(?:list|walmart|grocery|shopping|todo|to-do|to do|lista|listas|compras|mercado|liste|courses|einkaufsliste|einkauf)\b/i.test(
+      value,
+    )
+  ) {
+    return !/\b(?:with|con|avec|mit)\b/i.test(value) && !LIST_MUTATION_SIGNAL_RE.test(value);
+  }
+  return false;
+}
+
+function shouldStartFreshList(text: string): boolean {
+  const value = text.toLowerCase();
+  if (/\b(?:open|show|pull up|continue|resume|saved|old|existing|last|abre|abrir|muestra|continua|contin\u00faa|sigue|guardada|vieja|existente|ouvre|ouvrir|montre|continue|enregistree|enregistr\u00e9e|alt|gespeichert|weiter)\b/i.test(value)) {
+    return false;
+  }
+  return /\b(?:start|make|create|new|i need|i want|crear|crea|haz|hacer|nueva|necesito|quiero|nouvelle|creer|cr\u00e9er|neue|ich brauche)\b.*\b(?:list|walmart|grocery|shopping|todo|to-do|to do|lista|listas|compras|mercado|liste|courses|einkaufsliste|einkauf)\b/i.test(
+    value,
+  );
 }
 
 function correctListItem(item: string): string {
@@ -640,7 +781,99 @@ function extractDeviceNameCandidate(text: string, allowPlainAnswer: boolean): st
   return cleanDeviceName(text);
 }
 
-function buildReturningGreeting(profile: DeviceProfile): string {
+function cleanMemoryText(value: unknown, maxLength = 240): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned ? cleaned.slice(0, maxLength) : null;
+}
+
+function cleanMemoryConversation(
+  value: unknown,
+): MemoryConversationLine[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .flatMap((item): MemoryConversationLine[] => {
+      if (!item || typeof item !== "object") return [];
+      const row = item as Record<string, unknown>;
+      const role = row.role === "assistant" ? "assistant" : row.role === "user" ? "user" : null;
+      const text = cleanMemoryText(row.text, 220);
+      return role && text ? [{ role, text }] : [];
+    })
+    .slice(-12);
+}
+
+function buildAccountMemoryOffer(customSpoken: string | undefined, seed: number): string {
+  const valueLine =
+    ACCOUNT_MEMORY_VALUE_LINES[seed % ACCOUNT_MEMORY_VALUE_LINES.length];
+  const base = customSpoken?.trim()
+    ? customSpoken.replace(/\s+You ready\??$/i, "").trim()
+    : "Account setup is optional, but it makes this feel more human.";
+  return `${base} ${valueLine} You ready?`;
+}
+
+function summarizeMemoryTopic(value: string | null): string | null {
+  if (!value) return null;
+  return summarizeOnlineLookupTopic(value)
+    .replace(/^that$/i, "where we left off")
+    .slice(0, 80);
+}
+
+function buildAccountMemorySnapshot(args: {
+  lists: AssistantList[];
+  resumeState: Record<string, unknown> | null;
+  restoredList: AssistantList | null;
+  onlineQuery: string | null;
+  onlineLocation: string | null;
+}): AccountMemorySnapshot | null {
+  const lastUserText = cleanMemoryText(args.resumeState?.lastUserText);
+  const lastAssistantText = cleanMemoryText(
+    args.resumeState?.lastAssistantText,
+  );
+  const recentConversation = cleanMemoryConversation(
+    args.resumeState?.recentConversation,
+  );
+  const listSummaries = args.lists.slice(0, 5).map((list) => {
+    const items = list.items.slice(0, 6).join(", ");
+    return `${list.title}${items ? `: ${items}` : ""}`;
+  });
+  const topic =
+    (args.restoredList ? `your ${args.restoredList.title}` : null) ??
+    summarizeMemoryTopic(args.onlineQuery) ??
+    summarizeMemoryTopic(lastUserText) ??
+    (args.lists[0] ? `your ${args.lists[0].title}` : null);
+  const contextParts = [
+    lastUserText ? `Last user message: ${lastUserText}` : null,
+    lastAssistantText ? `Last 6 response: ${lastAssistantText}` : null,
+    args.onlineQuery
+      ? `Recent online lookup: ${summarizeOnlineLookupTopic(args.onlineQuery)}${
+          args.onlineLocation ? ` near ${args.onlineLocation}` : ""
+        }`
+      : null,
+    recentConversation.length > 0
+      ? `Recent conversation: ${recentConversation
+          .map((line) => `${line.role}: ${line.text}`)
+          .join(" | ")}`
+      : null,
+    listSummaries.length > 0
+      ? `Saved lists available if the user asks: ${listSummaries.join(" | ")}`
+      : null,
+  ].filter(Boolean);
+
+  if (contextParts.length === 0) return null;
+  return {
+    greetingTopic: topic,
+    contextText: [
+      "SIGNED-IN USER MEMORY. Use this quietly so the conversation feels like friends picking back up.",
+      "Do not recite this memory dump. Do not reopen lists, search, location, or other UI unless the user asks.",
+      ...contextParts,
+    ].join("\n"),
+  };
+}
+
+function buildReturningGreeting(
+  profile: DeviceProfile,
+  _memory: AccountMemorySnapshot | null,
+): string {
   const template =
     RETURNING_GREETING_OPTIONS[
       profile.greetingCount % RETURNING_GREETING_OPTIONS.length
@@ -662,22 +895,38 @@ function cleanListItem(
     .replace(/^let'?s work on this next:\s*/i, "")
     .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
+    .replace(/\b(?:just\s+)?put\s+some\s+on\s+there\b/gi, " ")
+    .replace(/\bi\s+know\b/gi, " ")
     .replace(/\bfor\s+tacos?\b/gi, (match) =>
       value.trim().toLowerCase() === match.toLowerCase() ? "Taco Stuff" : " ",
     )
-    .replace(/\b(?:um|uh|like|please)\b/gi, " ")
-    .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|grocery|groceries|shopping|walmart|list|my list|the list)\b/gi, " ")
+    .replace(/\b(?:um|uh|like|please|por favor|s'il vous plait|s'il vous pla\u00eet|bitte)\b/gi, " ")
+    .replace(/\b(?:okay|ok|the things that|things that|things|are|from|off|grocery|groceries|shopping|walmart|list|my list|the list|lista|listas|mi lista|la lista|liste|ma liste|meine liste)\b/gi, " ")
     .replace(LIST_ITEM_PREFIX_RE, "")
+    .replace(/\b(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+/gi, " ")
     .replace(
       /^(?:and\s+)?(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+/i,
       "",
     )
-    .replace(/^(?:some|a|an|the)\s+/i, "")
+    .replace(/^(?:some|a|an|the|el|la|los|las|un|una|le|la|les|des|du|der|die|das|ein|eine)\s+/i, "")
     .replace(/[.!?]+$/g, "")
+    .replace(/^[\s,.;:\-\u2013\u2014]+|[\s,.;:\-\u2013\u2014]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
   if (item.length < 2 || item.length > 42) return null;
+  const normalizedItemKey = item
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  if (
+    /^(?:cose|cos|close|stop|avatar|six|6|to|the|and|great|thanks|thankyou|iknow|lets|letsmake|letsmakea|makeit|makeitblack|evendarker|darker|lighter|half|ineed|ineedhalf|somehalf|iwant|iwantsome|justputsomeonthere|putsomeonthere|someonthere|onthere|some|me|meon)$/.test(
+      normalizedItemKey,
+    )
+  ) {
+    return null;
+  }
   if (LIST_FILLER_ITEM_RE.test(item)) return null;
   if (!options.fromExplicitCommand && LIST_VAGUE_BARE_ITEM_RE.test(item)) {
     return null;
@@ -701,7 +950,10 @@ function canInferListItems(
   options: { allowBareItems?: boolean } = {},
 ): boolean {
   if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return false;
+  if (hasEndSessionIntent(text)) return false;
+  if (isListRoutingOnlyCommand(text)) return false;
   if (REMOVE_COMMAND_RE.test(text)) return false;
+  if (detectListAccentUpdate(text, null)) return false;
   if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return false;
   const hasExplicitMutation = LIST_MUTATION_SIGNAL_RE.test(text);
   if (hasExplicitMutation) return true;
@@ -717,6 +969,10 @@ function isOnlineLookupIntent(text: string): boolean {
   if (ONLINE_LOOKUP_ACTION_RE.test(text)) return true;
   if (ONLINE_LOOKUP_DIRECT_RE.test(text)) return true;
   return false;
+}
+
+function shouldAskPreferencesBeforeLookup(query: string): boolean {
+  return !/\b(?:weather|forecast)\b/i.test(query);
 }
 
 function summarizeOnlineLookupTopic(query: string): string {
@@ -791,12 +1047,12 @@ function extractListItems(
   const fromExplicitCommand = LIST_MUTATION_SIGNAL_RE.test(text);
 
   const normalized = text
-    .replace(/\b(?:and then|also)\b/gi, ",")
-    .replace(/\b(?:i need|i want|add|grab|buy|pick up)\b/gi, ", $&")
+    .replace(/\b(?:and then|also|tambien|tambi\u00e9n|aussi|auch)\b/gi, ",")
+    .replace(/\b(?:i need|i want|add|grab|buy|pick up|necesito|quiero|agrega|agregar|anade|a\u00f1ade|comprar|compra|j'?ai besoin de|je veux|ajoute|ajouter|acheter|achete|ich brauche|ich will|fuege|f\u00fcge|kauf|kaufen)\b/gi, ", $&")
     .replace(/\s+/g, " ");
 
   return normalized
-    .split(/[,.;\n]|\band\b/gi)
+    .split(/[,.;\n]|\b(?:and|y|e|et|und)\b/gi)
     .map((item) => cleanListItem(item, { fromExplicitCommand }))
     .filter((item): item is string => Boolean(item));
 }
@@ -824,16 +1080,20 @@ function formatListItemsForSpeech(items: string[]): string {
 }
 
 function cleanRemoveListItem(value: string): string | null {
-  const item = value
-    .replace(/\b(?:from|off|the|my|this|that|list|got it|i got it)\b/gi, " ")
-    .replace(/\b(?:um|uh|like|please|okay|ok)\b/gi, " ")
+    const item = value
+    .replace(/\b(?:from|off|the|my|this|that|list|got it|i got it|de|del|la|el|mi|esta|ese|eso|lista|liste|ma|meine)\b/gi, " ")
+    .replace(/\b(?:um|uh|like|please|okay|ok|por favor|s'il vous plait|s'il vous pla\u00eet|bitte)\b/gi, " ")
     .replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, "")
     .replace(/[.!?]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
 
   if (item.length < 2 || item.length > 60) return null;
-  if (/^(?:it|that|this|them|they|those|these|nothing|anything else)$/i.test(item)) {
+  if (
+    /^(?:it|that|this|them|they|those|these|nothing|anything else|add|need|want|some|half|i need|i want|i know|just put some on there|put some on there)$/i.test(
+      item,
+    )
+  ) {
     return null;
   }
   return correctListItem(item.charAt(0).toUpperCase() + item.slice(1));
@@ -844,14 +1104,19 @@ function extractRemoveItems(text: string): string[] {
 
   const normalized = text
     .replace(
-      /\b(?:remove|delete|get rid of|take off|take out|cross off|cross out|check off|mark off|i got|got|grabbed|picked up)\b/gi,
+      /\btake\s+(.{1,60}?)\s+off(?:\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*list)?\b/gi,
+      ", $1 ",
+    )
+    .replace(/\btake\s+(.{1,60}?)(?:$|[.?!,;]|\s+please\b)/gi, ", $1 ")
+    .replace(
+      /\b(?:remove|delete|get rid of|take off|take out|cross off|cross out|check off|mark off|i got|got|grabbed|picked up|quita|quitar|elimina|eliminar|borra|borrar|tacha|tachar|ya tengo|j'?ai pris|retire|retirer|supprime|supprimer|enleve|enlever|loesche|l\u00f6sche|streiche|abhaken)\b/gi,
       ",",
     )
-    .replace(/\b(?:from|off|the|my|this|that|list|i got it|got it)\b/gi, " ")
+    .replace(/\b(?:from|off|the|my|this|that|list|i got it|got it|de|del|la|el|mi|esta|ese|eso|lista|liste|ma|meine)\b/gi, " ")
     .replace(/\s+/g, " ");
 
   return normalized
-    .split(/[,.;\n]|\band\b/gi)
+    .split(/[,.;\n]|\b(?:and|y|e|et|und)\b/gi)
     .map(cleanRemoveListItem)
     .filter((item): item is string => Boolean(item));
 }
@@ -867,18 +1132,53 @@ function detectListIntent(text: string): {
     return { title: "Walmart List", kind: "shopping" };
   }
 
+  if (/\b(?:tarea|tareas|pendientes)\b/i.test(text)) {
+    return { title: "Lista de tareas", kind: "todo" };
+  }
+
+  if (/\b(?:compras|mercado|supermercado)\b/i.test(text)) {
+    return { title: "Lista de compras", kind: "grocery" };
+  }
+
+  if (/\b(?:tache|taches|t\u00e2che|t\u00e2ches)\b/i.test(text)) {
+    return { title: "Liste de taches", kind: "todo" };
+  }
+
+  if (/\bcourses\b/i.test(text)) {
+    return { title: "Liste de courses", kind: "grocery" };
+  }
+
+  if (/\b(?:einkaufsliste|einkauf)\b/i.test(text)) {
+    return { title: "Einkaufsliste", kind: "grocery" };
+  }
+
+  if (/\b(?:aufgaben|aufgabenliste)\b/i.test(text)) {
+    return { title: "Aufgabenliste", kind: "todo" };
+  }
+
   if (/\bgrocer(?:y|ies)\b/.test(value)) {
     return { title: "Grocery List", kind: "grocery" };
+  }
+
+  if (/\b(?:things to do|able to)\b/i.test(text)) {
+    return null;
   }
 
   const todoScope =
     text.match(/\b(?:to[-\s]?do|todo|task)s?\s+(?:list\s+)?([a-z][a-z0-9'-]{1,24})\b/i)?.[1] ??
     text.match(/\b([a-z][a-z0-9'-]{1,24})\s+(?:to[-\s]?do|todo|tasks?)\b/i)?.[1] ??
     null;
+  const cleanTodoScope =
+    todoScope &&
+    !/^(?:and|or|then|make|turn|green|blue|black|white|pink|purple|red|yellow|orange|lighter|darker)$/i.test(
+      todoScope,
+    )
+      ? todoScope
+      : null;
 
   if (/\b(?:to[-\s]?do|todo|tasks?)\b/i.test(text)) {
     return {
-      title: todoScope ? `${titleCaseWords(todoScope)} To Do List` : "To Do List",
+      title: cleanTodoScope ? `${titleCaseWords(cleanTodoScope)} To Do List` : "To Do List",
       kind: "todo",
     };
   }
@@ -897,6 +1197,18 @@ function detectListIntent(text: string): {
     return { title: `${namedList} List`, kind: "custom" };
   }
 
+  const nativeNamedList =
+    text.match(
+      /\b(?:abre|abrir|muestra|mostrar|cambia a|crear?|crea|haz|hacer|nueva|ouvre|ouvrir|montre|affiche|creer|cr\u00e9er|nouvelle|oeffne|\u00f6ffne|zeige|neue)\s+(?:la|mi|una|un|otra|le|ma|une|die|meine|eine)?\s*lista\s+(?:de\s+)?([\p{L}0-9' -]{1,28})\b/iu,
+    )?.[1] ??
+    text.match(/\blista\s+(?:de\s+)?([\p{L}0-9' -]{1,28})\b/iu)?.[1] ??
+    text.match(/\bliste\s+(?:de\s+)?([\p{L}0-9' -]{1,28})\b/iu)?.[1];
+  if (nativeNamedList) {
+    const name = titleCaseWords(nativeNamedList.trim());
+    if (/\blista\b/i.test(text)) return { title: `Lista de ${name}`, kind: "custom" };
+    if (/\bliste\b/i.test(text)) return { title: `Liste de ${name}`, kind: "custom" };
+  }
+
   if (/\banother\s+list\b/i.test(text)) {
     return { title: "New List", kind: "custom" };
   }
@@ -912,8 +1224,10 @@ function itemKeysMatch(a: string, b: string): boolean {
   const normalize = (value: string) =>
     value
       .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .replace(/\b(?:a|an|the|some)\b/g, " ")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\p{L}0-9\s]/gu, " ")
+      .replace(/\b(?:a|an|the|some|el|la|los|las|un|una|le|les|des|du|der|die|das|ein|eine)\b/gu, " ")
       .replace(/\s+/g, " ")
       .trim()
       .replace(/s\b/g, "");
@@ -944,7 +1258,10 @@ function findMentionedListItem(
 }
 
 function hasBugReportIntent(text: string): boolean {
-  return !isInternalSignal(text) && BUG_REPORT_TRIGGER_RE.test(text);
+  return (
+    !isInternalSignal(text) &&
+    (BUG_REPORT_TRIGGER_RE.test(text) || NOTE_TO_G_TRIGGER_RE.test(text))
+  );
 }
 
 function summarizeBugReport(text: string): string {
@@ -1208,6 +1525,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const isDebugProcessingRef = useRef<boolean>(false);
   const lastAvatarResponseRef = useRef<string>("");
   const lastUserTextRef = useRef<string>("");
+  const recentConversationRef = useRef<MemoryConversationLine[]>([]);
   const lastFullModeMessageRef = useRef<{ text: string; at: number } | null>(
     null,
   );
@@ -1256,6 +1574,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const [onlineLookupSources, setOnlineLookupSources] = useState<
     OnlineLookupSource[]
   >([]);
+  const [sourcePreview, setSourcePreview] = useState<OnlineLookupSource | null>(
+    null,
+  );
   const [isOnlineLookupLoading, setIsOnlineLookupLoading] = useState(false);
   const [postVerifyGreeting, setPostVerifyGreeting] = useState<string | null>(
     null,
@@ -1285,12 +1606,15 @@ const LiveAvatarSessionComponent: React.FC<{
     item: string | null;
     action: "add" | "remove" | "mention";
   } | null>(null);
+  const pendingListDeleteRef = useRef<string | null>(null);
   const lastEnsuredListRef = useRef<{
     id: string;
     title: string;
     wasNew: boolean;
   } | null>(null);
   const deviceProfileRef = useRef(deviceProfile);
+  const accountMemorySnapshotRef = useRef<AccountMemorySnapshot | null>(null);
+  const accountMemoryContextInjectedRef = useRef(false);
   const postVerifyGreetingSpokenRef = useRef(false);
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
@@ -1299,6 +1623,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountSetupOfferMadeRef = useRef(false);
   const accountSetupDeclinedAtRef = useRef(0);
   const accountSetupEmailMissCountRef = useRef(0);
+  const accountPendingStateTokenRef = useRef<string | null>(null);
+  const endSessionConfirmationPendingRef = useRef(false);
+  const endSessionConfirmationAskedAtRef = useRef(0);
+  const explicitEndSessionRef = useRef(false);
+  const listCloseEducationSpokenRef = useRef(false);
   const pendingListCustomizationPromptRef = useRef<{
     id: string;
     title: string;
@@ -1309,12 +1638,179 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountProfileSaveTimeoutRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+  const pendingAccountSaveTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const accountListsLoadedRef = useRef(false);
   const activeList = useMemo(
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
     [activeListId, assistantLists],
   );
   const activeListTheme = listColorThemeFor(activeList);
+  const activeListUsesBlackTheme =
+    activeListTheme.label.toLowerCase().includes("black") ||
+    activeListTheme.foreground.toLowerCase() === "#050505";
+  const compactListPanelStyle = useMemo<React.CSSProperties>(
+    () => ({
+      color: activeListTheme.foreground,
+      borderColor: activeListUsesBlackTheme
+        ? "rgba(255,255,255,0.42)"
+        : activeListTheme.soft,
+      background: activeListUsesBlackTheme
+        ? "linear-gradient(180deg, rgba(246,241,231,0.88), rgba(210,200,184,0.76))"
+        : `linear-gradient(180deg, ${activeListTheme.soft}, rgba(12, 8, 6, 0.72))`,
+      boxShadow: activeListUsesBlackTheme
+        ? "inset 0 1px 20px rgba(255,255,255,0.36), 0 18px 42px rgba(0,0,0,0.42)"
+        : `inset 0 1px 18px rgba(255,255,255,0.08), 0 16px 42px rgba(0,0,0,0.48), 0 0 34px ${activeListTheme.soft}`,
+    }),
+    [activeListTheme, activeListUsesBlackTheme],
+  );
+  const compactListMutedStyle = useMemo<React.CSSProperties>(
+    () => ({
+      color: activeListUsesBlackTheme
+        ? "rgba(5,5,5,0.68)"
+        : "rgba(255,255,255,0.62)",
+    }),
+    [activeListUsesBlackTheme],
+  );
+  const compactListRowStyle = useMemo<React.CSSProperties>(
+    () => ({
+      background: activeListUsesBlackTheme
+        ? "rgba(255,255,255,0.48)"
+        : "rgba(0,0,0,0.22)",
+      borderColor: activeListUsesBlackTheme
+        ? "rgba(5,5,5,0.12)"
+        : activeListTheme.soft,
+    }),
+    [activeListTheme.soft, activeListUsesBlackTheme],
+  );
+  const compactListControlStyle = useMemo<React.CSSProperties>(
+    () => ({
+      background: activeListUsesBlackTheme
+        ? "rgba(5,5,5,0.08)"
+        : "rgba(0,0,0,0.28)",
+      color: activeListTheme.foreground,
+      borderColor: activeListUsesBlackTheme
+        ? "rgba(5,5,5,0.12)"
+        : "rgba(255,255,255,0.12)",
+    }),
+    [activeListTheme.foreground, activeListUsesBlackTheme],
+  );
+
+  const rememberConversationLine = useCallback(
+    (role: MemoryConversationLine["role"], text: string) => {
+      const cleaned = cleanMemoryText(text, 220);
+      if (!cleaned || isInternalSignal(cleaned)) return;
+      recentConversationRef.current = [
+        ...recentConversationRef.current,
+        { role, text: cleaned },
+      ].slice(-12);
+    },
+    [],
+  );
+
+  const buildMemoryAugmentedMessage = useCallback(
+    (message: string) => {
+      const memory = accountMemorySnapshotRef.current;
+      if (
+        !accountEmail ||
+        !memory ||
+        accountMemoryContextInjectedRef.current
+      ) {
+        return message;
+      }
+      accountMemoryContextInjectedRef.current = true;
+      return `${memory.contextText}\n\nThe user just said: ${message}\nRespond naturally as 6. Keep the screen clean unless they ask you to open a list, search, or location.`;
+    },
+    [accountEmail],
+  );
+
+  const buildAccountResumeState = useCallback(() => {
+    const pendingQuery = onlineLookupPendingQueryRef.current;
+    const lookupLocation = onlineLookupLocationRef.current;
+    const hasOnlineLookupState = Boolean(
+      pendingQuery ||
+        lookupLocation ||
+        onlineLookupNotice ||
+        onlineLookupSources.length > 0 ||
+        isOnlineLookupLoading,
+    );
+    const awaitingPreferences = Boolean(
+      pendingQuery &&
+        lookupLocation &&
+        shouldAskPreferencesBeforeLookup(pendingQuery),
+    );
+
+    return {
+      activeListId,
+      activeListTitle: activeList?.title ?? null,
+      isShoppingMode,
+      lastUserText: lastUserTextRef.current || null,
+      lastAssistantText: lastAvatarResponseRef.current || null,
+      recentConversation: recentConversationRef.current,
+      onlineLookup: hasOnlineLookupState
+        ? {
+            query: pendingQuery,
+            location: lookupLocation,
+            notice: onlineLookupNotice,
+            sources: onlineLookupSources,
+            needsLocation: Boolean(pendingQuery && !lookupLocation),
+            awaitingPreferences,
+          }
+        : null,
+      updatedAt: new Date().toISOString(),
+    };
+  }, [
+    activeList,
+    activeListId,
+    isOnlineLookupLoading,
+    isShoppingMode,
+    onlineLookupNotice,
+    onlineLookupSources,
+  ]);
+
+  const savePendingAccountState = useCallback(
+    (options: { keepalive?: boolean } = {}) => {
+      const stateToken = accountPendingStateTokenRef.current;
+      if (!stateToken || accountEmail) return;
+      const body = JSON.stringify({
+        stateToken,
+        sessionId: dbSessionIdRef.current,
+        lists: assistantLists,
+        resumeState: buildAccountResumeState(),
+      });
+
+      if (
+        options.keepalive &&
+        typeof navigator !== "undefined" &&
+        typeof navigator.sendBeacon === "function"
+      ) {
+        const blob = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon("/api/account/pending-state", blob)) return;
+      }
+
+      void fetch("/api/account/pending-state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: options.keepalive,
+      }).catch((error) =>
+        console.warn("Pending account state save failed:", error),
+      );
+    },
+    [accountEmail, assistantLists, buildAccountResumeState],
+  );
+
+  useEffect(() => {
+    try {
+      const token = window.localStorage.getItem(
+        ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY,
+      );
+      if (token) accountPendingStateTokenRef.current = token;
+    } catch {
+      // Pending account state is best-effort only.
+    }
+  }, []);
 
   useEffect(() => {
     deviceProfileRef.current = deviceProfile;
@@ -1377,6 +1873,20 @@ const LiveAvatarSessionComponent: React.FC<{
     const latestUserText = text.trim();
     if (latestUserText.length < 3) return;
 
+    const pendingLookupQuery = onlineLookupPendingQueryRef.current;
+    if (pendingLookupQuery && !onlineLookupLocationRef.current) {
+      setThoughtPrompts(getLookupLocationPrompts(pendingLookupQuery));
+      return;
+    }
+    if (
+      pendingLookupQuery &&
+      onlineLookupLocationRef.current &&
+      shouldAskPreferencesBeforeLookup(pendingLookupQuery)
+    ) {
+      setThoughtPrompts(getLookupPreferencePrompts(pendingLookupQuery));
+      return;
+    }
+
     const fallbackPrompts = normalizeThoughtPrompts(
       getThoughtPrompts(latestUserText),
     );
@@ -1426,6 +1936,20 @@ const LiveAvatarSessionComponent: React.FC<{
       const latestUserText = text.trim();
       if (latestUserText.length < 3) return;
 
+      const pendingLookupQuery = onlineLookupPendingQueryRef.current;
+      if (pendingLookupQuery && !onlineLookupLocationRef.current) {
+        setThoughtPrompts(getLookupLocationPrompts(pendingLookupQuery));
+        return;
+      }
+      if (
+        pendingLookupQuery &&
+        onlineLookupLocationRef.current &&
+        shouldAskPreferencesBeforeLookup(pendingLookupQuery)
+      ) {
+        setThoughtPrompts(getLookupPreferencePrompts(pendingLookupQuery));
+        return;
+      }
+
       setThoughtPrompts(
         normalizeThoughtPrompts(getThoughtPrompts(latestUserText)),
       );
@@ -1455,6 +1979,14 @@ const LiveAvatarSessionComponent: React.FC<{
         if (cancelled || !data?.authenticated) return;
         if (typeof data.user?.email === "string") {
           setAccountEmail(data.user.email);
+          accountPendingStateTokenRef.current = null;
+          try {
+            window.localStorage.removeItem(
+              ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY,
+            );
+          } catch {
+            // Ignore storage cleanup failures.
+          }
         }
         const accountFullName =
           typeof data.user?.fullName === "string"
@@ -1471,49 +2003,87 @@ const LiveAvatarSessionComponent: React.FC<{
                 },
           );
         }
-        if (Array.isArray(data.lists) && data.lists.length > 0) {
-          const cleanedLists = data.lists
-            .filter(isAssistantList)
-            .map((list: AssistantList) => ({
-              ...list,
-              items: cleanStoredListItems(list.items),
-            }));
-          if (cleanedLists.length > 0) {
-            setAssistantLists(cleanedLists);
-            const resumeListId =
-              typeof data.resumeState?.activeListId === "string" &&
-              cleanedLists.some(
-                (list: AssistantList) => list.id === data.resumeState.activeListId,
-              )
-                ? data.resumeState.activeListId
-                : null;
-            setActiveListId(
-              (current) => current ?? resumeListId ?? cleanedLists[0]?.id ?? null,
-            );
-            if (resumeListId && data.resumeState?.isShoppingMode === true) {
-              setIsShoppingMode(true);
-            }
-          }
-        }
+        const cleanedLists: AssistantList[] = Array.isArray(data.lists)
+          ? data.lists
+              .filter(isAssistantList)
+              .map((list: AssistantList) => ({
+                ...list,
+                items: cleanStoredListItems(list.items),
+              }))
+          : [];
+        const resumeState =
+          data.resumeState && typeof data.resumeState === "object"
+            ? (data.resumeState as Record<string, unknown>)
+            : null;
         const accountStatus = new URLSearchParams(window.location.search).get(
           "account",
         );
+        const resumeListId =
+          cleanedLists.length > 0 && typeof resumeState?.activeListId === "string"
+            ? resumeState.activeListId
+            : null;
+        const resumeTitle =
+          cleanedLists.length > 0 &&
+          typeof resumeState?.activeListTitle === "string"
+            ? resumeState.activeListTitle.trim().toLowerCase()
+            : null;
+        const restoredList =
+          (resumeListId
+            ? cleanedLists.find((list) => list.id === resumeListId)
+            : null) ||
+          (resumeTitle
+            ? cleanedLists.find(
+                (list) => list.title.trim().toLowerCase() === resumeTitle,
+              )
+            : null) ||
+          null;
+
+        if (typeof resumeState?.lastUserText === "string") {
+          lastUserTextRef.current = resumeState.lastUserText;
+        }
+        if (typeof resumeState?.lastAssistantText === "string") {
+          lastAvatarResponseRef.current = resumeState.lastAssistantText;
+        }
+        recentConversationRef.current = cleanMemoryConversation(
+          resumeState?.recentConversation,
+        );
+
+        const onlineLookup =
+          resumeState?.onlineLookup &&
+          typeof resumeState.onlineLookup === "object"
+            ? (resumeState.onlineLookup as Record<string, unknown>)
+            : null;
+        const restoredOnlineQuery =
+          typeof onlineLookup?.query === "string" ? onlineLookup.query : null;
+        const restoredOnlineLocation =
+          typeof onlineLookup?.location === "string"
+            ? onlineLookup.location
+            : null;
+        accountMemorySnapshotRef.current = buildAccountMemorySnapshot({
+          lists: cleanedLists,
+          resumeState,
+          restoredList,
+          onlineQuery: restoredOnlineQuery,
+          onlineLocation: restoredOnlineLocation,
+        });
+        accountMemoryContextInjectedRef.current = false;
+
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        setOnlineLookupSources([]);
+        setOnlineLookupNotice(null);
+
+        if (cleanedLists.length > 0) {
+          setAssistantLists(cleanedLists);
+          setActiveListId(null);
+          setIsShoppingMode(false);
+        } else {
+          setActiveListId(null);
+          setIsShoppingMode(false);
+        }
         if (accountStatus === "verified") {
-          const resumeTitle =
-            typeof data.resumeState?.activeListTitle === "string"
-              ? data.resumeState.activeListTitle
-              : null;
-          const firstListTitle =
-            resumeTitle ||
-            (Array.isArray(data.lists) && data.lists[0]?.title
-              ? String(data.lists[0].title)
-              : null);
           setPostVerifyGreeting(
-            resumeTitle && data.resumeState?.isShoppingMode === true
-              ? `You're back. Account is set. I remember we were shopping with your ${resumeTitle}. I'll keep that list open and stay quiet until you need me.`
-              : firstListTitle
-                ? `You're back. Account is set, and I remember your ${firstListTitle}. Let's pick up right there.`
-              : "You're back. Account is set, and I'll remember what you ask me to remember.",
+            "You're back. Account is set, and I can remember you now. We can pick up like friends.",
           );
           window.history.replaceState(
             {},
@@ -1542,9 +2112,10 @@ const LiveAvatarSessionComponent: React.FC<{
     setAccountNotice("Account verified");
     void repeat(postVerifyGreeting).then(() => {
       lastAvatarResponseRef.current = postVerifyGreeting;
+      rememberConversationLine("assistant", postVerifyGreeting);
       lastVisionResponseTimeRef.current = Date.now();
     });
-  }, [isStreamReady, postVerifyGreeting, repeat, sessionState]);
+  }, [isStreamReady, postVerifyGreeting, rememberConversationLine, repeat, sessionState]);
 
   useEffect(() => {
     if (!accountEmail || !accountListsLoadedRef.current) return;
@@ -1557,18 +2128,46 @@ const LiveAvatarSessionComponent: React.FC<{
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lists: assistantLists,
-          resumeState: {
-            activeListId,
-            activeListTitle: activeList?.title ?? null,
-            isShoppingMode,
-            lastUserText: lastUserTextRef.current || null,
-            lastAssistantText: lastAvatarResponseRef.current || null,
-            updatedAt: new Date().toISOString(),
-          },
+          resumeState: buildAccountResumeState(),
         }),
       }).catch((error) => console.warn("Account list save failed:", error));
     }, 900);
-  }, [accountEmail, activeList, activeListId, assistantLists, isShoppingMode]);
+  }, [accountEmail, assistantLists, buildAccountResumeState]);
+
+  useEffect(() => {
+    if (accountEmail || !accountPendingStateTokenRef.current) return;
+    if (pendingAccountSaveTimeoutRef.current) {
+      clearTimeout(pendingAccountSaveTimeoutRef.current);
+    }
+    pendingAccountSaveTimeoutRef.current = setTimeout(() => {
+      savePendingAccountState();
+    }, 900);
+    return () => {
+      if (pendingAccountSaveTimeoutRef.current) {
+        clearTimeout(pendingAccountSaveTimeoutRef.current);
+      }
+    };
+  }, [
+    accountEmail,
+    activeListId,
+    assistantLists,
+    buildAccountResumeState,
+    isOnlineLookupLoading,
+    isShoppingMode,
+    onlineLookupNotice,
+    onlineLookupSources,
+    savePendingAccountState,
+  ]);
+
+  useEffect(() => {
+    const saveBeforeLeave = () => savePendingAccountState({ keepalive: true });
+    window.addEventListener("pagehide", saveBeforeLeave);
+    window.addEventListener("beforeunload", saveBeforeLeave);
+    return () => {
+      window.removeEventListener("pagehide", saveBeforeLeave);
+      window.removeEventListener("beforeunload", saveBeforeLeave);
+    };
+  }, [savePendingAccountState]);
 
   useEffect(() => {
     if (
@@ -1616,7 +2215,10 @@ const LiveAvatarSessionComponent: React.FC<{
   }, [accountEmail, deviceProfile.name]);
 
   const ensureAssistantList = useCallback(
-    (intent: { title: string; kind: AssistantListKind }): string => {
+    (
+      intent: { title: string; kind: AssistantListKind },
+      options: { preferFresh?: boolean } = {},
+    ): string => {
       const now = Date.now();
       const normalizedTitle =
         intent.title === "New List"
@@ -1626,12 +2228,17 @@ const LiveAvatarSessionComponent: React.FC<{
         (list) => list.title.toLowerCase() === normalizedTitle.toLowerCase(),
       );
 
-      if (existing) {
+      if (existing && !options.preferFresh) {
         lastEnsuredListRef.current = {
           id: existing.id,
           title: existing.title,
           wasNew: false,
         };
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        setOnlineLookupNotice(null);
+        setOnlineLookupSources([]);
+        setSourcePreview(null);
         setActiveListId(existing.id);
         return existing.id;
       }
@@ -1664,6 +2271,11 @@ const LiveAvatarSessionComponent: React.FC<{
         title: normalizedTitle,
         wasNew: true,
       };
+      onlineLookupPendingQueryRef.current = null;
+      onlineLookupLocationRef.current = null;
+      setOnlineLookupNotice(null);
+      setOnlineLookupSources([]);
+      setSourcePreview(null);
       setActiveListId(id);
       return id;
     },
@@ -1739,8 +2351,12 @@ const LiveAvatarSessionComponent: React.FC<{
     if (items.length === 0) return false;
     const list = assistantLists.find((item) => item.id === listId);
     if (!list) return false;
+    const wantsRemoveAddLiteral = items.some((item) => /^add$/i.test(item));
     const nextItems = list.items.filter(
-      (item) => !items.some((removeItem) => itemKeysMatch(item, removeItem)),
+      (item) =>
+        wantsRemoveAddLiteral && /^add$/i.test(item)
+          ? false
+          : !items.some((removeItem) => itemKeysMatch(item, removeItem)),
     );
     const changed = nextItems.length !== list.items.length;
     if (!changed) return false;
@@ -1764,6 +2380,18 @@ const LiveAvatarSessionComponent: React.FC<{
     setListFocusNonce((value) => value + 1);
     return true;
   }, [assistantLists]);
+
+  const deleteAssistantList = useCallback((listId: string) => {
+    setAssistantLists((currentLists) =>
+      currentLists.filter((currentList) => currentList.id !== listId),
+    );
+    setActiveListId((currentActiveId) =>
+      currentActiveId === listId ? null : currentActiveId,
+    );
+    setIsShoppingMode(false);
+    latestListMutationRef.current = null;
+    pendingListDeleteRef.current = null;
+  }, []);
 
   const removeListItemAtIndex = useCallback(
     (listId: string, itemIndex: number) => {
@@ -1863,8 +2491,8 @@ const LiveAvatarSessionComponent: React.FC<{
         if (!response.ok) return false;
         const data = await response.json();
         const spoken = data?.emailSent
-          ? `I made a bug report and sent it to the ${AIASAP_FOUNDER_TITLE}.`
-          : `I made a bug report for the ${AIASAP_FOUNDER_TITLE}.`;
+          ? `I made a note and sent it to ${AIASAP_FOUNDER_TITLE}.`
+          : `I made a note for ${AIASAP_FOUNDER_TITLE}.`;
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -1891,14 +2519,7 @@ const LiveAvatarSessionComponent: React.FC<{
             fullName: deviceProfileRef.current.name,
             sessionId: dbSessionIdRef.current,
             lists: assistantLists,
-            resumeState: {
-              activeListId,
-              activeListTitle: activeList?.title ?? null,
-              isShoppingMode,
-              lastUserText: lastUserTextRef.current || null,
-              lastAssistantText: lastAvatarResponseRef.current || null,
-              updatedAt: new Date().toISOString(),
-            },
+            resumeState: buildAccountResumeState(),
           }),
         });
         const data = await response.json().catch(() => null);
@@ -1908,10 +2529,30 @@ const LiveAvatarSessionComponent: React.FC<{
 
         const verificationUrl =
           typeof data?.verificationUrl === "string" ? data.verificationUrl : null;
+        const pendingStateToken =
+          typeof data?.pendingStateToken === "string"
+            ? data.pendingStateToken
+            : null;
+        accountPendingStateTokenRef.current = pendingStateToken;
+        try {
+          if (pendingStateToken) {
+            window.localStorage.setItem(
+              ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY,
+              pendingStateToken,
+            );
+          } else {
+            window.localStorage.removeItem(
+              ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY,
+            );
+          }
+        } catch {
+          // Pending account state is still stored server-side from the initial send.
+        }
+        if (pendingStateToken) savePendingAccountState();
         const spoken = data?.emailSent
-          ? "Done. I sent you an email. Check for it now and click the link. While you wait, I can also help with reminders, lists, weekend plans, and ideas for making more money. When you come back, we'll pick up right where we left off."
+          ? "Done. I sent you an email. Check for it now and click the link. When you come back, we'll pick up right where we left off."
           : verificationUrl
-            ? "I saved your email, but the email sender is not finished yet. I put the sign-in link on your screen for this test."
+            ? "I saved your email, but the email did not send. I put the account link on your screen for this test."
             : "I saved your email, but the email sender is not fully connected yet. I made a note for G to finish account email before this goes live.";
         setAccountNotice(
           data?.emailSent
@@ -1923,6 +2564,7 @@ const LiveAvatarSessionComponent: React.FC<{
         setAccountVerificationUrl(verificationUrl);
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
         lastVisionResponseTimeRef.current = Date.now();
         accountSetupOfferMadeRef.current = false;
         accountSetupDeclinedAtRef.current = 0;
@@ -1937,11 +2579,18 @@ const LiveAvatarSessionComponent: React.FC<{
         setAccountNotice("Account setup needs attention");
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
         lastVisionResponseTimeRef.current = Date.now();
         return true;
       }
     },
-    [activeList, activeListId, assistantLists, isShoppingMode, repeat],
+    [
+      assistantLists,
+      buildAccountResumeState,
+      rememberConversationLine,
+      repeat,
+      savePendingAccountState,
+    ],
   );
 
   const openEmailEntry = useCallback(
@@ -2010,6 +2659,15 @@ const LiveAvatarSessionComponent: React.FC<{
     [confirmAccountEmailCandidate, typedAccountEmail],
   );
 
+  const clearAccountEmailEntry = useCallback(() => {
+    accountSetupAwaitingEmailRef.current = false;
+    accountSetupPendingEmailRef.current = null;
+    accountSetupRejectedEmailRef.current = null;
+    accountSetupEmailMissCountRef.current = 0;
+    setEmailEntryOpen(false);
+    setTypedAccountEmail("");
+  }, []);
+
   const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
     if (
       accountEmail ||
@@ -2032,14 +2690,16 @@ const LiveAvatarSessionComponent: React.FC<{
     accountSetupPendingEmailRef.current = null;
     accountSetupRejectedEmailRef.current = null;
     accountSetupEmailMissCountRef.current = 0;
-    const spoken =
-      customSpoken ||
-      "Let's get that account set up. It's just a quick email click. Then next time I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
+    const spoken = buildAccountMemoryOffer(
+      customSpoken,
+      deviceProfileRef.current.greetingCount,
+    );
     await repeat(spoken);
     lastAvatarResponseRef.current = spoken;
+    rememberConversationLine("assistant", spoken);
     lastVisionResponseTimeRef.current = Date.now();
     return true;
-  }, [accountEmail, repeat]);
+  }, [accountEmail, rememberConversationLine, repeat]);
 
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
@@ -2149,10 +2809,13 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupPendingEmailRef.current = null;
         accountSetupRejectedEmailRef.current = null;
         accountSetupEmailMissCountRef.current = 0;
-        const spoken =
-          "You can use the site right now, but if you want me to remember everything next time, let's get that account set up. It's just a quick email click. Then when you come back, I can be like, hey, how's it going? I won't have to be like, do I know you? Have we met before? You ready?";
+        const spoken = buildAccountMemoryOffer(
+          "You can use the site right now. Account setup is optional, but it lets me remember you next time.",
+          deviceProfileRef.current.greetingCount + 1,
+        );
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
         lastVisionResponseTimeRef.current = Date.now();
         return true;
       }
@@ -2163,6 +2826,7 @@ const LiveAvatarSessionComponent: React.FC<{
       confirmAccountEmailCandidate,
       handleEmailMiss,
       openEmailEntry,
+      rememberConversationLine,
       repeat,
       startAccountSetup,
     ],
@@ -2195,6 +2859,12 @@ const LiveAvatarSessionComponent: React.FC<{
       if (sessionStartErrorRef.current) {
         setSessionStartError(sessionStartErrorRef.current);
         sessionStartErrorRef.current = null;
+        greetingTriggeredRef.current = false;
+        return;
+      }
+      if (explicitEndSessionRef.current) {
+        explicitEndSessionRef.current = false;
+        onExit?.(false);
         greetingTriggeredRef.current = false;
         return;
       }
@@ -2353,6 +3023,39 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, [isOnHomeScreen, resetToHomeScreen, stopSession]);
 
+  const handleEndSession = useCallback(async () => {
+    explicitEndSessionRef.current = true;
+    endSessionConfirmationPendingRef.current = false;
+    greetingTriggeredRef.current = false;
+    try {
+      stopListening();
+    } catch {
+      // Browser speech cleanup can throw if it is already stopped.
+    }
+    try {
+      stop();
+    } catch {
+      // Voice chat can already be inactive.
+    }
+    try {
+      await interrupt();
+    } catch {
+      // Ignore interrupt failures while shutting down.
+    }
+    resetToHomeScreen();
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+    try {
+      await stopSession();
+    } catch {
+      // Parent exit still prevents auto-restart if LiveAvatar is already disconnected.
+    } finally {
+      onExit?.(false);
+    }
+  }, [interrupt, onExit, resetToHomeScreen, stop, stopListening, stopSession]);
+
   // Voice chat starts only after the user taps the begin surface.
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
@@ -2444,6 +3147,7 @@ const LiveAvatarSessionComponent: React.FC<{
       const topic = summarizeOnlineLookupTopic(query);
       setIsOnlineLookupLoading(true);
       setOnlineLookupSources([]);
+      setSourcePreview(null);
       setOnlineLookupNotice(`Looking online for ${topic}`);
       try {
         const response = await fetch("/api/online-search", {
@@ -2474,8 +3178,8 @@ const LiveAvatarSessionComponent: React.FC<{
         );
         const spoken =
           sources.length > 0
-            ? `${data.answer} Any of those sound interesting? If not, tell me what kind of things you like and I'll narrow it down. Source links are on your screen.`
-            : `${data.answer} Any of that sound interesting?`;
+            ? `${data.answer} Which one sounds best, or do you want three more?`
+            : `${data.answer} Which one sounds best?`;
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -2498,42 +3202,76 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const requestSharedLocation = useCallback(async () => {
-    if (!onlineLookupPendingQueryRef.current) return;
+    const fallbackQuery =
+      lastUserTextRef.current && isOnlineLookupIntent(lastUserTextRef.current)
+        ? lastUserTextRef.current
+        : isHikingLookupQuery(lastUserTextRef.current)
+          ? lastUserTextRef.current
+          : "find local hikes";
+    const lookupQuery = onlineLookupPendingQueryRef.current ?? fallbackQuery;
+    onlineLookupPendingQueryRef.current = lookupQuery;
+    setOnlineLookupSources([]);
+    setThoughtPrompts(getLookupLocationPrompts(lookupQuery));
     if (!navigator.geolocation) {
       const spoken =
         "This browser is not letting me ask for location. Tell me your city or ZIP code and I'll look from there.";
+      setOnlineLookupNotice("Tell 6 your city or ZIP");
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
       return;
     }
 
-    setOnlineLookupNotice("Waiting for location permission...");
+    setOnlineLookupNotice("Tap Share Location to let 6 use this device location.");
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const location = `${position.coords.latitude.toFixed(2)},${position.coords.longitude.toFixed(2)}`;
         onlineLookupLocationRef.current = location;
         setOnlineLookupNotice("Using shared location");
         const query = onlineLookupPendingQueryRef.current;
-        onlineLookupPendingQueryRef.current = null;
-        if (query) void performOnlineLookup(query, location);
+        if (!query) return;
+        if (!shouldAskPreferencesBeforeLookup(query)) {
+          onlineLookupPendingQueryRef.current = null;
+          void performOnlineLookup(query, location);
+          return;
+        }
+        const spoken = getLookupPreferenceQuestion(query);
+        setThoughtPrompts(getLookupPreferencePrompts(query));
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
       },
       async () => {
         const spoken =
           "No problem. Tell me your city or ZIP code instead, and I'll search around there.";
         setOnlineLookupNotice("Tell 6 your city or ZIP");
+        setThoughtPrompts(getLookupLocationPrompts(lookupQuery));
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
         lastVisionResponseTimeRef.current = Date.now();
       },
-      { enableHighAccuracy: false, maximumAge: 1000 * 60 * 10, timeout: 12000 },
+      { enableHighAccuracy: false, maximumAge: 0, timeout: 12000 },
     );
-  }, [performOnlineLookup, repeat]);
+  }, [performOnlineLookup, rememberConversationLine, repeat]);
 
   const handleOnlineLookupSpeech = useCallback(
     async (userText: string) => {
       const text = userText.trim();
       const pendingQuery = onlineLookupPendingQueryRef.current;
+      if (LOCATION_SHARE_CHOICE_RE.test(text) && (pendingQuery || onlineLookupNotice)) {
+        if (!pendingQuery) {
+          onlineLookupPendingQueryRef.current =
+            lastUserTextRef.current && isOnlineLookupIntent(lastUserTextRef.current)
+              ? lastUserTextRef.current
+              : isHikingLookupQuery(lastUserTextRef.current)
+                ? lastUserTextRef.current
+                : "find local hikes";
+        }
+        await requestSharedLocation();
+        return true;
+      }
       if (pendingQuery) {
         if (LOCATION_SHARE_CHOICE_RE.test(text)) {
           await requestSharedLocation();
@@ -2547,41 +3285,77 @@ const LiveAvatarSessionComponent: React.FC<{
           lastVisionResponseTimeRef.current = Date.now();
           return true;
         }
+        const pendingLocation = onlineLookupLocationRef.current;
+        if (
+          pendingLocation &&
+          shouldAskPreferencesBeforeLookup(pendingQuery) &&
+          !isOnlineLookupIntent(text)
+        ) {
+          if (isLookupPreferenceFiller(text)) {
+            const spoken = getLookupPreferenceQuestion(pendingQuery);
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            lastVisionResponseTimeRef.current = Date.now();
+            return true;
+          }
+          onlineLookupPendingQueryRef.current = null;
+          const preferenceText = text.replace(/^let'?s work on this next:\s*/i, "").trim();
+          const lookupQuery =
+            preferenceText.length > 1
+              ? `${pendingQuery}. The user likes: ${preferenceText}`
+              : pendingQuery;
+          return performOnlineLookup(lookupQuery, pendingLocation);
+        }
         const location =
           extractLocationHint(text) ?? (isLikelyTypedLocation(text) ? text : null);
         if (!location) return false;
-        onlineLookupPendingQueryRef.current = null;
         onlineLookupLocationRef.current = location;
+        if (shouldAskPreferencesBeforeLookup(pendingQuery)) {
+          const spoken = getLookupPreferenceQuestion(pendingQuery);
+          setOnlineLookupNotice("Tell 6 what you like");
+          setThoughtPrompts(getLookupPreferencePrompts(pendingQuery));
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        onlineLookupPendingQueryRef.current = null;
         return performOnlineLookup(pendingQuery, location);
       }
 
       if (!isOnlineLookupIntent(text)) return false;
 
-      const location = extractLocationHint(text) ?? onlineLookupLocationRef.current;
+      const location = extractLocationHint(text);
       if (location) {
         onlineLookupLocationRef.current = location;
+        if (shouldAskPreferencesBeforeLookup(text)) {
+          onlineLookupPendingQueryRef.current = text;
+          const spoken = getLookupPreferenceQuestion(text);
+          setOnlineLookupNotice("Tell 6 what you like");
+          setThoughtPrompts(getLookupPreferencePrompts(text));
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
         return performOnlineLookup(text, location);
       }
 
       onlineLookupPendingQueryRef.current = text;
+      onlineLookupLocationRef.current = null;
       setOnlineLookupSources([]);
-      setOnlineLookupNotice("Tell 6 where to look");
+      setOnlineLookupNotice(null);
       const spoken =
-        "I can look that up online. Do you want to tell me your ZIP code, or wanna share your phone's location? If you share location, your phone or browser will ask permission first. What kind of cool things do you like?";
+        "I can look that up online. Tell me your ZIP code, city, or tap Share Location.";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
       setThoughtPrompts(
-        normalizeThoughtPrompts([
-          "Give ZIP Code",
-          "Share Location",
-          "Find Cool Things",
-          "Check the Weather",
-        ]),
+        getLookupLocationPrompts(text),
       );
       return true;
     },
-    [performOnlineLookup, repeat],
+    [onlineLookupNotice, performOnlineLookup, repeat, requestSharedLocation],
   );
 
   const handleThoughtPromptTap = useCallback(
@@ -2596,7 +3370,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       const listIntent = detectListIntent(prompt);
       if (listIntent) {
-        ensureAssistantList(listIntent);
+        ensureAssistantList(listIntent, { preferFresh: shouldStartFreshList(prompt) });
       }
       setDissolvingPrompt(prompt);
 
@@ -2623,14 +3397,31 @@ const LiveAvatarSessionComponent: React.FC<{
           const spoken =
             hasPendingCustomization && pendingCustomization
               ? `I made the ${pendingCustomization.title}. Want this one a different color, a different shade, bullets instead of numbers, or anything else that makes it easier to scan?`
-              : `I ${ensured?.wasNew ? "started" : "opened"} the ${ensured?.title ?? listIntent.title}. Just tell me what goes on it.`;
+              : `I ${ensured?.wasNew ? "started" : "opened"} the ${ensured?.title ?? listIntent.title}. Just tell me what goes on it.${
+                  listCloseEducationSpokenRef.current
+                    ? ""
+                    : ` ${LIST_CLOSE_EDUCATION}`
+                }`;
           if (hasPendingCustomization) {
             pendingListCustomizationPromptRef.current = null;
+          } else if (!listCloseEducationSpokenRef.current) {
+            listCloseEducationSpokenRef.current = true;
           }
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
           schedulePromptBrain(prompt);
+          return;
+        }
+        if (LIST_CLOSE_RE.test(prompt)) {
+          setIsShoppingMode(false);
+          setActiveListId(null);
+          latestListMutationRef.current = null;
+          setListFocusNonce((value) => value + 1);
+          const spoken = "I closed the list.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
           return;
         }
         if (prompt === "Explore aiASAP" || prompt === "Quick Tour") {
@@ -2655,6 +3446,15 @@ const LiveAvatarSessionComponent: React.FC<{
           await requestSharedLocation();
           return;
         }
+        if (/^close\s+(?:search|box|location)$/i.test(prompt)) {
+          onlineLookupPendingQueryRef.current = null;
+          onlineLookupLocationRef.current = null;
+          setOnlineLookupNotice(null);
+          setOnlineLookupSources([]);
+          setSourcePreview(null);
+          setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
+          return;
+        }
         if (prompt === "Give ZIP Code" || prompt === "Enter City or ZIP") {
           const spoken =
             "Tell me your ZIP code, and I'll look online around there.";
@@ -2667,7 +3467,9 @@ const LiveAvatarSessionComponent: React.FC<{
           const handledLookup = await handleOnlineLookupSpeech(prompt);
           if (handledLookup) return;
         }
-        await sendMessage(`Let's work on this next: ${prompt}`);
+        await sendMessage(
+          buildMemoryAugmentedMessage(`Let's work on this next: ${prompt}`),
+        );
         schedulePromptBrain(prompt);
       } catch (error) {
         console.error("Failed to send thought prompt:", error);
@@ -2675,6 +3477,7 @@ const LiveAvatarSessionComponent: React.FC<{
     },
     [
       dissolvingPrompt,
+      buildMemoryAugmentedMessage,
       ensureAudioOutputReady,
       ensureAssistantList,
       interrupt,
@@ -2686,6 +3489,42 @@ const LiveAvatarSessionComponent: React.FC<{
       sendMessage,
       sessionState,
     ],
+  );
+
+  const resumeListeningAfterAvatarSpeech = useCallback(
+    (fallbackMs: number) => {
+      if (mode !== "FULL") return;
+      const session = sessionRef.current;
+      let resumed = false;
+      let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+      let resume: () => void = () => {};
+
+      const cleanup = () => {
+        if (fallbackTimer) {
+          clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
+        if (!session) return;
+        if (typeof (session as any).off === "function") {
+          (session as any).off(AgentEventsEnum.AVATAR_SPEAK_ENDED, resume);
+        } else if (typeof session.removeListener === "function") {
+          session.removeListener(AgentEventsEnum.AVATAR_SPEAK_ENDED, resume);
+        }
+      };
+
+      resume = () => {
+        if (resumed) return;
+        resumed = true;
+        cleanup();
+        startListening();
+      };
+
+      if (session) {
+        session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, resume);
+      }
+      fallbackTimer = setTimeout(resume, fallbackMs);
+    },
+    [mode, sessionRef, startListening],
   );
 
   const handleVoiceStartStop = useCallback(async () => {
@@ -2711,27 +3550,30 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       if (mode === "FULL") {
         await start();
+        stopListening();
       } else {
         setIsCustomVoiceActive(true);
       }
       const profile = deviceProfileRef.current;
-      const isReturning = Boolean(accountEmail || profile.name);
-      const greeting = isReturning
-        ? buildReturningGreeting(profile)
+      const isSignedInReturnUser = Boolean(accountEmail);
+      const accountMemory = accountMemorySnapshotRef.current;
+      const greeting = isSignedInReturnUser
+        ? buildReturningGreeting(profile, accountMemory)
         : VOICE_START_GREETING;
-      if (isReturning) {
+      if (isSignedInReturnUser) {
         setDeviceProfile((current) => ({
           ...current,
           greetingCount: current.greetingCount + 1,
           updatedAt: Date.now(),
         }));
       }
+      if (mode === "FULL") {
+        resumeListeningAfterAvatarSpeech(9500);
+      }
       await repeat(greeting);
       lastAvatarResponseRef.current = greeting;
+      rememberConversationLine("assistant", greeting);
       lastVisionResponseTimeRef.current = Date.now();
-      if (mode === "FULL") {
-        startListening();
-      }
       setHasUserPressedVoiceStart(true);
     } finally {
       setVoiceStartAwaitingReady(false);
@@ -2745,10 +3587,12 @@ const LiveAvatarSessionComponent: React.FC<{
     mode,
     startListening,
     stopListening,
+    resumeListeningAfterAvatarSpeech,
     sessionState,
     isStreamReady,
     ensureAudioOutputReady,
     accountEmail,
+    rememberConversationLine,
   ]);
 
   const shouldShowBeginSurface =
@@ -3491,6 +4335,10 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
       lastUserTextRef.current = userText;
+      rememberConversationLine("user", userText);
+      if (accountPendingStateTokenRef.current) {
+        savePendingAccountState();
+      }
 
       const rawLastAssistantText = lastAvatarResponseRef.current;
       const lastAssistantText = rawLastAssistantText.toLowerCase();
@@ -3520,6 +4368,127 @@ const LiveAvatarSessionComponent: React.FC<{
         void interrupt();
       }
 
+      if (pendingListDeleteRef.current) {
+        const listIdToDelete = pendingListDeleteRef.current;
+        if (END_SESSION_CONFIRM_RE.test(userText)) {
+          const listTitle =
+            assistantLists.find((list) => list.id === listIdToDelete)?.title ??
+            "that list";
+          deleteAssistantList(listIdToDelete);
+          const spoken = `Deleted ${listTitle}.`;
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+        if (END_SESSION_CANCEL_RE.test(userText)) {
+          pendingListDeleteRef.current = null;
+          const spoken = "Okay, I kept the list.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+        const spoken = "Before I delete that list, say yes to delete it or no to keep it.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return;
+      }
+
+      if (ONLINE_LOOKUP_CLOSE_RE.test(userText)) {
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        setOnlineLookupNotice(null);
+        setOnlineLookupSources([]);
+        setSourcePreview(null);
+        clearAccountEmailEntry();
+        setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
+        const spoken = "I closed that box.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return;
+      }
+
+      const listIntent = detectListIntent(userText);
+
+      if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
+        clearAccountEmailEntry();
+        setIsShoppingMode(false);
+        await interrupt();
+        const spoken = "I closed shopping mode.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      if (activeList && LIST_DELETE_RE.test(userText)) {
+        pendingListDeleteRef.current = activeList.id;
+        const spoken = `Do you want me to delete ${activeList.title}? Say yes to delete it, or no to keep it.`;
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return;
+      }
+
+      if (LIST_CLOSE_RE.test(userText)) {
+        clearAccountEmailEntry();
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        setOnlineLookupNotice(null);
+        setOnlineLookupSources([]);
+        setSourcePreview(null);
+        setIsShoppingMode(false);
+        setActiveListId(null);
+        latestListMutationRef.current = null;
+        setListFocusNonce((value) => value + 1);
+        const spoken = "I closed the list.";
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      if (endSessionConfirmationPendingRef.current) {
+        if (confirmsEndSession(userText)) {
+          void handleEndSession();
+          return;
+        }
+        if (END_SESSION_CANCEL_RE.test(userText)) {
+          endSessionConfirmationPendingRef.current = false;
+          const spoken = "Okay, we'll keep going.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+        if (Date.now() - endSessionConfirmationAskedAtRef.current < 8000) {
+          return;
+        }
+        endSessionConfirmationAskedAtRef.current = Date.now();
+        const spoken =
+          "I can close it. Say stop or close to end it, or keep going.";
+        await interrupt();
+        if (mode === "FULL") {
+          stopListening();
+          resumeListeningAfterAvatarSpeech(4500);
+        }
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return;
+      }
+
       if (await handlePromptSizeSpeech(userText)) {
         schedulePromptBrain(userText);
         return;
@@ -3530,15 +4499,18 @@ const LiveAvatarSessionComponent: React.FC<{
         if (didFileBug) return;
       }
 
-      if (
-        END_CONVERSATION_RE.test(userText) &&
-        !accountEmail &&
-        assistantLists.some((list) => list.items.length > 0) &&
-        (await offerAccountSetupForMemory(
-          "Before we wrap up, I can remember those lists next time if you create an account. It's just a quick email click. You ready?",
-        ))
-      ) {
-        schedulePromptBrain(userText);
+      if (hasEndSessionIntent(userText)) {
+        endSessionConfirmationPendingRef.current = true;
+        endSessionConfirmationAskedAtRef.current = Date.now();
+        const spoken = SESSION_END_CONFIRMATION_MESSAGE;
+        await interrupt();
+        if (mode === "FULL") {
+          stopListening();
+          resumeListeningAfterAvatarSpeech(5000);
+        }
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
         return;
       }
 
@@ -3559,37 +4531,6 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (await handleOnlineLookupSpeech(userText)) {
-        schedulePromptBrain(userText);
-        return;
-      }
-
-      const listIntent = detectListIntent(userText);
-
-      if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
-        setIsShoppingMode(false);
-        await interrupt();
-        const spoken = "I closed shopping mode.";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
-        schedulePromptBrain(userText);
-        return;
-      }
-
-      if (LIST_CLOSE_RE.test(userText)) {
-        setIsShoppingMode(false);
-        let spoken = "I closed the list.";
-        if (listIntent) {
-          ensureAssistantList(listIntent);
-          const ensured = lastEnsuredListRef.current;
-          spoken = `I opened the ${ensured?.title ?? listIntent.title}.`;
-        } else {
-          setActiveListId(null);
-        }
-        await interrupt();
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
         schedulePromptBrain(userText);
         return;
       }
@@ -3627,7 +4568,9 @@ const LiveAvatarSessionComponent: React.FC<{
           : null);
 
       const targetListId = inferredListIntent
-        ? ensureAssistantList(inferredListIntent)
+        ? ensureAssistantList(inferredListIntent, {
+            preferFresh: shouldStartFreshList(userText),
+          })
         : activeListId;
       const enteringShoppingMode = SHOPPING_MODE_OPEN_RE.test(userText);
 
@@ -3665,12 +4608,16 @@ const LiveAvatarSessionComponent: React.FC<{
         if (removeItems.length > 0) {
           const removed = removeItemsFromList(targetListId, removeItems);
           listActionSpoken = removed
-            ? `I took ${formatListItemsForSpeech(removeItems)} off the list.`
+            ? `I took ${
+                removeItems.length === 1 ? removeItems[0] : "those"
+              } off the list.`
             : `I do not see ${formatListItemsForSpeech(removeItems)} on this list.`;
         } else if (addItems.length > 0) {
           const added = addItemsToList(targetListId, addItems);
           listActionSpoken = added
-            ? `Added ${formatListItemsForSpeech(addItems)}.`
+            ? addItems.length === 1
+              ? `Added ${addItems[0]}.`
+              : "Added those."
             : `${formatListItemsForSpeech(addItems)} is already on the list.`;
         } else {
           const mentionedItem = findMentionedListItem(activeList, userText);
@@ -3704,7 +4651,11 @@ const LiveAvatarSessionComponent: React.FC<{
         if (!listActionSpoken && inferredListIntent) {
           const ensured = lastEnsuredListRef.current;
           const action = ensured?.wasNew ? "started" : "opened";
-          listActionSpoken = `I ${action} the ${ensured?.title ?? inferredListIntent.title}. Just tell me what goes on it.`;
+          const closeEducation = listCloseEducationSpokenRef.current
+            ? ""
+            : ` ${LIST_CLOSE_EDUCATION}`;
+          listCloseEducationSpokenRef.current = true;
+          listActionSpoken = `I ${action} the ${ensured?.title ?? inferredListIntent.title}. Just tell me what goes on it.${closeEducation}`;
         }
 
         if (
@@ -3724,7 +4675,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
         if (enteringShoppingMode) {
           const spoken =
-            "Got it. I'll keep the list up and stay out of the way. Tell me what to remove, or tap the X next to an item.";
+            "Got it. I'll keep the list up and stay out of the way. Tell me what to remove, or ask me to close the list.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -3747,7 +4698,7 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       if (mode === "CUSTOM" && visionMode !== "streaming") {
         schedulePromptBrain(userText);
-        await sendMessage(userText);
+        await sendMessage(buildMemoryAugmentedMessage(userText));
         return;
       }
       if (mode === "FULL" && visionMode !== "streaming") {
@@ -3763,7 +4714,7 @@ const LiveAvatarSessionComponent: React.FC<{
             text: normalizedUserText,
             at: Date.now(),
           };
-          await sendMessage(userText);
+          await sendMessage(buildMemoryAugmentedMessage(userText));
         }
         return;
       }
@@ -3958,7 +4909,7 @@ const LiveAvatarSessionComponent: React.FC<{
         customSpeechRecognition = new SpeechRecognitionCtor();
         customSpeechRecognition.continuous = true;
         customSpeechRecognition.interimResults = false;
-        customSpeechRecognition.lang = "en-US";
+        customSpeechRecognition.lang = navigator.language || "en-US";
         customSpeechRecognition.onresult = (event: any) => {
           if (isAvatarTalking) return;
           const results = Array.from(event.results ?? []);
@@ -4046,20 +4997,28 @@ const LiveAvatarSessionComponent: React.FC<{
     activeListId,
     addItemsToList,
     assistantLists,
+    buildMemoryAugmentedMessage,
+    deleteAssistantList,
     ensureAssistantList,
     fileBugReport,
     handleAccountSetupSpeech,
+    handleEndSession,
     handleOnlineLookupSpeech,
     handlePromptSizeSpeech,
     moveActiveList,
     offerAccountSetupForMemory,
     removeItemsFromList,
+    rememberConversationLine,
+    resumeListeningAfterAvatarSpeech,
     schedulePromptBrain,
+    savePendingAccountState,
     sendMessage,
     setListAccentColor,
     setListDisplayStyle,
+    stopListening,
     hasUserPressedVoiceStart,
     voiceIsActive,
+    clearAccountEmailEntry,
   ]);
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
@@ -4740,7 +5699,7 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {accountNotice && !isShoppingMode && (
-        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[75] rounded-lg border border-white/12 bg-black/82 px-4 py-3 text-white shadow-2xl backdrop-blur">
+        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[75] rounded-lg border border-[#f2be73]/45 bg-[#090604]/92 px-4 py-3 text-[#fff6e6] shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 text-sm font-semibold">{accountNotice}</p>
             <button
@@ -4748,7 +5707,7 @@ const LiveAvatarSessionComponent: React.FC<{
               aria-label="Dismiss account notice"
               title="Dismiss account notice"
               onClick={() => setAccountNotice(null)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f2be73]/16"
             >
               <X className="h-4 w-4" aria-hidden />
             </button>
@@ -4756,7 +5715,7 @@ const LiveAvatarSessionComponent: React.FC<{
           {accountVerificationUrl && (
             <a
               href={accountVerificationUrl}
-              className="mt-2 block rounded-md bg-white px-3 py-2 text-center text-sm font-bold text-black"
+              className="mt-2 block rounded-md border border-[#fff2d2] bg-[#f2be73] px-3 py-2 text-center text-sm font-black text-[#090604]"
             >
               Finish Account Setup
             </a>
@@ -4804,26 +5763,40 @@ const LiveAvatarSessionComponent: React.FC<{
               type="submit"
               className="shrink-0 rounded-md bg-[#e0aa62] px-4 py-2 text-sm font-black text-black"
             >
-              Use
+              Send Link
             </button>
           </div>
         </form>
       )}
 
       {onlineLookupNotice && !isShoppingMode && !emailEntryOpen && (
-        <div className="fixed left-1/2 top-[46%] z-[74] w-[min(88%,26rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#e0aa62]/25 bg-black/78 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur">
+        <div className="fixed left-1/2 top-[58%] z-[29] w-[min(94%,34rem)] min-h-[9.5rem] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#f1c477]/55 bg-[#100905]/88 px-5 py-5 text-[#f1c477] shadow-2xl backdrop-blur-md">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold">{onlineLookupNotice}</p>
+              <p className="text-[1.35rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
+              {onlineLookupPendingQueryRef.current &&
+                !onlineLookupLocationRef.current && (
+                  <button
+                    type="button"
+                    onClick={() => void requestSharedLocation()}
+                    className="mt-4 w-full rounded-full border border-[#f1c477]/50 bg-[#f1c477] px-5 py-3 text-lg font-black text-[#120905] shadow-[0_10px_24px_rgba(0,0,0,0.25)]"
+                  >
+                    Share Location
+                  </button>
+                )}
               {onlineLookupSources.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-4 grid gap-2">
                   {onlineLookupSources.map((source) => (
                     <a
                       key={source.url}
                       href={source.url}
-                      target="_blank"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void interrupt();
+                        setSourcePreview(source);
+                      }}
                       rel="noreferrer"
-                      className="max-w-[13rem] truncate rounded-full bg-white/12 px-3 py-1 text-[0.78rem] font-semibold text-[#e0aa62] underline-offset-2 hover:underline"
+                      className="block truncate rounded-md border border-[#f1c477]/24 bg-[#2a170b]/82 px-3 py-2 text-base font-black text-[#f1c477] underline-offset-2 hover:underline"
                     >
                       {source.title}
                     </a>
@@ -4838,14 +5811,54 @@ const LiveAvatarSessionComponent: React.FC<{
                 title="Dismiss online lookup"
                 onClick={() => {
                   onlineLookupPendingQueryRef.current = null;
+                  onlineLookupLocationRef.current = null;
                   setOnlineLookupNotice(null);
                   setOnlineLookupSources([]);
+                  setSourcePreview(null);
+                  setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white"
+                className="flex h-12 w-12 items-center justify-center rounded-full border border-[#f1c477]/35 bg-[#f1c477]/12 text-[#f1c477]"
               >
-                <X className="h-4 w-4" aria-hidden />
+                <X className="h-6 w-6" aria-hidden />
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {sourcePreview && !isShoppingMode && (
+        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+7rem)] z-[90] mx-auto flex max-w-[36rem] flex-col overflow-hidden rounded-lg border border-[#f1c477]/55 bg-[#100905]/94 text-[#f1c477] shadow-2xl backdrop-blur-md">
+          <div className="flex items-center justify-between gap-3 border-b border-[#f1c477]/20 px-4 py-3">
+            <p className="min-w-0 truncate text-base font-black">
+              {sourcePreview.title}
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
+              <a
+                href={sourcePreview.url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full bg-[#f1c477] px-3 py-2 text-sm font-black text-[#120905]"
+              >
+                Open
+              </a>
+              <button
+                type="button"
+                aria-label="Close source preview"
+                title="Close source preview"
+                onClick={() => {
+                  setSourcePreview(null);
+                  if (hasUserPressedVoiceStart && !voiceIsActive) {
+                    void handleVoiceStartStop();
+                  }
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-[#f1c477]/30 bg-[#f1c477]/12 text-[#f1c477]"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+          </div>
+          <div className="px-4 py-5 text-sm font-semibold leading-relaxed text-[#f6d49a]">
+            <p>Open this source in a browser tab, then come right back to 6.</p>
           </div>
         </div>
       )}
@@ -4865,7 +5878,7 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2 md:top-[calc(11.5vh-5.15rem)] md:pt-0">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="relative top-[0.95rem] -translate-x-1 sm:-translate-x-1.5 inline-block bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-transparent text-[2.35rem] sm:text-[3rem] md:text-[4rem] font-bold italic tracking-normal leading-none drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-3 bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-[2.35rem] sm:text-[3rem] md:text-[4rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
@@ -5213,14 +6226,23 @@ const LiveAvatarSessionComponent: React.FC<{
 
           {activeList && isShoppingMode && (
             <div
-              className="fixed inset-0 z-[80] flex flex-col px-5 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)]"
-              style={{ backgroundColor: "Canvas", color: "CanvasText", colorScheme: "light dark" }}
+              className="fixed inset-0 z-[80] flex flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)]"
+              style={{
+                background: activeListUsesBlackTheme
+                  ? "linear-gradient(145deg, #f7f2e8 0%, #d7ccba 48%, #a7977f 100%)"
+                  : `radial-gradient(circle at 18% 8%, ${activeListTheme.soft}, transparent 34%), linear-gradient(145deg, #120b08 0%, #24150d 52%, #050302 100%)`,
+                color: activeListTheme.foreground,
+                colorScheme: activeListUsesBlackTheme ? "light" : "dark",
+              }}
             >
-              <div className="mb-4 flex items-center justify-between gap-3">
+              <div
+                className="mb-4 flex items-center justify-between gap-3 rounded-[1.65rem] border px-4 py-3 shadow-[0_14px_36px_rgba(0,0,0,0.24)] backdrop-blur-md"
+                style={compactListPanelStyle}
+              >
                 <div className="min-w-0">
                   <p
                     className="text-xs font-bold uppercase tracking-[0.16em]"
-                    style={{ color: activeListTheme.foreground }}
+                    style={compactListMutedStyle}
                   >
                     6 Listening
                   </p>
@@ -5236,29 +6258,31 @@ const LiveAvatarSessionComponent: React.FC<{
                     setIsShoppingMode(false);
                     setActiveListId(null);
                   }}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-current/15"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition hover:scale-105"
+                  style={compactListControlStyle}
                 >
                   <X className="h-5 w-5" aria-hidden />
                 </button>
               </div>
 
               <div
-                className="mb-5 h-1.5 w-full rounded-full"
+                className="mb-5 h-1.5 w-full rounded-full shadow-[0_0_24px_currentColor]"
                 style={{ backgroundColor: activeListTheme.foreground }}
               />
 
               <div ref={shoppingListScrollRef} className="min-h-0 flex-1 overflow-y-auto">
                 {activeList.items.length > 0 ? (
-                  <ol className="space-y-4 text-2xl font-bold leading-tight">
+                  <ol className="space-y-3 text-2xl font-bold leading-tight">
                     {activeList.items.map((item, index) => (
                       <li
                         key={`${item}-${index}`}
                         data-list-index={index}
-                        className="grid min-h-[3.75rem] grid-cols-[2.4rem_1fr_3rem] items-center gap-3 border-b border-current/10 pb-3"
+                        className="grid min-h-[4rem] grid-cols-[2.4rem_1fr_3rem] items-center gap-3 rounded-[1.35rem] border px-3 py-3 shadow-[0_10px_28px_rgba(0,0,0,0.18)]"
+                        style={compactListRowStyle}
                       >
                         <span
-                          className="text-right text-xl"
-                          style={{ color: activeListTheme.foreground }}
+                          className="text-right text-xl font-black"
+                          style={compactListMutedStyle}
                         >
                           {activeList.displayStyle === "numbered"
                             ? `${index + 1}.`
@@ -5270,7 +6294,8 @@ const LiveAvatarSessionComponent: React.FC<{
                           aria-label={`Remove ${item}`}
                           title={`Remove ${item}`}
                           onClick={() => removeListItemAtIndex(activeList.id, index)}
-                          className="flex h-11 w-11 items-center justify-center rounded-full border border-current/15"
+                          className="flex h-11 w-11 items-center justify-center rounded-full border transition hover:scale-105"
+                          style={compactListControlStyle}
                         >
                           <X className="h-5 w-5" aria-hidden />
                         </button>
@@ -5278,8 +6303,8 @@ const LiveAvatarSessionComponent: React.FC<{
                     ))}
                   </ol>
                 ) : (
-                  <p className="pt-16 text-center text-2xl font-bold opacity-70">
-                    No items yet
+                  <p className="pt-16 text-center text-2xl font-black" style={compactListMutedStyle}>
+                    Blank list
                   </p>
                 )}
               </div>
@@ -5292,19 +6317,29 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             voiceIsActive &&
             !isShoppingMode &&
+            !onlineLookupNotice &&
             activeList && (
               <div
-                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.75rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col rounded-[2.75rem] border border-white/10 bg-neutral-700/42 px-6 py-5 shadow-[inset_0_1px_18px_rgba(255,255,255,0.06),0_14px_36px_rgba(0,0,0,0.42)] backdrop-blur-[4px]"
-                style={{ color: activeListTheme.foreground }}
+                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.55rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[2rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
+                style={compactListPanelStyle}
               >
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h2 className="min-w-0 flex-1 truncate text-[1.45rem] font-bold leading-none drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)]">
-                    {activeList.title}
-                  </h2>
+                <div
+                  className="absolute inset-x-6 top-0 h-1 rounded-b-full"
+                  style={{ backgroundColor: activeListTheme.foreground }}
+                />
+                <div className="mb-3 flex items-center justify-between gap-3 pt-1">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[0.68rem] font-black uppercase tracking-[0.16em]" style={compactListMutedStyle}>
+                      Active List
+                    </p>
+                    <h2 className="truncate text-[1.45rem] font-black leading-tight drop-shadow-[0_3px_16px_rgba(30,14,0,0.62)]">
+                      {activeList.title}
+                    </h2>
+                  </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <span
-                      className="rounded-full bg-black/20 px-3 py-1 text-[0.78rem] font-semibold uppercase"
-                      style={{ color: activeListTheme.foreground }}
+                      className="rounded-full border px-3 py-1 text-[0.78rem] font-black uppercase"
+                      style={compactListControlStyle}
                     >
                       {activeList.items.length || 0}
                     </span>
@@ -5316,7 +6351,8 @@ const LiveAvatarSessionComponent: React.FC<{
                         setIsShoppingMode(false);
                         setActiveListId(null);
                       }}
-                      className="flex h-8 w-8 items-center justify-center rounded-full bg-black/24 opacity-85 transition hover:bg-black/38 hover:opacity-100"
+                      className="flex h-8 w-8 items-center justify-center rounded-full border opacity-90 transition hover:scale-105 hover:opacity-100"
+                      style={compactListControlStyle}
                     >
                       <X className="h-4 w-4" aria-hidden />
                     </button>
@@ -5324,14 +6360,15 @@ const LiveAvatarSessionComponent: React.FC<{
                 </div>
                 <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
                   {activeList.items.length > 0 ? (
-                    <ol className="space-y-2.5 text-[1.12rem] font-semibold leading-tight">
+                    <ol className="space-y-2 text-[1.06rem] font-bold leading-tight">
                       {activeList.items.map((item, index) => (
                         <li
                           key={`${item}-${index}`}
                           data-list-index={index}
-                          className="grid grid-cols-[2rem_1fr_2.25rem] items-start gap-2"
+                          className="grid min-h-[2.95rem] grid-cols-[2rem_1fr_2.25rem] items-center gap-2 rounded-[1.1rem] border px-2.5 py-2 shadow-[0_8px_20px_rgba(0,0,0,0.18)]"
+                          style={compactListRowStyle}
                         >
-                          <span className="text-right opacity-65">
+                          <span className="text-right text-[0.94rem] font-black" style={compactListMutedStyle}>
                             {activeList.displayStyle === "numbered"
                               ? `${index + 1}.`
                               : "•"}
@@ -5344,7 +6381,8 @@ const LiveAvatarSessionComponent: React.FC<{
                             onClick={() =>
                               removeListItemAtIndex(activeList.id, index)
                             }
-                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/24 opacity-80 transition hover:bg-black/38 hover:opacity-100"
+                            className="flex h-8 w-8 items-center justify-center rounded-full border opacity-85 transition hover:scale-105 hover:opacity-100"
+                            style={compactListControlStyle}
                           >
                             <X className="h-4 w-4" aria-hidden />
                           </button>
@@ -5352,8 +6390,8 @@ const LiveAvatarSessionComponent: React.FC<{
                       ))}
                     </ol>
                   ) : (
-                    <p className="pt-6 text-center text-[1.2rem] font-semibold leading-snug opacity-80">
-                      No items yet
+                    <p className="pt-6 text-center text-[1.2rem] font-black leading-snug" style={compactListMutedStyle}>
+                      Blank list
                     </p>
                   )}
                 </div>
