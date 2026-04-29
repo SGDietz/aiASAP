@@ -1,41 +1,23 @@
 import { NextResponse } from "next/server";
-import {
-  accountCookieHeader,
-  consumePendingAccountLink,
-  createStorageAccountSession,
-  saveStorageUserLists,
-  saveStorageUserResume,
-} from "../../../../src/lib/accountPersistence";
+import { getAccountCookieName } from "../../../../src/lib/accountPersistence";
 
-function redirectHome(request: Request, status: "verified" | "expired" | "error") {
-  const url = new URL(request.url);
-  url.pathname = "/";
-  url.search = `?account=${status}`;
-  return url;
+function clearAccountCookieHeader() {
+  return [
+    `${getAccountCookieName()}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+    "Secure",
+  ].join("; ");
 }
 
 export async function GET(request: Request) {
-  try {
-    const token = new URL(request.url).searchParams.get("token") ?? "";
-    if (token.length < 20) {
-      return NextResponse.redirect(redirectHome(request, "error"));
-    }
+  const url = new URL(request.url);
+  url.pathname = "/";
+  url.search = "";
 
-    const link = await consumePendingAccountLink(token);
-    if (!link) return NextResponse.redirect(redirectHome(request, "expired"));
-
-    const { user, sessionToken } = await createStorageAccountSession(
-      link.email,
-      link.fullName,
-    );
-    if (link.lists.length > 0) await saveStorageUserLists(user.id, link.lists);
-    await saveStorageUserResume(user.id, link.resumeState);
-
-    const response = NextResponse.redirect(redirectHome(request, "verified"));
-    response.headers.append("Set-Cookie", accountCookieHeader(sessionToken));
-    return response;
-  } catch (error) {
-    console.error("account verify failed:", error);
-    return NextResponse.redirect(redirectHome(request, "error"));
-  }
+  const response = NextResponse.redirect(url);
+  response.headers.append("Set-Cookie", clearAccountCookieHeader());
+  return response;
 }

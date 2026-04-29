@@ -1,12 +1,17 @@
 import { assertAllowedOrigin } from "../../../../src/lib/apiRouteSecurity";
-import {
-  getAccountCookieName,
-  getStorageAccountFromSessionToken,
-  loadStorageUserLists,
-  loadStorageUserResume,
-  parseCookie,
-} from "../../../../src/lib/accountPersistence";
+import { getAccountCookieName } from "../../../../src/lib/accountPersistence";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
+
+function clearAccountCookieHeader() {
+  return [
+    `${getAccountCookieName()}=`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+    "Secure",
+  ].join("; ");
+}
 
 export async function GET(request: Request) {
   const originErr = assertAllowedOrigin(request);
@@ -14,32 +19,14 @@ export async function GET(request: Request) {
   const rateLimitErr = await checkRateLimit(request);
   if (rateLimitErr) return rateLimitErr;
 
-  try {
-    const token = parseCookie(request, getAccountCookieName());
-    const user = await getStorageAccountFromSessionToken(token);
-    if (!user) {
-      return new Response(JSON.stringify({ authenticated: false }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const lists = await loadStorageUserLists(user.id);
-    const resumeState = await loadStorageUserResume(user.id);
-    return new Response(
-      JSON.stringify({
-        authenticated: true,
-        user: { email: user.email, fullName: user.full_name },
-        lists,
-        resumeState,
-      }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
-  } catch (error) {
-    console.error("account me failed:", error);
-    return new Response(JSON.stringify({ error: "Failed to load account" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  return new Response(
+    JSON.stringify({ authenticated: false, mvp: true }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": clearAccountCookieHeader(),
+      },
+    },
+  );
 }

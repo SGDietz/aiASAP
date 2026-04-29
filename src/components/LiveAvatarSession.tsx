@@ -46,6 +46,7 @@ const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
   "If you want this list off the screen, just ask me to close the list.";
+const ACCOUNT_MVP_DISABLED = true;
 
 const ACCOUNT_MEMORY_VALUE_LINES = [
   "With an account, your lists stay intact, I remember the last conversation, and we pick up where we left off every time.",
@@ -1562,7 +1563,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const [deviceProfile, setDeviceProfile] =
     useState<DeviceProfile>(loadDeviceProfile);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
-  const [accountAuthChecked, setAccountAuthChecked] = useState(false);
+  const [accountAuthChecked, setAccountAuthChecked] = useState(true);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
     string | null
@@ -1712,18 +1713,9 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const buildMemoryAugmentedMessage = useCallback(
     (message: string) => {
-      const memory = accountMemorySnapshotRef.current;
-      if (
-        !accountEmail ||
-        !memory ||
-        accountMemoryContextInjectedRef.current
-      ) {
-        return message;
-      }
-      accountMemoryContextInjectedRef.current = true;
-      return `${memory.contextText}\n\nThe user just said: ${message}\nRespond naturally as 6. Keep the screen clean unless they ask you to open a list, search, or location.`;
+      return message;
     },
-    [accountEmail],
+    [],
   );
 
   const buildAccountResumeState = useCallback(() => {
@@ -1772,45 +1764,19 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const savePendingAccountState = useCallback(
     (options: { keepalive?: boolean } = {}) => {
-      const stateToken = accountPendingStateTokenRef.current;
-      if (!stateToken || accountEmail) return;
-      const body = JSON.stringify({
-        stateToken,
-        sessionId: dbSessionIdRef.current,
-        lists: assistantLists,
-        resumeState: buildAccountResumeState(),
-      });
-
-      if (
-        options.keepalive &&
-        typeof navigator !== "undefined" &&
-        typeof navigator.sendBeacon === "function"
-      ) {
-        const blob = new Blob([body], { type: "application/json" });
-        if (navigator.sendBeacon("/api/account/pending-state", blob)) return;
-      }
-
-      void fetch("/api/account/pending-state", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        keepalive: options.keepalive,
-      }).catch((error) =>
-        console.warn("Pending account state save failed:", error),
-      );
+      void options;
+      return;
     },
-    [accountEmail, assistantLists, buildAccountResumeState],
+    [],
   );
 
   useEffect(() => {
     try {
-      const token = window.localStorage.getItem(
-        ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY,
-      );
-      if (token) accountPendingStateTokenRef.current = token;
+      window.localStorage.removeItem(ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY);
     } catch {
-      // Pending account state is best-effort only.
+      // Pending account state is disabled for the MVP.
     }
+    accountPendingStateTokenRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -1970,6 +1936,33 @@ const LiveAvatarSessionComponent: React.FC<{
   }, [assistantLists]);
 
   useEffect(() => {
+    if (ACCOUNT_MVP_DISABLED) {
+      accountListsLoadedRef.current = true;
+      accountMemorySnapshotRef.current = null;
+      accountMemoryContextInjectedRef.current = false;
+      accountPendingStateTokenRef.current = null;
+      recentConversationRef.current = [];
+      lastUserTextRef.current = "";
+      lastAvatarResponseRef.current = "";
+      setAccountEmail(null);
+      setAccountAuthChecked(true);
+      setAccountNotice(null);
+      setAccountVerificationUrl(null);
+      setPostVerifyGreeting(null);
+      setAssistantLists([]);
+      setActiveListId(null);
+      setIsShoppingMode(false);
+      try {
+        window.localStorage.removeItem(ASSISTANT_LISTS_STORAGE_KEY);
+        window.localStorage.removeItem(DEVICE_PROFILE_STORAGE_KEY);
+        window.localStorage.removeItem(ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY);
+      } catch {
+        // Fresh MVP sessions must not depend on browser storage cleanup.
+      }
+      void fetch("/api/account/me", { cache: "no-store" }).catch(() => {});
+      return;
+    }
+
     let cancelled = false;
     fetch("/api/account/me")
       .then(async (response) => {
@@ -2682,40 +2675,23 @@ const LiveAvatarSessionComponent: React.FC<{
   }, []);
 
   const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
-    if (
-      accountEmail ||
-      accountSetupAwaitingReadyRef.current ||
-      accountSetupAwaitingEmailRef.current
-    ) {
-      return false;
-    }
-    if (
-      accountSetupDeclinedAtRef.current > 0 &&
-      Date.now() - accountSetupDeclinedAtRef.current <
-        ACCOUNT_SETUP_REOFFER_COOLDOWN_MS
-    ) {
-      return false;
-    }
-
-    accountSetupOfferMadeRef.current = true;
-    accountSetupAwaitingReadyRef.current = true;
-    accountSetupAwaitingEmailRef.current = false;
-    accountSetupPendingEmailRef.current = null;
-    accountSetupRejectedEmailRef.current = null;
-    accountSetupEmailMissCountRef.current = 0;
-    const spoken = buildAccountMemoryOffer(
-      customSpoken,
-      deviceProfileRef.current.greetingCount,
-    );
-    await repeat(spoken);
-    lastAvatarResponseRef.current = spoken;
-    rememberConversationLine("assistant", spoken);
-    lastVisionResponseTimeRef.current = Date.now();
-    return true;
-  }, [accountEmail, rememberConversationLine, repeat]);
+    void customSpoken;
+    return false;
+  }, []);
 
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
+      if (ACCOUNT_MVP_DISABLED) {
+        if (!ACCOUNT_SETUP_TRIGGER_RE.test(userText)) return false;
+        clearAccountEmailEntry();
+        const spoken =
+          "For this MVP, every new session starts blank. I can help with this session right now.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+
       const contact = extractContactDetails(userText);
       const correctedEmail = mergeEmailDomainCorrection(
         userText,
@@ -2836,6 +2812,7 @@ const LiveAvatarSessionComponent: React.FC<{
       return false;
     },
     [
+      clearAccountEmailEntry,
       confirmAccountEmailCandidate,
       handleEmailMiss,
       openEmailEntry,
@@ -3541,8 +3518,6 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const resetAnonymousSessionState = useCallback(() => {
-    if (accountEmail) return;
-
     accountMemorySnapshotRef.current = null;
     accountMemoryContextInjectedRef.current = false;
     accountPendingStateTokenRef.current = null;
@@ -3586,7 +3561,7 @@ const LiveAvatarSessionComponent: React.FC<{
     setIsOnlineLookupLoading(false);
     setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
     setDissolvingPrompt(null);
-  }, [accountEmail]);
+  }, []);
 
   const handleVoiceStartStop = useCallback(async () => {
     if (voiceIsActive) {
@@ -3620,23 +3595,16 @@ const LiveAvatarSessionComponent: React.FC<{
       } else {
         setIsCustomVoiceActive(true);
       }
-      const profile = deviceProfileRef.current;
-      const isSignedInReturnUser = Boolean(accountEmail);
-      const accountMemory = accountMemorySnapshotRef.current;
-      const greeting = isSignedInReturnUser
-        ? buildReturningGreeting(profile, accountMemory)
-        : VOICE_START_GREETING;
-      if (isSignedInReturnUser) {
-        setDeviceProfile((current) => ({
-          ...current,
-          greetingCount: current.greetingCount + 1,
-          updatedAt: Date.now(),
-        }));
-      }
+      const greeting = VOICE_START_GREETING;
       if (mode === "FULL") {
-        resumeListeningAfterAvatarSpeech(9500);
+        resumeListeningAfterAvatarSpeech(9000);
       }
       await repeat(greeting);
+      if (mode === "FULL") {
+        window.setTimeout(() => {
+          startListening();
+        }, 900);
+      }
       lastAvatarResponseRef.current = greeting;
       rememberConversationLine("assistant", greeting);
       lastVisionResponseTimeRef.current = Date.now();
@@ -3657,7 +3625,6 @@ const LiveAvatarSessionComponent: React.FC<{
     sessionState,
     isStreamReady,
     ensureAudioOutputReady,
-    accountEmail,
     accountAuthChecked,
     rememberConversationLine,
     resetAnonymousSessionState,
@@ -5770,7 +5737,7 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {accountNotice && !isShoppingMode && (
+      {!ACCOUNT_MVP_DISABLED && accountNotice && !isShoppingMode && (
         <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[75] rounded-lg border border-[#f2be73]/45 bg-[#090604]/92 px-4 py-3 text-[#fff6e6] shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 text-sm font-semibold">{accountNotice}</p>
@@ -5795,7 +5762,7 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {emailEntryOpen && !isShoppingMode && (
+      {!ACCOUNT_MVP_DISABLED && emailEntryOpen && !isShoppingMode && (
         <form
           onSubmit={(event) => void handleTypedAccountEmailSubmit(event)}
           className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+5.2rem)] z-[76] flex w-[min(92%,30rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-[#e0aa62]/28 bg-[#120b06]/90 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur"
