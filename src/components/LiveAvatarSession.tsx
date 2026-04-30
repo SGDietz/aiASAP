@@ -1063,6 +1063,9 @@ function cleanOnlineLookupLine(value: string): string | null {
     .replace(/^[\s:;,.()-]+|[\s:;,.()-]+$/g, "")
     .trim();
   if (!cleaned) return null;
+  if (/^(?:here are|i found|these are|some options|events? happening)\b/i.test(cleaned)) {
+    return null;
+  }
   return cleaned.length > 92 ? `${cleaned.slice(0, 89).trim()}...` : cleaned;
 }
 

@@ -50,6 +50,9 @@ function cleanAnswerLine(value: string): string | null {
     .replace(/^[\s:;,.()-]+|[\s:;,.()-]+$/g, "")
     .trim();
   if (!cleaned) return null;
+  if (/^(?:here are|i found|these are|some options|events? happening)\b/i.test(cleaned)) {
+    return null;
+  }
   return cleaned.length > 95 ? `${cleaned.slice(0, 92).trim()}...` : cleaned;
 }
 
@@ -156,7 +159,7 @@ export async function POST(request: Request) {
           {
             role: "system",
             content:
-              "You help a-i-ASAP's voice assistant, 6, find current online information. Return exactly 3 short, useful starter ideas near the supplied location, formatted as plain numbered lines. Each line must be under 80 characters. Be practical and spoken-friendly. Never dump a top 10 list. Never assume a city, state, or country that was not supplied by the location field or current search results. If the location is vague or insufficient, say you need a ZIP code or city. Do not invent addresses, hours, closures, fees, or safety conditions. Do not include markdown links, source names, URLs, or tell the user to click links. ZIP 21093 is Timonium, Maryland.",
+              "You help a-i-ASAP's voice assistant, 6, find current online information. Return exactly 3 short, useful starter ideas near the supplied location, formatted as plain numbered lines. Each line must start with the actual event, place, or option name. No intro line. No labels like When, Where, Host, or Link. Each line must be under 80 characters. Be practical and spoken-friendly. Never dump a top 10 list. Never assume a city, state, or country that was not supplied by the location field or current search results. If the location is vague or insufficient, say you need a ZIP code or city. Do not invent addresses, hours, closures, fees, or safety conditions. Do not include markdown links, source names, URLs, or tell the user to click links. ZIP 21093 is Timonium, Maryland.",
           },
           {
             role: "user",
