@@ -203,7 +203,7 @@ export async function POST(request: Request) {
   });
   if (!insertRes.ok) {
     const body = await insertRes.text().catch(() => "");
-    console.error("media/capture insert failed", insertRes.status, body);
+    console.warn("media/capture insert skipped", insertRes.status, body);
     return new Response(
       JSON.stringify({
         ok: true,
