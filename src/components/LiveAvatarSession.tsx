@@ -377,7 +377,7 @@ const LIST_DONE_RE =
   /\b(?:that'?s all|that is all|that'?s it|that is it|all done|done|finished|complete|nothing else|no more)\b/i;
 const ACCOUNT_SETUP_REOFFER_COOLDOWN_MS = 90_000;
 const END_CONVERSATION_RE =
-  /\b(?:end|stop|finish|quit|exit|close|shut\s+down|wrap up|done with|all done|that'?s all)(?:\s+(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6|for now))?\b|\bi'?m done\b/i;
+  /\b(?:end|stop|finish|quit|exit|close|shut\s+down|wrap up|done with)\s+(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6)\b|\b(?:i'?m done|all done|that'?s all)\s+(?:with\s+)?(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6|for now)\b/i;
 const END_SESSION_CONFIRM_RE =
   /\b(?:yes|yeah|yep|yup|yea|sure|ok|okay|correct|right|do it|go ahead|close|stop|end|quit|exit|shut\s+(?:it\s+)?down|that'?s right|that is right|please)\b/i;
 const END_SESSION_CANCEL_RE =
@@ -389,7 +389,7 @@ const ONLINE_LOOKUP_ACTION_RE =
 const ONLINE_LOOKUP_DIRECT_RE =
   /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|weekend|cool things to do|concert|concerts|show|shows|events?|restaurants?)\b/i;
 const ONLINE_LOOKUP_CLOSE_RE =
-  /\b(?:close|hide|dismiss|clear|stop|end|remove|take\s+(?:off|away|down)|get\s+rid\s+of)\s+(?:the|this|that|my|a|an)?\s*(?:search|results?|sources?|lookup|online\s+search|location(?:\s+(?:box|popup|pop\s*up|panel|window))?|box|popup|pop\s*up|panel|window|things\s+that\s+came\s+up)(?:\s+(?:from|off)\s+(?:the\s+)?screen)?\b/i;
+  /\b(?:close|hide|dismiss|clear|stop|end|remove|take\s+(?:off|away|down)|get\s+rid\s+of)\s+(?:the|this|that|my|a|an)?\s*(?:search|results?|sources?|lookup|online\s+search|events?|pill\s*boxes?|pills?|location(?:\s+(?:box|popup|pop\s*up|panel|window))?|box|popup|pop\s*up|panel|window|things\s+that\s+came\s+up)(?:\s+(?:from|off)\s+(?:the\s+)?screen)?\b|\bmake\s+(?:the|this|that|my)?\s*(?:events?|search|results?|box|popup|pop\s*up|panel|pill\s*boxes?|pills?)\s+go\s+away\b/i;
 const LOCATION_HINT_RE =
   /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
 const LOCATION_SHARE_CHOICE_RE =
@@ -1042,6 +1042,30 @@ function soundsLikeInvalidZipCode(text: string): boolean {
   return digits.length > 0 && digits.length < 5;
 }
 
+const ZIP_LOCATION_OVERRIDES: Record<string, string> = {
+  "21093": "Timonium, MD 21093",
+};
+
+function normalizeLookupLocation(value: string): string {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  const zip = cleaned.match(/\b\d{5}(?:-\d{4})?\b/)?.[0]?.slice(0, 5);
+  if (zip && ZIP_LOCATION_OVERRIDES[zip]) return ZIP_LOCATION_OVERRIDES[zip];
+  return cleaned;
+}
+
+function cleanOnlineLookupLine(value: string): string | null {
+  const cleaned = value
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\*\*/g, "")
+    .replace(/\bEllicott City,?\s+MD\b(?=.*\b21093\b)/gi, "Timonium, MD")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s:;,.()-]+|[\s:;,.()-]+$/g, "")
+    .trim();
+  if (!cleaned) return null;
+  return cleaned.length > 92 ? `${cleaned.slice(0, 89).trim()}...` : cleaned;
+}
+
 function getOnlineLookupResultLines(answer: string): string[] {
   const numberedSegments = answer
     .replace(/\r/g, "")
@@ -1049,13 +1073,25 @@ function getOnlineLookupResultLines(answer: string): string[] {
     .map((line) =>
       line
         .replace(/^\s*(?:[-*]|\d{1,2}[.)])\s*/, "")
-        .replace(/\s+/g, " ")
-        .trim(),
+        .replace(/\s+/g, " "),
     )
-    .filter(Boolean);
+    .map(cleanOnlineLookupLine)
+    .filter((line): line is string => Boolean(line));
   return (numberedSegments.length > 1 ? numberedSegments : [answer.trim()])
-    .filter(Boolean)
-    .slice(0, 4);
+    .map(cleanOnlineLookupLine)
+    .filter((line): line is string => Boolean(line))
+    .slice(0, 3);
+}
+
+function formatOnlineLookupSpeech(lines: string[]): string {
+  if (lines.length === 0) {
+    return "I found a few options. Want me to narrow them down?";
+  }
+  const spokenLines = lines.slice(0, 3).map((line, index) => {
+    const short = line.replace(/^\d{1,2}[.)]\s*/, "").slice(0, 70).trim();
+    return `${index + 1}. ${short}`;
+  });
+  return `I found ${spokenLines.length} quick ideas: ${spokenLines.join("; ")}. Want one of those, or a few more?`;
 }
 
 function extractListItems(
@@ -3128,6 +3164,7 @@ const LiveAvatarSessionComponent: React.FC<{
     async (query: string, location: string) => {
       if (isOnlineLookupLoading) return true;
       const topic = summarizeOnlineLookupTopic(query);
+      const lookupLocation = normalizeLookupLocation(location);
       setIsOnlineLookupLoading(true);
       setOnlineLookupSources([]);
       setOnlineLookupResultLines([]);
@@ -3137,17 +3174,17 @@ const LiveAvatarSessionComponent: React.FC<{
         const response = await fetch("/api/online-search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, location }),
+          body: JSON.stringify({ query, location: lookupLocation }),
         });
         const data = await response.json().catch(() => null);
         if (!response.ok || typeof data?.answer !== "string") {
           throw new Error(data?.error || "Online lookup failed");
         }
+        const resultLines = getOnlineLookupResultLines(data.answer);
         setOnlineLookupSources([]);
-        setOnlineLookupResultLines(getOnlineLookupResultLines(data.answer));
+        setOnlineLookupResultLines(resultLines);
         setOnlineLookupNotice(null);
-        const spoken =
-          `${data.answer} Which one sounds best, or do you want a few more?`;
+        const spoken = formatOnlineLookupSpeech(resultLines);
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -3245,7 +3282,7 @@ const LiveAvatarSessionComponent: React.FC<{
         const location =
           extractLocationHint(text) ?? (isLikelyTypedLocation(text) ? text : null);
         if (!location) return false;
-        onlineLookupLocationRef.current = location;
+        onlineLookupLocationRef.current = normalizeLookupLocation(location);
         if (shouldAskPreferencesBeforeLookup(pendingQuery)) {
           const spoken = getLookupPreferenceQuestion(pendingQuery);
           setOnlineLookupNotice(" ");
@@ -3264,7 +3301,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       const location = extractLocationHint(text);
       if (location) {
-        onlineLookupLocationRef.current = location;
+        onlineLookupLocationRef.current = normalizeLookupLocation(location);
         if (shouldAskPreferencesBeforeLookup(text)) {
           onlineLookupPendingQueryRef.current = text;
           const spoken = getLookupPreferenceQuestion(text);
@@ -5724,18 +5761,18 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {(onlineLookupNotice || onlineLookupResultLines.length > 0) && !isShoppingMode && !emailEntryOpen && (
-        <div className="fixed left-1/2 top-[58%] z-[29] w-[min(86%,31rem)] min-h-[9.5rem] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-[#f1c477]/55 bg-[#100905]/88 px-5 py-5 text-[#f1c477] shadow-2xl backdrop-blur-md">
+        <div className="fixed left-1/2 top-[43%] md:top-[51%] z-[29] w-[min(84%,29rem)] max-h-[32vh] min-h-[7.25rem] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-[#e0aa62]/70 bg-[#100905]/90 px-4 py-4 text-[#f1c477] shadow-[0_18px_52px_rgba(0,0,0,0.5)] backdrop-blur-md">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1 overflow-y-auto pr-1">
               {onlineLookupNotice?.trim() && (
-                <p className="text-[1.35rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
+                <p className="text-[1.2rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
               )}
               {onlineLookupResultLines.length > 0 && (
                 <div className="grid gap-2">
                   {onlineLookupResultLines.map((line, index) => (
                     <div
                       key={`${index}-${line}`}
-                      className="rounded-md border border-[#f1c477]/24 bg-[#2a170b]/82 px-3 py-2 text-base font-black leading-snug text-[#f1c477]"
+                      className="rounded-md border border-[#e0aa62]/45 bg-[#2a170b]/86 px-3 py-2 text-[0.95rem] font-black leading-snug text-[#f1c477]"
                     >
                       {line}
                     </div>
@@ -5757,7 +5794,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   setSourcePreview(null);
                   setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
                 }}
-                className="flex h-12 w-12 items-center justify-center rounded-full border border-[#f1c477]/35 bg-[#f1c477]/12 text-[#f1c477]"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[#e0aa62]/48 bg-[#e0aa62]/12 text-[#f1c477]"
               >
                 <X className="h-6 w-6" aria-hidden />
               </button>
@@ -6326,7 +6363,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.72rem] md:min-h-[3.12rem] w-[min(100%,17.25rem)] md:w-[min(100%,21rem)] overflow-hidden rounded-full border border-white/10 bg-neutral-600/35 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.05),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.72rem] md:min-h-[3.12rem] w-[min(100%,17.25rem)] md:w-[min(100%,21rem)] overflow-hidden rounded-full border border-[#e0aa62]/22 bg-[#1c1712]/50 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(224,170,98,0.08),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"

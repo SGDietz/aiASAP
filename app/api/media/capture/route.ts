@@ -209,9 +209,9 @@ export async function POST(request: Request) {
         ok: true,
         storage_path: storagePath,
         metadata_path: metadataRes.ok ? metadataPath : null,
-        warning: "file stored but media_events insert failed",
+        warning: "file stored; media_events insert failed",
       }),
-      { status: 202, headers: { "Content-Type": "application/json" } },
+      { status: 200, headers: { "Content-Type": "application/json" } },
     );
   }
 

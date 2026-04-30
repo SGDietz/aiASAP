@@ -23,20 +23,24 @@
 }
 
 @layer components {
-  /* Inset button: white lettering inset in semi-transparent grey (button + text recessed) */
+  /* Inset button: aiASAP amber on dark brand glass. */
   .btn-inset {
-    background: rgba(80, 80, 80, 0.55);
-    color: white;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    /* Inset text: shadow makes white type look carved into the surface */
+    background: linear-gradient(180deg, rgba(53, 39, 27, 0.88), rgba(22, 15, 10, 0.92));
+    color: #f1c477;
+    box-shadow:
+      inset 0 1px 0 rgba(241, 196, 119, 0.18),
+      inset 0 -10px 24px rgba(0, 0, 0, 0.2),
+      0 10px 26px rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(224, 170, 98, 0.42);
     text-shadow:
       0 1px 0 rgba(0, 0, 0, 0.4),
-      0 -1px 0 rgba(255, 255, 255, 0.06);
+      0 -1px 0 rgba(241, 196, 119, 0.08);
   }
   .btn-inset:hover:not(:disabled) {
-    background: rgba(90, 90, 90, 0.6);
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+    background: linear-gradient(180deg, rgba(72, 51, 31, 0.95), rgba(30, 20, 12, 0.96));
+    box-shadow:
+      inset 0 1px 0 rgba(241, 196, 119, 0.22),
+      0 12px 30px rgba(0, 0, 0, 0.32);
   }
   .btn-inset:disabled {
     opacity: 0.7;
@@ -47,7 +51,7 @@
     color: #d7a05a;
     text-shadow:
       0 1px 0 rgba(0, 0, 0, 0.4),
-      0 -1px 0 rgba(255, 255, 255, 0.06);
+      0 -1px 0 rgba(241, 196, 119, 0.08);
   }
 
   .aiasap-logo-mark {

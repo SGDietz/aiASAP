@@ -222,12 +222,12 @@ export const LiveAvatarDemo = () => {
 
   if (isExited) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-4">
-        <div className="text-inset text-2xl font-semibold">Session Ended</div>
-        <div className="text-inset text-center text-lg opacity-90">
+      <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#090604] text-[#f1c477]">
+        <div className="text-inset text-2xl font-black">Session Ended</div>
+        <div className="text-inset text-center text-lg opacity-95">
           Thank you for using aiASAP
         </div>
-        <div className="text-inset text-center text-base opacity-90">
+        <div className="text-inset text-center text-base opacity-95">
           👇 Wanna use again? Press the button below 👇
         </div>
         <button
@@ -237,7 +237,7 @@ export const LiveAvatarDemo = () => {
             sessionBootstrapRef.current = true;
             void startSession();
           }}
-          className="btn-inset py-2.5 px-6 rounded-lg text-base font-medium"
+          className="btn-inset rounded-lg px-7 py-2.5 text-base font-black"
         >
           Restart
         </button>
