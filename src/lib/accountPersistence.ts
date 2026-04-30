@@ -58,7 +58,7 @@ const VALID_LIST_COLOR = new Set(["amber", "blue", "green", "rose", "purple", "w
 const LIST_ITEM_CHATTER_RE =
   /\b(?:i mean|i know|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|you mean|what are you|what is|what's)\b/i;
 const LIST_ITEM_FILLER_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|i guess|actually|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|grocery|groceries|shopping|walmart|list|lista|listas|liste)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|grocery|groceries|shopping|walmart|list|lista|listas|liste)$/i;
 const LIST_ITEM_VAGUE_RE = /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
 function supabaseHeaders(serviceRoleKey: string) {
@@ -78,10 +78,13 @@ function cleanText(value: unknown, max: number): string | null {
 
 function cleanStoredListItem(value: unknown): string | null {
   const cleaned = cleanText(value, MAX_ITEM_CHARS)
+    ?.replace(/^(?:let'?s|lets)\s+(?:on\s+)?(?:(?:their|there|the|my|our)\s+)?/i, "")
+    .replace(/^on\s+(?:(?:their|there|the|my|our)\s+)?/i, "")
     ?.replace(
       /^(?:(?:and|y|e|et|und)\s+)?(?:(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|ich brauche|ich will|fuege hinzu|f\u00fcge hinzu|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen)\s+/i,
       "",
     )
+    .replace(/^(?:some|a|an|the|their|there|my|our)\s+/i, "")
     .trim();
   if (!cleaned) return null;
   if (/[?]/.test(cleaned)) return null;
@@ -91,7 +94,7 @@ function cleanStoredListItem(value: unknown): string | null {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
   if (
-    /^(?:cose|cos|close|stop|avatar|six|6|to|the|and|great|thanks|thankyou|iknow|lets|letsmake|letsmakea|makeit|makeitblack|evendarker|darker|lighter|half|ineed|ineedhalf|somehalf|iwant|iwantsome|justputsomeonthere|putsomeonthere|someonthere|onthere|some|me|meon|lista|liste)$/.test(
+    /^(?:cose|cos|close|stop|avatar|six|6|to|the|and|great|thanks|thankyou|iknow|together|lets|letsmake|letsmakea|makeit|makeitblack|evendarker|darker|lighter|half|ineed|ineedhalf|somehalf|iwant|iwantsome|justputsomeonthere|putsomeonthere|someonthere|onthere|some|me|meon|lista|liste)$/.test(
       normalizedKey,
     )
   ) {

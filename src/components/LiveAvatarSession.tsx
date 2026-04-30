@@ -60,11 +60,20 @@ const RETURNING_GREETING_OPTIONS = [
 ];
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Explore aiASAP",
   "Plan This Weekend",
   "To Do List",
   "Start a Grocery List",
+  "Explore aiASAP",
 ];
+
+function keepExploreAiASAPLow(prompts: string[]): string[] {
+  const explore = prompts.find((prompt) => /^explore\s+aiasap$/i.test(prompt));
+  if (!explore) return prompts;
+  return [
+    ...prompts.filter((prompt) => !/^explore\s+aiasap$/i.test(prompt)),
+    "Explore aiASAP",
+  ];
+}
 
 type TapPromptFontVariant = "default" | "rounded" | "classic" | "condensed";
 
@@ -198,9 +207,8 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
     .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
     .filter((prompt) => !/^share (?:my )?location$/i.test(prompt))
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
-    .filter((prompt) => !/^change subject$/i.test(prompt))
-    .slice(0, 4);
-  return [...cleaned, ...DEFAULT_THOUGHT_PROMPTS]
+    .filter((prompt) => !/^change subject$/i.test(prompt));
+  return keepExploreAiASAPLow([...cleaned, ...DEFAULT_THOUGHT_PROMPTS])
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
     .filter((prompt) => !/^add the next item$/i.test(prompt))
     .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
@@ -344,7 +352,7 @@ const INTERNAL_SIGNAL_RE =
 const LIST_TRIGGER_RE =
   /\b(grocery|groceries|shopping|store|walmart|list|todo|to-do|to do|task|lista|listas|compras|mercado|tarea|tareas|liste|courses|einkaufsliste|einkauf|aufgaben)\b/i;
 const LIST_ITEM_PREFIX_RE =
-  /^(?:(?:and|y|e|et|und)\s+)?(?:(?:i\s+)?(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+|(?:necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar)\s+|(?:j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter)\s+|(?:ich brauche|ich will|fuege hinzu|f\u00fcge hinzu|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen)\s+|some\s+|a\s+|an\s+|the\s+)/i;
+  /^(?:(?:and|y|e|et|und)\s+)?(?:(?:i\s+)?(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+|(?:necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar)\s+|(?:j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter)\s+|(?:ich brauche|ich will|fuege hinzu|f\u00fcge hinzu|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen)\s+|(?:let'?s|lets)\s+(?:on\s+)?(?:(?:their|there|the|my|our)\s+)?|on\s+(?:(?:their|there|the|my|our)\s+)?|some\s+|a\s+|an\s+|the\s+)/i;
 const LIST_COMMAND_ONLY_RE =
   /\b(?:make|create|start|open|show|switch to|pull up|go to|toggle|another|new|abre|abrir|muestra|mostrar|cambia|crear|crea|haz|hacer|ouvre|ouvrir|montre|affiche|wechsel|oeffne|\u00f6ffne|zeige)\b.*\b(?:list|todo|to-do|to do|lista|listas|liste|einkaufsliste)\b|\bput me on\b.*\b(?:list|walmart|grocery|shopping|todo|to-do|to do)\b/i;
 const REMOVE_COMMAND_RE =
@@ -397,7 +405,7 @@ const LIST_START_WITH_REFERENCED_ITEMS_RE =
 const LIST_CONVERSATION_FRAGMENT_RE =
   /\b(?:i mean|i know|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|i guess|actually|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
@@ -522,16 +530,8 @@ function softFromHex(hex: string, alpha = 0.2): string {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
-function listColorThemeFor(list: AssistantList | null): ListColorTheme {
-  if (list?.accentHex) {
-    return {
-      label: list.accentLabel ?? "Custom",
-      foreground: list.accentHex,
-      solid: list.accentHex,
-      soft: softFromHex(list.accentHex),
-    };
-  }
-  return list ? LIST_ACCENT_COLORS[list.accentColor] : LIST_ACCENT_COLORS.amber;
+function listColorThemeFor(_list: AssistantList | null): ListColorTheme {
+  return LIST_ACCENT_COLORS.amber;
 }
 
 function titleCaseWords(value: string): string {
@@ -898,6 +898,8 @@ function cleanListItem(
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
     .replace(/\b(?:just\s+)?put\s+some\s+on\s+there\b/gi, " ")
     .replace(/\bi\s+know\b/gi, " ")
+    .replace(/^(?:let'?s|lets)\s+(?:on\s+)?(?:(?:their|there|the|my|our)\s+)?/i, "")
+    .replace(/^on\s+(?:(?:their|there|the|my|our)\s+)?/i, "")
     .replace(/\bfor\s+tacos?\b/gi, (match) =>
       value.trim().toLowerCase() === match.toLowerCase() ? "Taco Stuff" : " ",
     )
@@ -909,7 +911,7 @@ function cleanListItem(
       /^(?:and\s+)?(?:i\s+)?(?:need|want|would like|like|have to get|gotta get|should get|add|put|grab|buy|pick up)\s+/i,
       "",
     )
-    .replace(/^(?:some|a|an|the|el|la|los|las|un|una|le|la|les|des|du|der|die|das|ein|eine)\s+/i, "")
+    .replace(/^(?:some|a|an|the|their|there|my|our|el|la|los|las|un|una|le|la|les|des|du|der|die|das|ein|eine)\s+/i, "")
     .replace(/[.!?]+$/g, "")
     .replace(/^[\s,.;:\-\u2013\u2014]+|[\s,.;:\-\u2013\u2014]+$/g, "")
     .replace(/\s+/g, " ")
@@ -922,7 +924,7 @@ function cleanListItem(
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
   if (
-    /^(?:cose|cos|close|stop|avatar|six|6|to|the|and|great|thanks|thankyou|iknow|lets|letsmake|letsmakea|makeit|makeitblack|evendarker|darker|lighter|half|ineed|ineedhalf|somehalf|iwant|iwantsome|justputsomeonthere|putsomeonthere|someonthere|onthere|some|me|meon)$/.test(
+    /^(?:cose|cos|close|stop|avatar|six|6|to|the|and|great|thanks|thankyou|iknow|together|lets|letsmake|letsmakea|makeit|makeitblack|evendarker|darker|lighter|half|ineed|ineedhalf|somehalf|iwant|iwantsome|justputsomeonthere|putsomeonthere|someonthere|onthere|some|me|meon)$/.test(
       normalizedItemKey,
     )
   ) {
@@ -1652,6 +1654,16 @@ const LiveAvatarSessionComponent: React.FC<{
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
     [activeListId, assistantLists],
   );
+  const visibleThoughtPrompts = useMemo(() => {
+    const listIsVisible = Boolean(activeList || isShoppingMode);
+    return normalizeThoughtPrompts(
+      thoughtPrompts.filter(
+        (prompt) =>
+          listIsVisible ||
+          !/^(?:close list|open another list)$/i.test(prompt),
+      ),
+    );
+  }, [activeList, isShoppingMode, thoughtPrompts]);
   const activeListTheme = listColorThemeFor(activeList);
   const activeListUsesBlackTheme =
     activeListTheme.label.toLowerCase().includes("black") ||
@@ -1661,13 +1673,13 @@ const LiveAvatarSessionComponent: React.FC<{
       color: activeListTheme.foreground,
       borderColor: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.42)"
-        : activeListTheme.soft,
+        : "rgba(232,180,107,0.56)",
       background: activeListUsesBlackTheme
         ? "linear-gradient(180deg, rgba(246,241,231,0.88), rgba(210,200,184,0.76))"
-        : `linear-gradient(180deg, ${activeListTheme.soft}, rgba(12, 8, 6, 0.72))`,
+        : "radial-gradient(circle at 18% 0%, rgba(232,180,107,0.28), transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))",
       boxShadow: activeListUsesBlackTheme
         ? "inset 0 1px 20px rgba(255,255,255,0.36), 0 18px 42px rgba(0,0,0,0.42)"
-        : `inset 0 1px 18px rgba(255,255,255,0.08), 0 16px 42px rgba(0,0,0,0.48), 0 0 34px ${activeListTheme.soft}`,
+        : "inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px rgba(232,180,107,0.18)",
     }),
     [activeListTheme, activeListUsesBlackTheme],
   );
@@ -1675,7 +1687,7 @@ const LiveAvatarSessionComponent: React.FC<{
     () => ({
       color: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.68)"
-        : "rgba(255,255,255,0.62)",
+        : "rgba(255,232,190,0.66)",
     }),
     [activeListUsesBlackTheme],
   );
@@ -1683,22 +1695,37 @@ const LiveAvatarSessionComponent: React.FC<{
     () => ({
       background: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.48)"
-        : "rgba(0,0,0,0.22)",
+        : "linear-gradient(180deg, rgba(255,226,176,0.08), rgba(0,0,0,0.24))",
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.12)"
-        : activeListTheme.soft,
+        : "rgba(232,180,107,0.28)",
+      boxShadow: activeListUsesBlackTheme
+        ? "0 10px 24px rgba(0,0,0,0.12)"
+        : "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
     }),
-    [activeListTheme.soft, activeListUsesBlackTheme],
+    [activeListUsesBlackTheme],
+  );
+  const compactListBadgeStyle = useMemo<React.CSSProperties>(
+    () => ({
+      background: activeListUsesBlackTheme
+        ? "rgba(5,5,5,0.08)"
+        : "linear-gradient(180deg, rgba(232,180,107,0.24), rgba(232,180,107,0.08))",
+      borderColor: activeListUsesBlackTheme
+        ? "rgba(5,5,5,0.14)"
+        : "rgba(232,180,107,0.32)",
+      color: activeListTheme.foreground,
+    }),
+    [activeListTheme.foreground, activeListUsesBlackTheme],
   );
   const compactListControlStyle = useMemo<React.CSSProperties>(
     () => ({
       background: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.08)"
-        : "rgba(0,0,0,0.28)",
+        : "rgba(12,8,6,0.46)",
       color: activeListTheme.foreground,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.12)"
-        : "rgba(255,255,255,0.12)",
+        : "rgba(232,180,107,0.22)",
     }),
     [activeListTheme.foreground, activeListUsesBlackTheme],
   );
@@ -6112,7 +6139,7 @@ const LiveAvatarSessionComponent: React.FC<{
               }}
             >
               <div
-                className="mb-4 flex items-center justify-between gap-3 rounded-[1.65rem] border px-4 py-3 shadow-[0_14px_36px_rgba(0,0,0,0.24)] backdrop-blur-md"
+                className="mb-4 flex items-center justify-between gap-3 rounded-[1.45rem] border px-4 py-3 shadow-[0_14px_36px_rgba(0,0,0,0.24)] backdrop-blur-md"
                 style={compactListPanelStyle}
               >
                 <div className="min-w-0">
@@ -6153,12 +6180,12 @@ const LiveAvatarSessionComponent: React.FC<{
                       <li
                         key={`${item}-${index}`}
                         data-list-index={index}
-                        className="grid min-h-[4rem] grid-cols-[2.4rem_1fr_3rem] items-center gap-3 rounded-[1.35rem] border px-3 py-3 shadow-[0_10px_28px_rgba(0,0,0,0.18)]"
+                        className="grid min-h-[4.15rem] grid-cols-[2.8rem_1fr_3rem] items-center gap-3 rounded-[1.2rem] border px-3 py-3"
                         style={compactListRowStyle}
                       >
                         <span
-                          className="text-right text-xl font-black"
-                          style={compactListMutedStyle}
+                          className="flex h-10 w-10 items-center justify-center rounded-full border text-lg font-black"
+                          style={compactListBadgeStyle}
                         >
                           {activeList.displayStyle === "numbered"
                             ? `${index + 1}.`
@@ -6196,7 +6223,7 @@ const LiveAvatarSessionComponent: React.FC<{
             !onlineLookupNotice &&
             activeList && (
               <div
-                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.55rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[2rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
+                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.55rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.55rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
                 style={compactListPanelStyle}
               >
                 <div
@@ -6241,10 +6268,13 @@ const LiveAvatarSessionComponent: React.FC<{
                         <li
                           key={`${item}-${index}`}
                           data-list-index={index}
-                          className="grid min-h-[2.95rem] grid-cols-[2rem_1fr_2.25rem] items-center gap-2 rounded-[1.1rem] border px-2.5 py-2 shadow-[0_8px_20px_rgba(0,0,0,0.18)]"
+                          className="grid min-h-[3.1rem] grid-cols-[2.35rem_1fr_2.35rem] items-center gap-2 rounded-[0.95rem] border px-2.5 py-2"
                           style={compactListRowStyle}
                         >
-                          <span className="text-right text-[0.94rem] font-black" style={compactListMutedStyle}>
+                          <span
+                            className="flex h-8 w-8 items-center justify-center rounded-full border text-[0.86rem] font-black"
+                            style={compactListBadgeStyle}
+                          >
                             {activeList.displayStyle === "numbered"
                               ? `${index + 1}.`
                               : "•"}
@@ -6287,7 +6317,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
                 } as React.CSSProperties}
               >
-                {thoughtPrompts.slice(0, onlineLookupNotice ? 3 : 4).map((prompt, index) => {
+                {visibleThoughtPrompts.slice(0, onlineLookupNotice ? 3 : 4).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
                   const compactPrompt = prompt.length > 25;
                   return (
