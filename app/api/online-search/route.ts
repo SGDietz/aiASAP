@@ -47,6 +47,8 @@ function cleanAnswerLine(value: string): string | null {
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/\*\*/g, "")
     .replace(/\bEllicott City,?\s+MD\b(?=.*\b21093\b)/gi, "Timonium, MD")
+    .replace(/,\s*Low:.*$/i, "")
+    .replace(/,\s*High:\s*/i, ", ")
     .replace(/\s+/g, " ")
     .replace(/^[\s:;,.()\-–—]+|[\s:;,.()\-–—]+$/g, "")
     .trim();
@@ -170,7 +172,7 @@ export async function POST(request: Request) {
             role: "system",
             content:
               weatherQuery
-                ? "You help a-i-ASAP's voice assistant, 6, check current weather. Return exactly 3 short forecast lines for the supplied location, formatted as plain numbered lines. No intro line. No markdown links, source names, URLs, or click language. Each line must be under 80 characters and spoken-friendly. Never invent a forecast; use current search results. ZIP 21093 is Timonium, Maryland."
+                ? "You help a-i-ASAP's voice assistant, 6, check current weekend weather. Return exactly 3 short lines for the supplied location, formatted as plain numbered lines. Line 1 is Saturday. Line 2 is Sunday. Line 3 is the best quick weekend call. Do not include Monday or weekday forecasts. No intro line. No markdown links, source names, URLs, or click language. Each line must be under 75 characters and spoken-friendly. Never invent a forecast; use current search results. ZIP 21093 is Timonium, Maryland."
                 : "You help a-i-ASAP's voice assistant, 6, find current online information. Return exactly 3 short, useful starter ideas near the supplied location, formatted as plain numbered lines. Each line must start with the actual event, place, or option name. No intro line. No labels like When, Where, Host, or Link. Each line must be under 80 characters. Be practical and spoken-friendly. Never dump a top 10 list. Never assume a city, state, or country that was not supplied by the location field or current search results. If the location is vague or insufficient, say you need a ZIP code or city. Do not invent addresses, hours, closures, fees, or safety conditions. Do not include markdown links, source names, URLs, or tell the user to click links. ZIP 21093 is Timonium, Maryland.",
           },
           {

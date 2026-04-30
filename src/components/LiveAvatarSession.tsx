@@ -1072,6 +1072,8 @@ function cleanOnlineLookupLine(value: string): string | null {
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/\*\*/g, "")
     .replace(/\bEllicott City,?\s+MD\b(?=.*\b21093\b)/gi, "Timonium, MD")
+    .replace(/,\s*Low:.*$/i, "")
+    .replace(/,\s*High:\s*/i, ", ")
     .replace(/\s+/g, " ")
     .replace(/^[\s:;,.()\-–—]+|[\s:;,.()\-–—]+$/g, "")
     .trim();
