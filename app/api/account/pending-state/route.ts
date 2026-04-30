@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     JSON.stringify({
       ok: false,
       disabled: true,
-      error: "Pending account memory is disabled for this MVP.",
+      error: "Pending account memory is disabled for this beta.",
     }),
     {
       status: 410,

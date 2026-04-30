@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   if (rateLimitErr) return rateLimitErr;
 
   return new Response(
-    JSON.stringify({ authenticated: false, mvp: true }),
+    JSON.stringify({ authenticated: false, beta: true }),
     {
       status: 200,
       headers: {

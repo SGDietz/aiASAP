@@ -37,16 +37,13 @@ function getLiveAvatarSessionId(session: unknown): string | null {
     : null;
 }
 
-const AIASAP_FOUNDER_TITLE =
-  "G Dietz, Creator and Builder of aiASAP";
-
 const VOICE_START_GREETING =
   "Hi, I'm 6, your a-i buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier?";
 const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
   "If you want this list off the screen, just ask me to close the list.";
-const ACCOUNT_MVP_DISABLED = true;
+const ACCOUNT_BETA_DISABLED = true;
 
 const ACCOUNT_MEMORY_VALUE_LINES = [
   "With an account, your lists stay intact, I remember the last conversation, and we pick up where we left off every time.",
@@ -105,24 +102,24 @@ const getThoughtPrompts = (text: string): string[] => {
       "To Do List",
       "Open Work To Do",
       "Open Family To Do",
-      "Add a Reminder",
+      "Add Next Task",
     ];
   }
 
   if (value.includes("birthday")) {
     return [
-      "Remember the Birthday",
-      "Add Yearly Reminder",
+      "Birthday Gift List",
       "Plan a Gift",
-      "Add a Reminder",
+      "Birthday To Do",
+      "Plan This Weekend",
     ];
   }
 
   if (value.includes("anniversary")) {
     return [
-      "Remember the Anniversary",
-      "Add Yearly Reminder",
+      "Anniversary Gift List",
       "Plan a Gift",
+      "Anniversary To Do",
       "Plan This Weekend",
     ];
   }
@@ -195,7 +192,9 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
     .map(cleanThoughtPrompt)
     .filter(Boolean)
     .filter((prompt) => !/\b(?:contact|named g|for g|call g|text g|email g)\b/i.test(prompt))
+    .filter((prompt) => !/\b(?:reminder|remind|notify|notification)\b/i.test(prompt))
     .filter((prompt) => !/^add the next item$/i.test(prompt))
+    .filter((prompt) => !/\b(?:reminder|remind|notify|notification)\b/i.test(prompt))
     .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
     .filter((prompt) => !/^share (?:my )?location$/i.test(prompt))
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
@@ -358,14 +357,8 @@ const LIST_CLOSE_RE =
   /\b(?:close|hide|dismiss|drop|put away|take down|minimize|cierra|cerrar|oculta|ocultar|quita|quitar|ferme|fermer|cache|cacher|schliesse|schlie\u00dfe|ausblenden)\s+(?:the|my|this|that|la|mi|esta|esa|le|ma|cette|die|meine|diese)?\s*(?:grocery|shopping|walmart|to[-\s]?do|compras|mercado|tareas|courses|einkauf)?\s*(?:list|lists|lista|listas|liste)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+(?:disappear|go away)\b|\b(?:take|remove|drop)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\s+(?:down|off|from)(?:\s+(?:the\s+)?screen)?\b|\bno\s+(?:visible\s+)?list\b|\bback\s+to\s+(?:the\s+)?(?:prompts|boxes)\b/i;
 const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
-const BUG_REPORT_TRIGGER_RE =
-  /\b(?:report (?:a )?bug|file (?:a )?bug|bug report|this (?:is|looks) broken|the app (?:is|seems|looks) broken|something (?:is|went) wrong|this is not working|that did not work|issue with (?:the )?app)\b/i;
-const NOTE_TO_G_TRIGGER_RE =
-  /\b(?:tell|send|email|message|note)\s+(?:g|g dietz|him|the founder)\b|\b(?:can i tell|i want to tell|let g know|for g|for the website|site upgrade|website should|app should|hook up google calendar|integrated with my calendar)\b/i;
 const ACCOUNT_SETUP_TRIGGER_RE =
   /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
-const ACCOUNT_SETUP_NATURAL_MOMENT_RE =
-  /\b(?:send me (?:an?\s+)?email|email reminder|text me|notify me|two weeks before|2 weeks before|one week before|1 week before|day before|morning of|set (?:those|that|them) reminders?|save (?:that|this) reminder)\b/i;
 const ACCOUNT_READY_YES_RE =
   /\b(?:yes|yeah|yep|sure|ready|ok|okay|correct|that'?s correct|that is correct|that'?s right|that is right|that does|sounds right|looks right|looks good|do it|let'?s do it|set it up|send it)\b/i;
 const ACCOUNT_READY_NO_RE = /\b(?:no|not now|later|stop|never mind|cancel)\b/i;
@@ -1281,21 +1274,6 @@ function findMentionedListItem(
   );
 }
 
-function hasBugReportIntent(text: string): boolean {
-  return (
-    !isInternalSignal(text) &&
-    (BUG_REPORT_TRIGGER_RE.test(text) || NOTE_TO_G_TRIGGER_RE.test(text))
-  );
-}
-
-function summarizeBugReport(text: string): string {
-  return text
-    .replace(/^let'?s work on this next:\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 900);
-}
-
 function detectListDisplayStyle(text: string): ListDisplayStyle | null {
   if (LIST_STYLE_BULLET_RE.test(text)) return "bulleted";
   if (LIST_STYLE_NUMBER_RE.test(text)) return "numbered";
@@ -1800,7 +1778,7 @@ const LiveAvatarSessionComponent: React.FC<{
     try {
       window.localStorage.removeItem(ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY);
     } catch {
-      // Pending account state is disabled for the MVP.
+      // Pending account state is disabled for the beta.
     }
     accountPendingStateTokenRef.current = null;
   }, []);
@@ -1962,7 +1940,7 @@ const LiveAvatarSessionComponent: React.FC<{
   }, [assistantLists]);
 
   useEffect(() => {
-    if (ACCOUNT_MVP_DISABLED) {
+    if (ACCOUNT_BETA_DISABLED) {
       accountListsLoadedRef.current = true;
       accountMemorySnapshotRef.current = null;
       accountMemoryContextInjectedRef.current = false;
@@ -1983,7 +1961,7 @@ const LiveAvatarSessionComponent: React.FC<{
         window.localStorage.removeItem(DEVICE_PROFILE_STORAGE_KEY);
         window.localStorage.removeItem(ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY);
       } catch {
-        // Fresh MVP sessions must not depend on browser storage cleanup.
+        // Fresh beta sessions must not depend on browser storage cleanup.
       }
       void fetch("/api/account/me", { cache: "no-store" }).catch(() => {});
       return;
@@ -2499,47 +2477,6 @@ const LiveAvatarSessionComponent: React.FC<{
     [activeListId, assistantLists],
   );
 
-  const fileBugReport = useCallback(
-    async (rawText: string) => {
-      const summary = summarizeBugReport(rawText);
-      if (!summary) return false;
-      try {
-        const response = await fetch("/api/bug-report", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sessionId: dbSessionIdRef.current,
-            summary,
-            transcript: rawText,
-            pageUrl: window.location.href,
-            activeList: activeList
-              ? {
-                  title: activeList.title,
-                  items: activeList.items,
-                  displayStyle: activeList.displayStyle,
-                  accentColor: activeList.accentColor,
-                }
-              : null,
-          }),
-        });
-
-        if (!response.ok) return false;
-        const data = await response.json();
-        const spoken = data?.emailSent
-          ? `I made a note and sent it to ${AIASAP_FOUNDER_TITLE}.`
-          : `I made a note for ${AIASAP_FOUNDER_TITLE}.`;
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
-        return true;
-      } catch (error) {
-        console.error("Failed to file bug report:", error);
-        return false;
-      }
-    },
-    [activeList, repeat],
-  );
-
   const startAccountSetup = useCallback(
     async (email: string) => {
       const normalizedEmail = email.trim().toLowerCase();
@@ -2710,11 +2647,11 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
-      if (ACCOUNT_MVP_DISABLED) {
+      if (ACCOUNT_BETA_DISABLED) {
         if (!ACCOUNT_SETUP_TRIGGER_RE.test(userText)) return false;
         clearAccountEmailEntry();
         const spoken =
-          "For this MVP, every new session starts blank. I can help with this session right now.";
+          "For this beta, every new session starts blank. I can help with this session right now.";
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
@@ -3402,8 +3339,8 @@ const LiveAvatarSessionComponent: React.FC<{
         if (prompt === "Explore aiASAP" || prompt === "Quick Tour") {
           const spoken =
             prompt === "Quick Tour"
-              ? "A. I. A-S-A-P. is the easy way into AI. You talk to me, and I help with lists, reminders, planning, making money, and eventually building whole companies. What should we try first?"
-              : "A. I. A-S-A-P. is built so you can just talk to me and I help you get things done. Lists, reminders, weekend plans, money ideas, and bigger things later. Want the quick tour, or want to start with something useful?";
+              ? "A. I. A-S-A-P. is the easy way into AI. You talk to me, and I help with lists, weekend plans, practical ideas, and eventually building bigger things. What should we try first?"
+              : "A. I. A-S-A-P. is built so you can just talk to me and I help you get things done. Lists, weekend plans, practical ideas, and bigger things later. Want the quick tour, or want to start with something useful?";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -3411,7 +3348,7 @@ const LiveAvatarSessionComponent: React.FC<{
             normalizeThoughtPrompts([
               "Quick Tour",
               "Start a Grocery List",
-              "Remember a Birthday",
+              "To Do List",
               "Plan This Weekend",
             ]),
           );
@@ -4518,11 +4455,6 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      if (hasBugReportIntent(userText)) {
-        const didFileBug = await fileBugReport(userText);
-        if (didFileBug) return;
-      }
-
       if (hasEndSessionIntent(userText)) {
         endSessionConfirmationPendingRef.current = true;
         endSessionConfirmationAskedAtRef.current = Date.now();
@@ -4539,17 +4471,6 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (await handleAccountSetupSpeech(userText)) {
-        schedulePromptBrain(userText);
-        return;
-      }
-
-      if (
-        !isShoppingMode &&
-        ACCOUNT_SETUP_NATURAL_MOMENT_RE.test(userText) &&
-        (await offerAccountSetupForMemory(
-          "I can keep that reminder for next time if we set up a quick account. It's just an email link. You ready?",
-        ))
-      ) {
         schedulePromptBrain(userText);
         return;
       }
@@ -4680,21 +4601,6 @@ const LiveAvatarSessionComponent: React.FC<{
             : ` ${LIST_CLOSE_EDUCATION}`;
           listCloseEducationSpokenRef.current = true;
           listActionSpoken = `I ${action} the ${ensured?.title ?? inferredListIntent.title}. Just tell me what goes on it.${closeEducation}`;
-        }
-
-        if (
-          !accountEmail &&
-          !isShoppingMode &&
-          !enteringShoppingMode &&
-          targetList &&
-          targetList.items.length > 0 &&
-          isListDoneSignal(userText, lastAssistantText) &&
-          (await offerAccountSetupForMemory(
-            "Want me to keep this list for next time? To do that, we'll create a quick account with an email link. You ready?",
-          ))
-        ) {
-          schedulePromptBrain(userText);
-          return;
         }
 
         if (enteringShoppingMode) {
@@ -5016,7 +4922,6 @@ const LiveAvatarSessionComponent: React.FC<{
     mode,
     repeat,
     isProcessingCameraQuestion,
-    accountEmail,
     activeList,
     activeListId,
     addItemsToList,
@@ -5024,13 +4929,11 @@ const LiveAvatarSessionComponent: React.FC<{
     buildMemoryAugmentedMessage,
     deleteAssistantList,
     ensureAssistantList,
-    fileBugReport,
     handleAccountSetupSpeech,
     handleEndSession,
     handleOnlineLookupSpeech,
     handlePromptSizeSpeech,
     moveActiveList,
-    offerAccountSetupForMemory,
     removeItemsFromList,
     rememberConversationLine,
     resumeListeningAfterAvatarSpeech,
@@ -5722,7 +5625,7 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {!ACCOUNT_MVP_DISABLED && accountNotice && !isShoppingMode && (
+      {!ACCOUNT_BETA_DISABLED && accountNotice && !isShoppingMode && (
         <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[75] rounded-lg border border-[#f2be73]/45 bg-[#090604]/92 px-4 py-3 text-[#fff6e6] shadow-2xl backdrop-blur">
           <div className="flex items-center justify-between gap-3">
             <p className="min-w-0 text-sm font-semibold">{accountNotice}</p>
@@ -5747,7 +5650,7 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {!ACCOUNT_MVP_DISABLED && emailEntryOpen && !isShoppingMode && (
+      {!ACCOUNT_BETA_DISABLED && emailEntryOpen && !isShoppingMode && (
         <form
           onSubmit={(event) => void handleTypedAccountEmailSubmit(event)}
           className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+5.2rem)] z-[76] flex w-[min(92%,30rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-[#e0aa62]/28 bg-[#120b06]/90 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur"

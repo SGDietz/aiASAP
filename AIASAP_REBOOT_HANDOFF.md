@@ -24,6 +24,7 @@ G is heading out for a few hours. Pick up from here, not from the older stale se
 
 ### Latest user rule overrides
 
+- Production deployment rule from G: once we have a working model, promote it to `www.aiASAP.ai`. After that, do iteration work in Vercel preview/staging, and only push/promote through aiASAP production when the model is fully working. Do not push half-finished iteration work to production.
 - G changed the Supabase rule: only check Supabase after G gives feedback from a real test and asks/needs us to understand what happened. Do not check Supabase as a routine step after every smoke test.
 - Use the words `smoke test`, not `smoke`.
 - Keep final briefs very short.
