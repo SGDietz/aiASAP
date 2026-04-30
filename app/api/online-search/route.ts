@@ -42,6 +42,7 @@ function normalizeLocation(value: string): string {
 
 function cleanAnswerLine(value: string): string | null {
   const cleaned = value
+    .replace(/^#+\s*/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/\*\*/g, "")
@@ -50,7 +51,11 @@ function cleanAnswerLine(value: string): string | null {
     .replace(/^[\s:;,.()\-–—]+|[\s:;,.()\-–—]+$/g, "")
     .trim();
   if (!cleaned) return null;
-  if (/^(?:here are|i found|these are|some options|events? happening)\b/i.test(cleaned)) {
+  if (
+    /^(?:here are|here is|i found|these are|some options|events? happening|weather for|current conditions)\b/i.test(
+      cleaned,
+    )
+  ) {
     return null;
   }
   return cleaned.length > 95 ? `${cleaned.slice(0, 92).trim()}...` : cleaned;
@@ -170,7 +175,9 @@ export async function POST(request: Request) {
           },
           {
             role: "user",
-            content: `Find useful current options for: ${query}. Search near: ${location}.`,
+            content: weatherQuery
+              ? `Find the Saturday and Sunday weekend weather forecast near: ${location}. Query: ${query}. Return only the forecast lines.`
+              : `Find useful current options for: ${query}. Search near: ${location}.`,
           },
         ],
       }),

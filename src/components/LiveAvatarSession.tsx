@@ -1067,6 +1067,7 @@ function normalizeLookupLocation(value: string): string {
 
 function cleanOnlineLookupLine(value: string): string | null {
   const cleaned = value
+    .replace(/^#+\s*/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/https?:\/\/\S+/gi, "")
     .replace(/\*\*/g, "")
@@ -1075,7 +1076,11 @@ function cleanOnlineLookupLine(value: string): string | null {
     .replace(/^[\s:;,.()\-–—]+|[\s:;,.()\-–—]+$/g, "")
     .trim();
   if (!cleaned) return null;
-  if (/^(?:here are|i found|these are|some options|events? happening)\b/i.test(cleaned)) {
+  if (
+    /^(?:here are|here is|i found|these are|some options|events? happening|weather for|current conditions)\b/i.test(
+      cleaned,
+    )
+  ) {
     return null;
   }
   return cleaned.length > 92 ? `${cleaned.slice(0, 89).trim()}...` : cleaned;
