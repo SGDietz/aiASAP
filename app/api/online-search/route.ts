@@ -47,7 +47,7 @@ function cleanAnswerLine(value: string): string | null {
     .replace(/\*\*/g, "")
     .replace(/\bEllicott City,?\s+MD\b(?=.*\b21093\b)/gi, "Timonium, MD")
     .replace(/\s+/g, " ")
-    .replace(/^[\s:;,.()-]+|[\s:;,.()-]+$/g, "")
+    .replace(/^[\s:;,.()\-–—]+|[\s:;,.()\-–—]+$/g, "")
     .trim();
   if (!cleaned) return null;
   if (/^(?:here are|i found|these are|some options|events? happening)\b/i.test(cleaned)) {
