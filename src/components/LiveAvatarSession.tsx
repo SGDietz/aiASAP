@@ -220,7 +220,7 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
 function isHikingLookupQuery(query: string | null | undefined): boolean {
   return Boolean(
     query &&
-      /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors)\b/i.test(
+      /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|waterfall|waterfalls)\b/i.test(
         query,
       ),
   );
@@ -383,11 +383,11 @@ const END_SESSION_CONFIRM_RE =
 const END_SESSION_CANCEL_RE =
   /\b(?:no|nope|nah|not now|later|never mind|nevermind|cancel|keep going|continue|stay|don'?t|do not)\b/i;
 const ONLINE_LOOKUP_TOPIC_RE =
-  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
+  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|waterfall|waterfalls|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
 const ONLINE_LOOKUP_ACTION_RE =
   /\b(?:find|look up|search|show me|where|nearby|near me|check|help me find|plan)\b/i;
 const ONLINE_LOOKUP_DIRECT_RE =
-  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|weekend|cool things to do|concert|concerts|show|shows|events?|restaurants?)\b/i;
+  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|waterfall|waterfalls|weekend|cool things to do|concert|concerts|show|shows|events?|restaurants?)\b/i;
 const ONLINE_LOOKUP_CLOSE_RE =
   /\b(?:close|hide|dismiss|clear|stop|end|remove|take\s+(?:off|away|down)|get\s+rid\s+of)\s+(?:the|this|that|my|a|an)?\s*(?:search|results?|sources?|lookup|online\s+search|events?|pill\s*boxes?|pills?|location(?:\s+(?:box|popup|pop\s*up|panel|window))?|box|popup|pop\s*up|panel|window|things\s+that\s+came\s+up)(?:\s+(?:from|off)\s+(?:the\s+)?screen)?\b|\bmake\s+(?:the|this|that|my)?\s*(?:events?|search|results?|box|popup|pop\s*up|panel|pill\s*boxes?|pills?)\s+go\s+away\b/i;
 const LOCATION_HINT_RE =
@@ -403,9 +403,9 @@ const LIST_MUTATION_SIGNAL_RE =
 const LIST_START_WITH_REFERENCED_ITEMS_RE =
   /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
-  /\b(?:i mean|i know|all those|all kinds of|did you|do you|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's)\b/i;
+  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's)\b/i;
 const LIST_FILLER_ITEM_RE =
-  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery)$/i;
+  /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|you know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|a couple more|couple more|a couple more things|couple more things|a few more|few more|more things|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery|a dad|that to)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
 
@@ -959,6 +959,7 @@ function canInferListItems(
   if (detectListAccentUpdate(text, null)) return false;
   if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return false;
   const hasExplicitMutation = LIST_MUTATION_SIGNAL_RE.test(text);
+  if (LIST_TRIGGER_RE.test(text) && !hasExplicitMutation) return false;
   if (hasExplicitMutation) return true;
   if (!options.allowBareItems) return false;
   if (/[,;\n]|\band\b/i.test(text)) return true;
@@ -975,7 +976,16 @@ function isOnlineLookupIntent(text: string): boolean {
 }
 
 function shouldAskPreferencesBeforeLookup(query: string): boolean {
-  return !/\b(?:weather|forecast)\b/i.test(query);
+  if (
+    /\b(?:weather|forecast|concert|concerts|show|shows|waterfall|waterfalls|hike|hikes|hiking|trail|trails|park|parks|restaurant|restaurants)\b/i.test(
+      query,
+    )
+  ) {
+    return false;
+  }
+  return /\b(?:weekend|things to do|cool things|places to go|place to go|plan)\b/i.test(
+    query,
+  );
 }
 
 function summarizeOnlineLookupTopic(query: string): string {
@@ -989,10 +999,12 @@ function summarizeOnlineLookupTopic(query: string): string {
     .trim()
     .slice(0, 56)
     .replace(/[.?!,;:]+$/g, "");
+  if (/\bweather|forecast\b/i.test(query)) return "weather";
   if (/\bweekend\b/i.test(query)) return "this weekend";
+  if (/\b(?:waterfall|waterfalls)\b/i.test(query)) return "waterfalls";
   if (/\b(?:hike|hiking|trail)\b/i.test(query)) return "local hikes";
   if (/\bparks?\b/i.test(query)) return "local parks";
-  if (/\bweather|forecast\b/i.test(query)) return "weather";
+  if (/\b(?:concert|concerts|show|shows)\b/i.test(query)) return "concerts";
   return cleaned || "that";
 }
 
@@ -1086,15 +1098,14 @@ function getOnlineLookupResultLines(answer: string): string[] {
     .slice(0, 3);
 }
 
-function formatOnlineLookupSpeech(lines: string[]): string {
+function formatOnlineLookupSpeech(lines: string[], query: string): string {
   if (lines.length === 0) {
     return "I found a few options. Want me to narrow them down?";
   }
-  const spokenLines = lines.slice(0, 3).map((line, index) => {
-    const short = line.replace(/^\d{1,2}[.)]\s*/, "").slice(0, 70).trim();
-    return `${index + 1}. ${short}`;
-  });
-  return `I found ${spokenLines.length} quick ideas: ${spokenLines.join("; ")}. Want one of those, or a few more?`;
+  if (/\b(?:weather|forecast)\b/i.test(query)) {
+    return "I put the weekend weather on the screen. Want me to use that to pick the best day?";
+  }
+  return `I found ${lines.length} quick ideas and put them on the screen. Want one of these, or a few more?`;
 }
 
 function extractListItems(
@@ -1222,13 +1233,25 @@ function detectListIntent(text: string): {
     return null;
   }
 
+  const articleNamedList = text.match(
+    /\b(?:a|an|the|my|our)\s+([a-z][a-z0-9'-]{1,24})\s+list\b/i,
+  )?.[1];
+  if (
+    articleNamedList &&
+    !/^(?:grocery|shopping|todo|to|do|new|another|first|second|third|fourth|fifth)$/i.test(
+      articleNamedList,
+    )
+  ) {
+    return { title: `${articleNamedList} List`, kind: "custom" };
+  }
+
   const todoScope =
     text.match(/\b(?:to[-\s]?do|todo|task)s?\s+(?:list\s+)?([a-z][a-z0-9'-]{1,24})\b/i)?.[1] ??
     text.match(/\b([a-z][a-z0-9'-]{1,24})\s+(?:to[-\s]?do|todo|tasks?)\b/i)?.[1] ??
     null;
   const cleanTodoScope =
     todoScope &&
-    !/^(?:and|or|then|make|turn|green|blue|black|white|pink|purple|red|yellow|orange|lighter|darker)$/i.test(
+    !/^(?:a|an|and|for|from|my|of|or|our|the|then|to|your|make|turn|green|blue|black|white|pink|purple|red|yellow|orange|lighter|darker)$/i.test(
       todoScope,
     )
       ? todoScope
@@ -2340,9 +2363,6 @@ const LiveAvatarSessionComponent: React.FC<{
         updatedAt: now,
       };
 
-      if (assistantLists.length > 0) {
-        pendingListCustomizationPromptRef.current = { id, title: normalizedTitle };
-      }
       setAssistantLists((currentLists) => [...currentLists, newList]);
       lastEnsuredListRef.current = {
         id,
@@ -3173,6 +3193,13 @@ const LiveAvatarSessionComponent: React.FC<{
       setOnlineLookupResultLines([]);
       setSourcePreview(null);
       setOnlineLookupNotice(`Looking online for ${topic}`);
+      if (mode === "FULL") {
+        try {
+          stopListening();
+        } catch {
+          // The listener may already be paused.
+        }
+      }
       try {
         const response = await fetch("/api/online-search", {
           method: "POST",
@@ -3187,8 +3214,11 @@ const LiveAvatarSessionComponent: React.FC<{
         setOnlineLookupSources([]);
         setOnlineLookupResultLines(resultLines);
         setOnlineLookupNotice(null);
-        const spoken = formatOnlineLookupSpeech(resultLines);
+        const spoken = formatOnlineLookupSpeech(resultLines, query);
         await repeat(spoken);
+        if (mode === "FULL") {
+          window.setTimeout(() => startListening(), 900);
+        }
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
         schedulePromptBrain(query);
@@ -3200,6 +3230,9 @@ const LiveAvatarSessionComponent: React.FC<{
         setOnlineLookupNotice(null);
         setOnlineLookupResultLines([]);
         await repeat(spoken);
+        if (mode === "FULL") {
+          window.setTimeout(() => startListening(), 900);
+        }
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
         return true;
@@ -3207,7 +3240,7 @@ const LiveAvatarSessionComponent: React.FC<{
         setIsOnlineLookupLoading(false);
       }
     },
-    [isOnlineLookupLoading, repeat, schedulePromptBrain],
+    [isOnlineLookupLoading, mode, repeat, schedulePromptBrain, startListening, stopListening],
   );
 
   const requestSharedLocation = useCallback(async () => {
@@ -3262,6 +3295,10 @@ const LiveAvatarSessionComponent: React.FC<{
           return true;
         }
         const pendingLocation = onlineLookupLocationRef.current;
+        if (pendingLocation && isOnlineLookupIntent(text)) {
+          onlineLookupPendingQueryRef.current = null;
+          return performOnlineLookup(text, pendingLocation);
+        }
         if (
           pendingLocation &&
           shouldAskPreferencesBeforeLookup(pendingQuery) &&
@@ -3317,6 +3354,21 @@ const LiveAvatarSessionComponent: React.FC<{
           return true;
         }
         return performOnlineLookup(text, location);
+      }
+
+      if (onlineLookupLocationRef.current) {
+        if (shouldAskPreferencesBeforeLookup(text)) {
+          onlineLookupPendingQueryRef.current = text;
+          const spoken = getLookupPreferenceQuestion(text);
+          setOnlineLookupNotice(" ");
+          setOnlineLookupResultLines([]);
+          setThoughtPrompts(getLookupPreferencePrompts(text));
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        return performOnlineLookup(text, onlineLookupLocationRef.current);
       }
 
       onlineLookupPendingQueryRef.current = text;
@@ -5669,6 +5721,11 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   };
 
+  const lookupPanelVisible = Boolean(
+    onlineLookupNotice || onlineLookupResultLines.length > 0,
+  );
+  const visiblePromptLimit = lookupPanelVisible ? 3 : 4;
+
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black md:bg-[radial-gradient(circle_at_center,#251407_0%,#080403_58%,#000_100%)] flex flex-col">
       {/* Session start error (e.g. no credits) - show message and do not auto-restart */}
@@ -5763,10 +5820,10 @@ const LiveAvatarSessionComponent: React.FC<{
         </form>
       )}
 
-      {(onlineLookupNotice || onlineLookupResultLines.length > 0) && !isShoppingMode && !emailEntryOpen && (
-        <div className="fixed left-1/2 top-[43%] md:top-[51%] z-[29] w-[min(84%,29rem)] max-h-[32vh] min-h-[7.25rem] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border border-[#e0aa62]/70 bg-[#100905]/90 px-4 py-4 text-[#f1c477] shadow-[0_18px_52px_rgba(0,0,0,0.5)] backdrop-blur-md">
+      {lookupPanelVisible && !isShoppingMode && !emailEntryOpen && (
+        <div className="fixed left-1/2 top-[47vh] md:top-[52vh] z-[29] w-[min(88%,31rem)] max-h-[31vh] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-lg border border-[#e0aa62]/62 bg-[#221c17]/76 px-4 py-4 text-[#f1c477] shadow-[0_18px_52px_rgba(0,0,0,0.42)] backdrop-blur-md">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1 overflow-y-auto pr-1">
+            <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
               {onlineLookupNotice?.trim() && (
                 <p className="text-[1.2rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
               )}
@@ -5775,7 +5832,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   {onlineLookupResultLines.map((line, index) => (
                     <div
                       key={`${index}-${line}`}
-                      className="rounded-md border border-[#e0aa62]/45 bg-[#2a170b]/86 px-3 py-2 text-[0.95rem] font-black leading-snug text-[#f1c477]"
+                      className="rounded-md border border-[#e0aa62]/38 bg-[#2f2b27]/72 px-3 py-2 text-[0.9rem] font-black leading-snug text-[#f1c477] md:text-[0.95rem]"
                     >
                       {line}
                     </div>
@@ -6260,10 +6317,10 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             voiceIsActive &&
             !isShoppingMode &&
-            !onlineLookupNotice &&
+            !lookupPanelVisible &&
             activeList && (
               <div
-                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.55rem)] left-1/2 z-30 flex h-[43vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.55rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
+                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.35rem)] left-1/2 z-30 flex h-[37vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md md:h-[39vh]"
                 style={compactListPanelStyle}
               >
                 <div
@@ -6272,9 +6329,6 @@ const LiveAvatarSessionComponent: React.FC<{
                 />
                 <div className="mb-3 flex items-center justify-between gap-3 pt-1">
                   <div className="min-w-0 flex-1">
-                    <p className="text-[0.68rem] font-black uppercase tracking-[0.16em]" style={compactListMutedStyle}>
-                      Active List
-                    </p>
                     <h2 className="truncate text-[1.45rem] font-black leading-tight drop-shadow-[0_3px_16px_rgba(30,14,0,0.62)]">
                       {activeList.title}
                     </h2>
@@ -6357,7 +6411,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
                 } as React.CSSProperties}
               >
-                {visibleThoughtPrompts.slice(0, onlineLookupNotice ? 3 : 4).map((prompt, index) => {
+                {visibleThoughtPrompts.slice(0, visiblePromptLimit).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
                   const compactPrompt = prompt.length > 25;
                   return (
@@ -6366,7 +6420,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.72rem] md:min-h-[3.12rem] w-[min(100%,17.25rem)] md:w-[min(100%,21rem)] overflow-hidden rounded-full border border-[#e0aa62]/22 bg-[#1c1712]/50 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(224,170,98,0.08),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.72rem] md:min-h-[3.12rem] w-[min(100%,17.25rem)] md:w-[min(100%,21rem)] overflow-hidden rounded-full border border-[#9b9b9b]/50 bg-[#4c4c4c]/42 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.08),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"

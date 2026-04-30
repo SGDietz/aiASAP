@@ -1,5 +1,61 @@
 # aiASAP Reboot Handoff - 2026-04-27
 
+## Bedtime Handoff - 2026-04-29 Late ET
+
+G asked to push the current MVP fixes through to `https://aiasap.ai` before bed and preserve the restart point for tomorrow.
+
+### Lane and deploy rule
+
+- Stay in `C:\Users\sgdie\Dropbox\Codex\aiASAP` only.
+- Do not touch iSolve.
+- Production work is allowed only when the model is working enough for G to promote.
+- For the next iteration after this deploy, work in Vercel preview/staging first, then promote only when stable.
+
+### What was fixed in this bedtime pass
+
+- Restored pill boxes to gray glass with aiASAP amber text.
+- Moved the online lookup box lower and made it larger, lighter, scrollable, and capped to three visible pill prompts when it is up.
+- Lookup results now stay in the box for waterfalls, concerts, weather, and other local searches instead of falling through to LiveAvatar monologues.
+- Lookup speech is shorter: 6 says the ideas/weather are on screen instead of reading long lists aloud.
+- List parsing now rejects filler like "you know", "a couple more", "so you didn't", "that to", and similar transcript fragments.
+- The "For To Do List" bug came from parsing "to do for my dad" and treating `for` as the list name. That was fixed by rejecting `for` as a to-do scope and recognizing "a dad list" as `Dad List`.
+- The compact list no longer says `Active List` above the title.
+
+### Verification before live push
+
+- `tsc --noEmit` passed using bundled Node.
+- `next build` passed using bundled Node.
+- `git diff --check` passed except normal CRLF warnings.
+- Secret scan of `app` and `src` found only env-variable references, not raw secrets.
+
+### Supabase and screenshots
+
+- Latest transcript showed the real failures:
+  - Waterfalls/weather/concerts were sometimes handled by LiveAvatar instead of app lookup.
+  - 6 said "Hey, just checking in" while lookup/weather was pending.
+  - Grocery list captured filler items like `A couple more` and `You know`.
+  - To-do flow created `For To Do List`.
+- Dropbox screenshots confirmed the box was too high on mobile and covering the face, the pills were too brown, and list headers/items needed cleanup.
+- Supabase Storage still does not show these phone screenshots under `aiasap-media`; G's Dropbox screenshots are present locally in `C:\Users\sgdie\Dropbox\Codex`.
+- The live Supabase `media_events` table is still missing unless it gets created later. Media upload route currently stores files/metadata and warns/skips the missing row.
+
+### Tomorrow test path
+
+Use production `https://aiasap.ai` after tonight's deploy.
+
+1. Fresh start, confirm no memory and correct intro.
+2. Say "find waterfalls near 21093" and confirm three ideas show in the box, with short speech.
+3. Say "check weekend weather" and confirm weather shows in the box without a "just checking in" detour.
+4. Start a grocery list and add real items; confirm filler is not added.
+5. Say "make a dad list" or "a dad list, things I have to do for my dad"; confirm it says `Dad List`, not `For To Do List`.
+6. Check mobile box placement: lower than face, scrollable by finger, pills gray.
+
+### Paste-back phrase for tomorrow
+
+```text
+Read AIASAP_REBOOT_HANDOFF.md and continue from the 2026-04-29 Late ET bedtime handoff. Stay in aiASAP only. Production was promoted before bed after the MVP lookup/list/mobile polish. First check the latest production deploy status, then help me test fresh start, waterfalls/weather lookup, grocery list cleanup, Dad List, and mobile box placement. Check Supabase after I give test feedback.
+```
+
 ## Current Shutdown Handoff - 2026-04-29 12:48 PM ET
 
 G is heading out for a few hours. Pick up from here, not from the older stale sections below.
