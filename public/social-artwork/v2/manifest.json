@@ -1,0 +1,101 @@
+{
+  "source": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\tmp-desktop-placement-check.png",
+  "assets": [
+    {
+      "kind": "master profile",
+      "file": "aiasap-6-profile-master-1024.png",
+      "size": "1024x1024",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\aiasap-6-profile-master-1024.png"
+    },
+    {
+      "kind": "X profile",
+      "file": "x-profile-400.png",
+      "size": "400x400",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\x-profile-400.png"
+    },
+    {
+      "kind": "Facebook profile",
+      "file": "facebook-profile-320.png",
+      "size": "320x320",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\facebook-profile-320.png"
+    },
+    {
+      "kind": "Instagram profile",
+      "file": "instagram-profile-320.png",
+      "size": "320x320",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\instagram-profile-320.png"
+    },
+    {
+      "kind": "Threads profile",
+      "file": "threads-profile-640.png",
+      "size": "640x640",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\threads-profile-640.png"
+    },
+    {
+      "kind": "TikTok profile",
+      "file": "tiktok-profile-1024.png",
+      "size": "1024x1024",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\tiktok-profile-1024.png"
+    },
+    {
+      "kind": "YouTube watermark",
+      "file": "youtube-watermark-150.png",
+      "size": "150x150",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\youtube-watermark-150.png"
+    },
+    {
+      "kind": "X banner",
+      "file": "x-banner-1500x500.png",
+      "size": "1500x500",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\x-banner-1500x500.png"
+    },
+    {
+      "kind": "YouTube banner",
+      "file": "youtube-banner-2560x1440.png",
+      "size": "2560x1440",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\youtube-banner-2560x1440.png"
+    },
+    {
+      "kind": "Facebook cover",
+      "file": "facebook-cover-851x315.png",
+      "size": "851x315",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\facebook-cover-851x315.png"
+    },
+    {
+      "kind": "YouTube thumbnail",
+      "file": "youtube-thumbnail-1280x720.png",
+      "size": "1280x720",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\youtube-thumbnail-1280x720.png"
+    },
+    {
+      "kind": "Instagram square",
+      "file": "instagram-square-1080.png",
+      "size": "1080x1080",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\instagram-square-1080.png"
+    },
+    {
+      "kind": "Instagram portrait",
+      "file": "instagram-portrait-1080x1350.png",
+      "size": "1080x1350",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\instagram-portrait-1080x1350.png"
+    },
+    {
+      "kind": "Instagram reel cover",
+      "file": "instagram-reel-cover-1080x1920.png",
+      "size": "1080x1920",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\instagram-reel-cover-1080x1920.png"
+    },
+    {
+      "kind": "Threads vertical",
+      "file": "threads-post-1440x1920.png",
+      "size": "1440x1920",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\threads-post-1440x1920.png"
+    },
+    {
+      "kind": "TikTok cover",
+      "file": "tiktok-cover-1080x1920.png",
+      "size": "1080x1920",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v2\\tiktok-cover-1080x1920.png"
+    }
+  ]
+}

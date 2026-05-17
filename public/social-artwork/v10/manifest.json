@@ -1,0 +1,161 @@
+{
+  "version": "v10",
+  "approval_status": "draft-only awaiting G approval before any social upload",
+  "approved_rules": [
+    "Use real mobile website aiASAP logo styling from app CSS, not a screenshot scan.",
+    "Logo style source: app/globals.css .aiasap-logo-mark, Arial Black/Impact stack, italic, tracking 0, skewX(-8deg) scaleX(0.94), brown-gold gradient, drop shadow.",
+    "No teal/tan separator bars or decorative accent lines.",
+    "Profile images use the approved no-ring no-inner-circle crop from v8/proof-11 direction.",
+    "Banners/covers should make 6 much bigger and focus mostly on his face/upper torso.",
+    "Use approved C tone reduction to reduce LiveAvatar red cast toward natural tan.",
+    "Use soft-brown radial palette with dark edges and muted brown center."
+  ],
+  "assets": [
+    {
+      "label": "Proof sheet",
+      "file": "aiasap-social-artwork-v10-proof-sheet.png",
+      "size": "review",
+      "use": "One-sheet desktop review",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\aiasap-social-artwork-v10-proof-sheet.png"
+    },
+    {
+      "label": "Real mobile font proof",
+      "file": "aiasap-real-mobile-font-proof-v10.png",
+      "size": "review",
+      "use": "app CSS logo style",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\aiasap-real-mobile-font-proof-v10.png"
+    },
+    {
+      "label": "Brand lockup HeadShot",
+      "file": "aiasap-6-brand-lockup-1024.png",
+      "size": "1024x1024",
+      "use": "Square brand image with real app font",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\aiasap-6-brand-lockup-1024.png"
+    },
+    {
+      "label": "Brand lockup alternate",
+      "file": "aiasap-6-brand-lockup-expressive-1024.png",
+      "size": "1024x1024",
+      "use": "Alternate square brand image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\aiasap-6-brand-lockup-expressive-1024.png"
+    },
+    {
+      "label": "Master profile HeadShot",
+      "file": "aiasap-6-profile-master-1024.png",
+      "size": "1024x1024",
+      "use": "Approved no-ring source for profile circles",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\aiasap-6-profile-master-1024.png"
+    },
+    {
+      "label": "X profile",
+      "file": "x-profile-400.png",
+      "size": "400x400",
+      "use": "Upload to X profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\x-profile-400.png"
+    },
+    {
+      "label": "Facebook profile",
+      "file": "facebook-profile-320.png",
+      "size": "320x320",
+      "use": "Upload to Facebook profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\facebook-profile-320.png"
+    },
+    {
+      "label": "Instagram profile",
+      "file": "instagram-profile-320.png",
+      "size": "320x320",
+      "use": "Upload to Instagram profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\instagram-profile-320.png"
+    },
+    {
+      "label": "Threads profile",
+      "file": "threads-profile-640.png",
+      "size": "640x640",
+      "use": "Upload to Threads profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\threads-profile-640.png"
+    },
+    {
+      "label": "TikTok profile",
+      "file": "tiktok-profile-1024.png",
+      "size": "1024x1024",
+      "use": "Upload to TikTok profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\tiktok-profile-1024.png"
+    },
+    {
+      "label": "YouTube watermark",
+      "file": "youtube-watermark-150.png",
+      "size": "150x150",
+      "use": "Upload as YouTube video watermark",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\youtube-watermark-150.png"
+    },
+    {
+      "label": "X banner",
+      "file": "x-banner-1500x500.png",
+      "size": "1500x500",
+      "use": "Face-focused X header/banner",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\x-banner-1500x500.png"
+    },
+    {
+      "label": "YouTube banner",
+      "file": "youtube-banner-2560x1440.png",
+      "size": "2560x1440",
+      "use": "Face-focused YouTube channel banner",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\youtube-banner-2560x1440.png"
+    },
+    {
+      "label": "Facebook cover",
+      "file": "facebook-cover-851x315.png",
+      "size": "851x315",
+      "use": "Face-focused Facebook cover",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\facebook-cover-851x315.png"
+    },
+    {
+      "label": "YouTube thumbnail",
+      "file": "youtube-thumbnail-1280x720.png",
+      "size": "1280x720",
+      "use": "Intro video thumbnail",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\youtube-thumbnail-1280x720.png"
+    },
+    {
+      "label": "Instagram square",
+      "file": "instagram-square-1080.png",
+      "size": "1080x1080",
+      "use": "Square post template",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\instagram-square-1080.png"
+    },
+    {
+      "label": "Instagram portrait",
+      "file": "instagram-portrait-1080x1350.png",
+      "size": "1080x1350",
+      "use": "Portrait feed post template",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\instagram-portrait-1080x1350.png"
+    },
+    {
+      "label": "Instagram reel cover",
+      "file": "instagram-reel-cover-1080x1920.png",
+      "size": "1080x1920",
+      "use": "Reel/story cover template",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\instagram-reel-cover-1080x1920.png"
+    },
+    {
+      "label": "Threads vertical",
+      "file": "threads-post-1440x1920.png",
+      "size": "1440x1920",
+      "use": "Threads vertical post template",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\threads-post-1440x1920.png"
+    },
+    {
+      "label": "TikTok cover",
+      "file": "tiktok-cover-1080x1920.png",
+      "size": "1080x1920",
+      "use": "TikTok cover/video template",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10\\tiktok-cover-1080x1920.png"
+    }
+  ],
+  "sources": {
+    "liveavatar_clean_folder": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean",
+    "profile_assets_copied_from": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v8",
+    "font_css": "app/globals.css .aiasap-logo-mark",
+    "font_file_used_for_png_artwork": "C:\\Windows\\Fonts\\ariblk.ttf"
+  }
+}

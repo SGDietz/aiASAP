@@ -1,0 +1,171 @@
+{
+  "version": "v12",
+  "approval_status": "G approved exact v12 artwork for installation on 2026-05-04",
+  "approved_at": "2026-05-04T10:43:42-04:00",
+  "approved_rules": [
+    "Core social bio/profile rule: TurboCharge Your Life by Talking to Your Computer. Build a Better Life, Create Content on AutoPilot, Build a Business. The All-In-One App (beta).",
+    "Use real mobile website aiASAP logo styling from app CSS, not a screenshot scan.",
+    "Logo style source: app/globals.css .aiasap-logo-mark, Arial Black stack, italic, tracking 0, stronger synthetic italic lean to match the mobile browser look, scaleX(0.94), brown-gold gradient.",
+    "No teal/tan separator bars, decorative accent lines, strong yellow rings, or inner profile circles.",
+    "Profile images use the approved no-ring no-inner-circle HeadShot crop copied forward from v10/v8.",
+    "Banners and covers make 6 much bigger and focus mostly on his face/upper torso.",
+    "Use approved C tone reduction to reduce LiveAvatar red cast toward natural tan.",
+    "Use soft-brown radial palette with dark edges and muted brown center.",
+    "G approved this exact v12 artwork set for installation.",
+    "Platform order everywhere: X, YouTube, TikTok, Facebook, Instagram, Threads.",
+    "YouTube channel handle: @aiASAP-1; public URL: https://www.youtube.com/@aiASAP-1; channel ID: UCdYcVn1eBVvRIH4xfbdLAsw."
+  ],
+  "install_package": {
+    "file": "aiasap-social-artwork-v12-approved-install-pack.zip",
+    "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\aiasap-social-artwork-v12-approved-install-pack.zip",
+    "contents": "All approved v12 PNG assets plus manifest.json"
+  },
+  "assets": [
+    {
+      "label": "Proof sheet",
+      "file": "aiasap-social-artwork-v12-proof-sheet.png",
+      "size": "review",
+      "use": "One-sheet desktop review of the approved v12 artwork",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\aiasap-social-artwork-v12-proof-sheet.png"
+    },
+    {
+      "label": "Real mobile font proof",
+      "file": "aiasap-real-mobile-font-proof-v12.png",
+      "size": "review",
+      "use": "Real app CSS logo proof",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\aiasap-real-mobile-font-proof-v12.png"
+    },
+    {
+      "label": "Brand lockup HeadShot",
+      "file": "aiasap-6-brand-lockup-1024.png",
+      "size": "1024x1024",
+      "use": "Square lockup with larger face-focused 6",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\aiasap-6-brand-lockup-1024.png"
+    },
+    {
+      "label": "Brand lockup alternate",
+      "file": "aiasap-6-brand-lockup-expressive-1024.png",
+      "size": "1024x1024",
+      "use": "Alternate square lockup",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\aiasap-6-brand-lockup-expressive-1024.png"
+    },
+    {
+      "label": "Master profile HeadShot",
+      "file": "aiasap-6-profile-master-1024.png",
+      "size": "1024x1024",
+      "use": "Approved no-ring profile source",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\aiasap-6-profile-master-1024.png"
+    },
+    {
+      "label": "X profile",
+      "file": "x-profile-400.png",
+      "size": "400x400",
+      "use": "Upload to X profile image and YouTube channel picture",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\x-profile-400.png"
+    },
+    {
+      "label": "X banner",
+      "file": "x-banner-1500x500.png",
+      "size": "1500x500",
+      "use": "Larger face-focused X header/banner",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\x-banner-1500x500.png"
+    },
+    {
+      "label": "YouTube banner",
+      "file": "youtube-banner-2560x1440.png",
+      "size": "2560x1440",
+      "use": "YouTube all-device channel banner with logo and face inside the center safe area",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\youtube-banner-2560x1440.png"
+    },
+    {
+      "label": "YouTube thumbnail",
+      "file": "youtube-thumbnail-1280x720.png",
+      "size": "1280x720",
+      "use": "Larger face-focused intro video thumbnail",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\youtube-thumbnail-1280x720.png"
+    },
+    {
+      "label": "YouTube watermark",
+      "file": "youtube-watermark-150.png",
+      "size": "150x150",
+      "use": "Upload as YouTube video watermark",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\youtube-watermark-150.png"
+    },
+    {
+      "label": "TikTok profile",
+      "file": "tiktok-profile-1024.png",
+      "size": "1024x1024",
+      "use": "Upload to TikTok profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\tiktok-profile-1024.png"
+    },
+    {
+      "label": "TikTok cover",
+      "file": "tiktok-cover-1080x1920.png",
+      "size": "1080x1920",
+      "use": "Face-forward TikTok cover",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\tiktok-cover-1080x1920.png"
+    },
+    {
+      "label": "Facebook profile",
+      "file": "facebook-profile-320.png",
+      "size": "320x320",
+      "use": "Upload to Facebook profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\facebook-profile-320.png"
+    },
+    {
+      "label": "Facebook cover",
+      "file": "facebook-cover-851x315.png",
+      "size": "851x315",
+      "use": "Larger face-focused Facebook cover",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\facebook-cover-851x315.png"
+    },
+    {
+      "label": "Instagram profile",
+      "file": "instagram-profile-320.png",
+      "size": "320x320",
+      "use": "Upload to Instagram profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\instagram-profile-320.png"
+    },
+    {
+      "label": "Instagram square",
+      "file": "instagram-square-1080.png",
+      "size": "1080x1080",
+      "use": "Face-forward square post template",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\instagram-square-1080.png"
+    },
+    {
+      "label": "Instagram portrait",
+      "file": "instagram-portrait-1080x1350.png",
+      "size": "1080x1350",
+      "use": "Face-forward portrait feed post",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\instagram-portrait-1080x1350.png"
+    },
+    {
+      "label": "Instagram reel cover",
+      "file": "instagram-reel-cover-1080x1920.png",
+      "size": "1080x1920",
+      "use": "Face-forward Reel/story cover",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\instagram-reel-cover-1080x1920.png"
+    },
+    {
+      "label": "Threads profile",
+      "file": "threads-profile-640.png",
+      "size": "640x640",
+      "use": "Upload to Threads profile image",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\threads-profile-640.png"
+    },
+    {
+      "label": "Threads vertical",
+      "file": "threads-post-1440x1920.png",
+      "size": "1440x1920",
+      "use": "Face-forward Threads vertical post",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v12\\threads-post-1440x1920.png"
+    }
+  ],
+  "sources": {
+    "liveavatar_clean_folder": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean",
+    "profile_assets_copied_from": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v10",
+    "font_css": "app/globals.css .aiasap-logo-mark",
+    "font_file_used_for_png_artwork": "C:\\Windows\\Fonts\\ariblk.ttf"
+  }
+}

@@ -1,0 +1,12 @@
+.tmp-edge-profile*/
+.edge-shot-profile*/
+/tmp-comet*/
+/tmp-edge-shot*/
+/tmp-*.png
+/tmp-*.log
+/brand-buttons-check.png
+/finalcheck*.png
+/sharecheck.png
+/smoke-mobile*.png
+/artifacts/
+supabase/.temp/

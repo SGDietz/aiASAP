@@ -1,0 +1,438 @@
+{
+  "version": "v9",
+  "approval_status": "draft-only awaiting G approval before any social upload; rendered with real mobile website font styling, not a screenshot scan",
+  "approved_rules": [
+    "Use approved C tone reduction on 6 to reduce LiveAvatar red cast toward natural tan.",
+    "Clean screenshot edges; no blue/gray bars from source captures.",
+    "Profile circle uses final approved zoom/framing from proof 11: no visible yellow/gold ring, no inner ring.",
+    "Use the approved soft-brown radial palette with dark edges and muted brown center.",
+    "Use the exact mobile website aiASAP logo styling from .aiasap-logo-mark: Arial Black, italic, weight 800, tracking 0, skewX(-8deg) scaleX(0.94), brown-gold gradient, and drop shadow.",
+    "Do not use a screenshot scan or raster crop as the wordmark source.",
+    "Do not use teal/tan decorative separator bars or accent lines in the artwork."
+  ],
+  "sources": {
+    "headshot-clean.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean\\headshot-clean.png",
+    "liveavatar-060713-clean.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean\\liveavatar-060713-clean.png",
+    "liveavatar-060737-clean.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean\\liveavatar-060737-clean.png",
+    "liveavatar-060742-clean.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean\\liveavatar-060742-clean.png",
+    "liveavatar-060749-clean.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean\\liveavatar-060749-clean.png",
+    "liveavatar-060824-clean.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean\\liveavatar-060824-clean.png",
+    "liveavatar-060843-clean.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\clean\\liveavatar-060843-clean.png"
+  },
+  "assets": [
+    {
+      "label": "Proof sheet",
+      "file": "aiasap-social-artwork-v9-proof-sheet.png",
+      "size": "review",
+      "source": "all v7 assets",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\aiasap-social-artwork-v9-proof-sheet.png"
+    },
+    {
+      "label": "Real mobile font proof",
+      "file": "aiasap-real-mobile-font-proof-v9.png",
+      "size": "review",
+      "source": "app/globals.css .aiasap-logo-mark",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\aiasap-real-mobile-font-proof-v9.png"
+    },
+    {
+      "label": "Brand lockup HeadShot",
+      "file": "aiasap-6-brand-lockup-1024.png",
+      "size": "1024x1024",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\aiasap-6-brand-lockup-1024.png"
+    },
+    {
+      "label": "Brand lockup alternate",
+      "file": "aiasap-6-brand-lockup-expressive-1024.png",
+      "size": "1024x1024",
+      "source": "liveavatar-060824-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\aiasap-6-brand-lockup-expressive-1024.png"
+    },
+    {
+      "label": "Master profile HeadShot",
+      "file": "aiasap-6-profile-master-1024.png",
+      "size": "1024x1024",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\aiasap-6-profile-master-1024.png"
+    },
+    {
+      "label": "X profile",
+      "file": "x-profile-400.png",
+      "size": "400x400",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\x-profile-400.png"
+    },
+    {
+      "label": "Facebook profile",
+      "file": "facebook-profile-320.png",
+      "size": "320x320",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\facebook-profile-320.png"
+    },
+    {
+      "label": "Instagram profile",
+      "file": "instagram-profile-320.png",
+      "size": "320x320",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\instagram-profile-320.png"
+    },
+    {
+      "label": "Threads profile",
+      "file": "threads-profile-640.png",
+      "size": "640x640",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\threads-profile-640.png"
+    },
+    {
+      "label": "TikTok profile",
+      "file": "tiktok-profile-1024.png",
+      "size": "1024x1024",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\tiktok-profile-1024.png"
+    },
+    {
+      "label": "YouTube watermark",
+      "file": "youtube-watermark-150.png",
+      "size": "150x150",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\youtube-watermark-150.png"
+    },
+    {
+      "label": "X banner",
+      "file": "x-banner-1500x500.png",
+      "size": "1500x500",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\x-banner-1500x500.png"
+    },
+    {
+      "label": "YouTube banner",
+      "file": "youtube-banner-2560x1440.png",
+      "size": "2560x1440",
+      "source": "headshot-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\youtube-banner-2560x1440.png"
+    },
+    {
+      "label": "Facebook cover",
+      "file": "facebook-cover-851x315.png",
+      "size": "851x315",
+      "source": "liveavatar-060843-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\facebook-cover-851x315.png"
+    },
+    {
+      "label": "YouTube thumbnail",
+      "file": "youtube-thumbnail-1280x720.png",
+      "size": "1280x720",
+      "source": "liveavatar-060713-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\youtube-thumbnail-1280x720.png"
+    },
+    {
+      "label": "Instagram square",
+      "file": "instagram-square-1080.png",
+      "size": "1080x1080",
+      "source": "liveavatar-060737-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\instagram-square-1080.png"
+    },
+    {
+      "label": "Instagram portrait",
+      "file": "instagram-portrait-1080x1350.png",
+      "size": "1080x1350",
+      "source": "liveavatar-060742-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\instagram-portrait-1080x1350.png"
+    },
+    {
+      "label": "Instagram reel cover",
+      "file": "instagram-reel-cover-1080x1920.png",
+      "size": "1080x1920",
+      "source": "liveavatar-060749-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\instagram-reel-cover-1080x1920.png"
+    },
+    {
+      "label": "Threads vertical",
+      "file": "threads-post-1440x1920.png",
+      "size": "1440x1920",
+      "source": "liveavatar-060824-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\threads-post-1440x1920.png"
+    },
+    {
+      "label": "TikTok cover",
+      "file": "tiktok-cover-1080x1920.png",
+      "size": "1080x1920",
+      "source": "liveavatar-060843-clean.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v9\\tiktok-cover-1080x1920.png"
+    }
+  ],
+  "removed_from_v8": {
+    "decorative_accent_bars_removed": {
+      "facebook-cover-851x315.png": [
+        97,
+        218,
+        317,
+        228
+      ],
+      "instagram-portrait-1080x1350.png": [
+        340,
+        1105,
+        738,
+        1115
+      ],
+      "instagram-reel-cover-1080x1920.png": [
+        340,
+        1572,
+        738,
+        1582
+      ],
+      "instagram-square-1080.png": [
+        315,
+        933,
+        755,
+        943
+      ],
+      "threads-post-1440x1920.png": [
+        455,
+        1572,
+        983,
+        1582
+      ],
+      "tiktok-cover-1080x1920.png": [
+        340,
+        1572,
+        738,
+        1582
+      ],
+      "x-banner-1500x500.png": [
+        160,
+        358,
+        500,
+        368
+      ],
+      "youtube-banner-2560x1440.png": [
+        1044,
+        818,
+        1524,
+        828
+      ],
+      "youtube-thumbnail-1280x720.png": [
+        161,
+        501,
+        580,
+        511
+      ]
+    },
+    "note": "Removed the teal and tan horizontal separator bars. They had no functional purpose."
+  },
+  "real_mobile_font_source": {
+    "css_file": "app/globals.css",
+    "component_file": "src/components/LiveAvatarSession.tsx",
+    "font_family": "Arial Black, Impact, Arial Narrow, sans-serif",
+    "font_file_used_for_png_artwork": "C:\\Windows\\Fonts\\ariblk.ttf",
+    "font_style": "italic",
+    "font_weight": 800,
+    "tracking": 0,
+    "transform": "skewX(-8deg) scaleX(0.94)",
+    "gradient": [
+      "#d8aa71",
+      "#b7834f",
+      "#7f4f2b"
+    ]
+  },
+  "replaced_lockups_v9": {
+    "aiasap-6-brand-lockup-1024.png": {
+      "clear_zone": [
+        190,
+        625,
+        835,
+        930
+      ],
+      "new_box": [
+        261,
+        706,
+        763,
+        848
+      ],
+      "new_size": [
+        503,
+        143
+      ]
+    },
+    "aiasap-6-brand-lockup-expressive-1024.png": {
+      "clear_zone": [
+        190,
+        625,
+        835,
+        930
+      ],
+      "new_box": [
+        261,
+        706,
+        763,
+        848
+      ],
+      "new_size": [
+        503,
+        143
+      ]
+    },
+    "facebook-cover-851x315.png": {
+      "clear_zone": [
+        40,
+        70,
+        440,
+        235
+      ],
+      "new_box": [
+        84,
+        106,
+        395,
+        197
+      ],
+      "new_size": [
+        312,
+        92
+      ]
+    },
+    "instagram-portrait-1080x1350.png": {
+      "clear_zone": [
+        240,
+        70,
+        840,
+        340
+      ],
+      "new_box": [
+        306,
+        139,
+        773,
+        269
+      ],
+      "new_size": [
+        468,
+        131
+      ]
+    },
+    "instagram-reel-cover-1080x1920.png": {
+      "clear_zone": [
+        240,
+        120,
+        840,
+        390
+      ],
+      "new_box": [
+        306,
+        189,
+        773,
+        319
+      ],
+      "new_size": [
+        468,
+        131
+      ]
+    },
+    "instagram-square-1080.png": {
+      "clear_zone": [
+        240,
+        70,
+        840,
+        330
+      ],
+      "new_box": [
+        306,
+        134,
+        773,
+        264
+      ],
+      "new_size": [
+        468,
+        131
+      ]
+    },
+    "threads-post-1440x1920.png": {
+      "clear_zone": [
+        330,
+        125,
+        1110,
+        390
+      ],
+      "new_box": [
+        416,
+        171,
+        1023,
+        342
+      ],
+      "new_size": [
+        608,
+        172
+      ]
+    },
+    "tiktok-cover-1080x1920.png": {
+      "clear_zone": [
+        240,
+        120,
+        840,
+        390
+      ],
+      "new_box": [
+        306,
+        189,
+        773,
+        319
+      ],
+      "new_size": [
+        468,
+        131
+      ]
+    },
+    "x-banner-1500x500.png": {
+      "clear_zone": [
+        70,
+        120,
+        610,
+        345
+      ],
+      "new_box": [
+        129,
+        175,
+        549,
+        289
+      ],
+      "new_size": [
+        421,
+        115
+      ]
+    },
+    "youtube-banner-2560x1440.png": {
+      "clear_zone": [
+        900,
+        545,
+        1480,
+        830
+      ],
+      "new_box": [
+        964,
+        624,
+        1415,
+        750
+      ],
+      "new_size": [
+        452,
+        127
+      ]
+    },
+    "youtube-thumbnail-1280x720.png": {
+      "clear_zone": [
+        70,
+        135,
+        690,
+        395
+      ],
+      "new_box": [
+        138,
+        198,
+        620,
+        330
+      ],
+      "new_size": [
+        483,
+        133
+      ]
+    }
+  }
+}

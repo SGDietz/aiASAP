@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes fade-opacity {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* "Ask. Anything." hero line — soft staggered float on both words */
+@keyframes ask-word-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@layer components {
+  /* Inset button: gray glass with aiASAP amber text. */
+  .btn-inset {
+    background: linear-gradient(180deg, rgba(82, 82, 82, 0.76), rgba(34, 34, 34, 0.86));
+    color: #f1c477;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 -10px 24px rgba(0, 0, 0, 0.22),
+      0 10px 26px rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(155, 155, 155, 0.5);
+    text-shadow:
+      0 1px 0 rgba(0, 0, 0, 0.4),
+      0 -1px 0 rgba(241, 196, 119, 0.08);
+  }
+  .btn-inset:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(96, 96, 96, 0.82), rgba(42, 42, 42, 0.9));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 12px 30px rgba(0, 0, 0, 0.32);
+  }
+  .btn-inset:disabled {
+    opacity: 0.7;
+  }
+
+  /* Inset text: warm amber lettering with carved/inset shadow (titles, status text) */
+  .text-inset {
+    color: #d7a05a;
+    text-shadow:
+      0 1px 0 rgba(0, 0, 0, 0.4),
+      0 -1px 0 rgba(241, 196, 119, 0.08);
+  }
+
+  .aiasap-logo-mark {
+    font-family: "Arial Black", Impact, "Arial Narrow", sans-serif;
+    font-style: italic;
+    font-weight: 800;
+    letter-spacing: 0;
+    transform: skewX(-8deg) scaleX(0.94);
+    transform-origin: center;
+    -webkit-text-stroke: 0.006em rgba(255, 221, 154, 0.12);
+  }
+}
+
+@layer utilities {
+  .animate-fade-opacity {
+    animation: fade-opacity 4s ease-in-out infinite;
+  }
+
+  .animate-ask-first {
+    animation: ask-word-float 3.5s ease-in-out infinite;
+  }
+
+  .ask-anything-word {
+    animation: ask-word-float 3.5s ease-in-out infinite;
+    animation-delay: -1.75s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ask-first,
+  .ask-anything-word {
+    animation: none !important;
+  }
+}

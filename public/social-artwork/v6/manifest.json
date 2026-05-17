@@ -1,0 +1,151 @@
+{
+  "version": "v6",
+  "approval_status": "draft-only awaiting G approval",
+  "palette_rule": "Approved soft-brown radial palette: black/dark outer edges, muted brown center, brown-gold accents instead of hard yellow.",
+  "profile_rule": "HeadShot.png is the source for all profile circle assets.",
+  "sources": {
+    "headshot.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\headshot.png",
+    "liveavatar-060713.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\liveavatar-060713.png",
+    "liveavatar-060737.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\liveavatar-060737.png",
+    "liveavatar-060742.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\liveavatar-060742.png",
+    "liveavatar-060749.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\liveavatar-060749.png",
+    "liveavatar-060824.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\liveavatar-060824.png",
+    "liveavatar-060843.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\liveavatar-060843.png",
+    "liveavatar-source-contact-sheet.png": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\source-captures\\liveavatar\\liveavatar-source-contact-sheet.png"
+  },
+  "assets": [
+    {
+      "label": "Proof sheet",
+      "file": "aiasap-social-artwork-v6-proof-sheet.png",
+      "size": "review",
+      "source": "all v6 assets",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\aiasap-social-artwork-v6-proof-sheet.png"
+    },
+    {
+      "label": "Brand lockup HeadShot",
+      "file": "aiasap-6-brand-lockup-1024.png",
+      "size": "1024x1024",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\aiasap-6-brand-lockup-1024.png"
+    },
+    {
+      "label": "Brand lockup alternate",
+      "file": "aiasap-6-brand-lockup-expressive-1024.png",
+      "size": "1024x1024",
+      "source": "Screenshot 2026-05-04 060824.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\aiasap-6-brand-lockup-expressive-1024.png"
+    },
+    {
+      "label": "Master profile HeadShot",
+      "file": "aiasap-6-profile-master-1024.png",
+      "size": "1024x1024",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\aiasap-6-profile-master-1024.png"
+    },
+    {
+      "label": "X profile",
+      "file": "x-profile-400.png",
+      "size": "400x400",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\x-profile-400.png"
+    },
+    {
+      "label": "Facebook profile",
+      "file": "facebook-profile-320.png",
+      "size": "320x320",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\facebook-profile-320.png"
+    },
+    {
+      "label": "Instagram profile",
+      "file": "instagram-profile-320.png",
+      "size": "320x320",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\instagram-profile-320.png"
+    },
+    {
+      "label": "Threads profile",
+      "file": "threads-profile-640.png",
+      "size": "640x640",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\threads-profile-640.png"
+    },
+    {
+      "label": "TikTok profile",
+      "file": "tiktok-profile-1024.png",
+      "size": "1024x1024",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\tiktok-profile-1024.png"
+    },
+    {
+      "label": "YouTube watermark",
+      "file": "youtube-watermark-150.png",
+      "size": "150x150",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\youtube-watermark-150.png"
+    },
+    {
+      "label": "X banner",
+      "file": "x-banner-1500x500.png",
+      "size": "1500x500",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\x-banner-1500x500.png"
+    },
+    {
+      "label": "YouTube banner",
+      "file": "youtube-banner-2560x1440.png",
+      "size": "2560x1440",
+      "source": "HeadShot.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\youtube-banner-2560x1440.png"
+    },
+    {
+      "label": "Facebook cover",
+      "file": "facebook-cover-851x315.png",
+      "size": "851x315",
+      "source": "Screenshot 2026-05-04 060843.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\facebook-cover-851x315.png"
+    },
+    {
+      "label": "YouTube thumbnail",
+      "file": "youtube-thumbnail-1280x720.png",
+      "size": "1280x720",
+      "source": "Screenshot 2026-05-04 060713.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\youtube-thumbnail-1280x720.png"
+    },
+    {
+      "label": "Instagram square",
+      "file": "instagram-square-1080.png",
+      "size": "1080x1080",
+      "source": "Screenshot 2026-05-04 060737.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\instagram-square-1080.png"
+    },
+    {
+      "label": "Instagram portrait",
+      "file": "instagram-portrait-1080x1350.png",
+      "size": "1080x1350",
+      "source": "Screenshot 2026-05-04 060742.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\instagram-portrait-1080x1350.png"
+    },
+    {
+      "label": "Instagram reel cover",
+      "file": "instagram-reel-cover-1080x1920.png",
+      "size": "1080x1920",
+      "source": "Screenshot 2026-05-04 060749.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\instagram-reel-cover-1080x1920.png"
+    },
+    {
+      "label": "Threads vertical",
+      "file": "threads-post-1440x1920.png",
+      "size": "1440x1920",
+      "source": "Screenshot 2026-05-04 060824.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\threads-post-1440x1920.png"
+    },
+    {
+      "label": "TikTok cover",
+      "file": "tiktok-cover-1080x1920.png",
+      "size": "1080x1920",
+      "source": "Screenshot 2026-05-04 060843.png",
+      "path": "C:\\Users\\sgdie\\Dropbox\\Codex\\aiASAP\\public\\social-artwork\\v6\\tiktok-cover-1080x1920.png"
+    }
+  ]
+}

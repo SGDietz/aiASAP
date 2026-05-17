@@ -1,0 +1,383 @@
+"use client";
+
+import { useState, useCallback, useEffect, useRef } from "react";
+// import Image from "next/image";
+import dynamic from "next/dynamic";
+import Link from "next/link";
+
+type LiveAvatarSessionProps = {
+  sessionAccessToken: string;
+  onSessionStopped: (opts?: { reason?: "inactivity" }) => void;
+  onExit?: (completeExit?: boolean) => void;
+};
+
+function preloadLiveAvatarSession() {
+  return import("./LiveAvatarSession");
+}
+
+function customerStartErrorMessage(error: unknown): string {
+  const value = typeof error === "string" ? error.toLowerCase() : "";
+  if (/\b(?:credit|limit|quota|billing)\b/.test(value)) {
+    return "6 needs service credits before he can start. Try again in a little bit.";
+  }
+  return "6 is having trouble connecting. Tap to try again.";
+}
+
+const LiveAvatarSession = dynamic<LiveAvatarSessionProps>(
+  () => preloadLiveAvatarSession().then((module) => module.LiveAvatarSession),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full min-h-screen flex flex-col items-center justify-center gap-4 bg-black px-4">
+        <div className="text-inset text-xl">Loading...</div>
+      </div>
+    ),
+  },
+);
+
+export const LiveAvatarDemo = () => {
+  const [sessionToken, setSessionToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isExited, setIsExited] = useState(false);
+  const sessionBootstrapRef = useRef(false);
+
+  const startSession = useCallback(async () => {
+    try {
+      void preloadLiveAvatarSession();
+      setIsLoading(true);
+      setError(null);
+      const res = await fetch("/api/start-session", { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json();
+        setError(customerStartErrorMessage(err?.error));
+        setIsLoading(false);
+        return;
+      }
+      const { session_token } = await res.json();
+      setSessionToken(session_token);
+      setIsLoading(false);
+    } catch (err: unknown) {
+      setError("6 is having trouble connecting. Tap to try again.");
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void preloadLiveAvatarSession();
+    if (isExited || sessionToken) {
+      return;
+    }
+    if (sessionBootstrapRef.current) {
+      return;
+    }
+    sessionBootstrapRef.current = true;
+    void startSession();
+  }, [isExited, sessionToken, startSession]);
+
+  const onSessionStopped = (opts?: { reason?: "inactivity" }) => {
+    sessionBootstrapRef.current = false;
+    if (opts?.reason === "inactivity") {
+      setIsExited(true);
+      setSessionToken("");
+      return;
+    }
+    setSessionToken("");
+  };
+
+  // Helper function to try closing the tab with multiple methods
+  const tryCloseTab = () => {
+    if (typeof window === "undefined") return;
+
+    // Try window.close() multiple times with different approaches
+    try {
+      window.close();
+    } catch (e) {
+      // Ignore
+    }
+
+    // Try self.close() (some browsers support this)
+    try {
+      (window as any).self?.close();
+    } catch (e) {
+      // Ignore
+    }
+
+    // Try top.close() if in iframe
+    try {
+      if (window.top && window.top !== window) {
+        (window.top as any).close();
+      }
+    } catch (e) {
+      // Ignore
+    }
+  };
+
+  const handleExit = (completeExit: boolean = false) => {
+    if (completeExit) {
+      // Aggressively try to exit/close the tab on mobile
+      if (typeof window !== "undefined") {
+        // Detect if we're on mobile
+        const isMobile =
+          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+            navigator.userAgent,
+          );
+
+        // For mobile: Try multiple aggressive exit strategies
+        if (isMobile) {
+          // Strategy 1: Try window.close() immediately (works if opened by script)
+          try {
+            if (window.opener || window.history.length === 1) {
+              window.close();
+              // Give it a moment to close
+              setTimeout(() => {
+                // If still open, try other methods
+                tryCloseTab();
+              }, 100);
+              return;
+            }
+          } catch (e) {
+            // Fall through to other methods
+          }
+
+          // Strategy 2: Navigate to about:blank to minimize the page
+          // This creates a blank page that's easy to close
+          try {
+            window.location.replace("about:blank");
+            // Also try to close after navigation
+            setTimeout(() => {
+              try {
+                window.close();
+              } catch (e) {
+                // Ignore - already on blank page
+              }
+            }, 100);
+            return;
+          } catch (e) {
+            console.warn("Failed to navigate to about:blank:", e);
+          }
+
+          // Strategy 3: Try history.back() if available
+          if (window.history.length > 1) {
+            try {
+              window.history.back();
+              return;
+            } catch (e) {
+              // Continue to next strategy
+            }
+          }
+
+          // Strategy 4: Navigate to referrer if available
+          const referrer = document.referrer;
+          if (
+            referrer &&
+            referrer !== window.location.href &&
+            referrer !== ""
+          ) {
+            try {
+              window.location.replace(referrer);
+              return;
+            } catch (e) {
+              // Continue to final strategy
+            }
+          }
+
+          // Strategy 5: Final fallback - Navigate to about:blank
+          // This at least minimizes the page content
+          try {
+            window.location.replace("about:blank");
+          } catch (e) {
+            // Last resort: Show exit message
+            setIsExited(true);
+            setSessionToken("");
+          }
+        } else {
+          // For desktop: Use standard navigation
+          if (window.history.length > 1) {
+            try {
+              window.history.back();
+              return;
+            } catch (e) {
+              // Fall through
+            }
+          }
+
+          const referrer = document.referrer;
+          if (
+            referrer &&
+            referrer !== window.location.href &&
+            referrer !== ""
+          ) {
+            try {
+              window.location.href = referrer;
+              return;
+            } catch (e) {
+              // Fall through
+            }
+          }
+
+          try {
+            window.location.href = "/";
+          } catch (e) {
+            setIsExited(true);
+            setSessionToken("");
+          }
+        }
+      }
+      return;
+    }
+    // Regular exit - show "Session Ended" message
+    setIsExited(true);
+    setSessionToken("");
+  };
+
+  if (isExited) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#090604] text-[#f1c477]">
+        <div className="text-inset text-2xl font-black">Session ended</div>
+        <div className="text-inset text-center text-lg opacity-95">
+          Thank you for using aiASAP
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setIsExited(false);
+            sessionBootstrapRef.current = true;
+            void startSession();
+          }}
+          className="btn-inset rounded-lg px-7 py-2.5 text-base font-black"
+        >
+          Restart
+        </button>
+      </div>
+    );
+  }
+
+  /*
+  // Start screen (disabled — app bootstraps session automatically; restore this block to show landing UI)
+  if (!sessionToken) {
+    return (
+      <div className="relative w-full h-full min-h-screen flex flex-col items-center justify-end overflow-hidden bg-black">
+        <Image
+          src="/startscreen.png"
+          alt="Start screen"
+          fill
+          className="object-cover object-center"
+          priority
+          sizes="100vw"
+        />
+        <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 pb-2">
+          <h1 className="text-[#d7a05a] text-[1.35rem] sm:text-2xl font-bold tracking-tight">
+            aiASAP
+          </h1>
+          <p className="text-[#d7a05a] text-xs sm:text-[0.8125rem] font-medium mt-1">
+            Life Made Easy
+          </p>
+        </div>
+        <div className="fixed bottom-40 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-20 px-4">
+          {error && (
+            <div className="mb-3 max-w-xl mx-auto rounded-xl bg-black/55 px-5 py-4 backdrop-blur-sm border border-white/10">
+              <p className="text-center text-white text-xl sm:text-2xl font-semibold leading-snug [text-shadow:0_2px_16px_rgba(0,0,0,0.9)]">
+                {error}
+              </p>
+            </div>
+          )}
+          <div className="flex justify-center mb-4">
+            <button
+              type="button"
+              onClick={startSession}
+              disabled={isLoading}
+              aria-label="To talk to this guy, tap this button"
+              aria-busy={isLoading}
+              className="btn-inset py-3 px-6 sm:px-8 rounded-lg flex flex-col items-center justify-center gap-1 max-w-[min(100%,20rem)] text-center"
+            >
+              {isLoading ? (
+                <span className="text-xl font-medium">Starting…</span>
+              ) : (
+                <>
+                  <span className="text-[11px] sm:text-xs font-normal text-white/75 leading-tight">
+                    (Tap this button)
+                  </span>
+                  <span className="text-xl sm:text-2xl font-semibold leading-snug">
+                    To talk to this guy
+                  </span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-20 px-4">
+          <Link
+            href="/terms"
+            className="block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-2"
+            style={{ color: "rgba(215, 160, 90, 0.7)" }}
+          >
+            © 2026 aiASAP All Rights Reserved · Terms
+          </Link>
+        </div>
+      </div>
+    );
+  }
+  */
+
+  if (!sessionToken) {
+    return (
+      <div className="w-full min-h-screen flex flex-col items-center justify-center gap-4 bg-black px-4">
+        {error && (
+          <div className="max-w-xl rounded-xl border border-[#e0aa62]/45 bg-[#120b06]/88 px-5 py-4 text-[#f1c477] shadow-[0_18px_52px_rgba(0,0,0,0.48)] backdrop-blur-sm">
+            <p className="text-center text-lg font-black leading-snug">
+              {error}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                void startSession();
+              }}
+              className="mt-4 w-full btn-inset py-2 rounded-md text-sm font-black"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!error && (
+          <div className="text-inset text-xl">Loading...</div>
+        )}
+        <p
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 py-2"
+          style={{ color: "rgba(215, 160, 90, 0.7)" }}
+        >
+          &copy; 2026 aiASAP All Rights Reserved &middot;{" "}
+          <Link
+            href="/terms"
+            target="_blank"
+            className="hover:text-[#d7a05a] transition-colors"
+          >
+            Terms
+          </Link>{" "}
+          &middot;{" "}
+          <Link
+            href="/privacy"
+            target="_blank"
+            className="hover:text-[#d7a05a] transition-colors"
+          >
+            Privacy Policy
+          </Link>
+        </p>
+        <div
+          className="hidden"
+          style={{ color: "rgba(215, 160, 90, 0.7)" }}
+        >
+          © 2026 aiASAP All Rights Reserved · Terms
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <LiveAvatarSession
+      sessionAccessToken={sessionToken}
+      onSessionStopped={onSessionStopped}
+      onExit={handleExit}
+    />
+  );
+};

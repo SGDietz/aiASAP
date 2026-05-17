@@ -1,0 +1,49 @@
+# Dependencies + build
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Vercel + env
+.vercel
+.env
+.env.local
+.env.*.local
+
+# Codex dev artifacts (recovered from May 6 deploy, not source of truth)
+.codex-*
+.next-*.log
+.next-*.err.log
+.next-smoke.*
+.tmp-*
+.edge-shot-*
+.edge-shot.*
+tmp-*
+tmp-edge-*
+tmp-comet-*
+tmp-brand-color-*
+tmp-font-*
+tmp-note-*
+
+# Generic log captures (Codex left stdout/stderr captures at repo root)
+*.log
+*.err.log
+next-dev*
+next-start*
+
+# Screenshot output artifacts
+artifacts/
+*.png
+
+# Telegram bot runtime artifacts
+telegram_bot.log
+telegram_bot.err.log
+telegram_bot_service.log
+telegram_conversations.json
+telegram_conversations.json.tmp
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db

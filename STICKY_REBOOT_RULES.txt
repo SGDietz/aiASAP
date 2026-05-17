@@ -1,0 +1,249 @@
+AI assistant reboot SOP for Codex and Claude
+
+Last updated: 2026-05-05
+
+Root shared SOP: `C:\Users\sgdie\Dropbox\Codex\AI_ASSISTANT_REBOOT_RULES.md`
+
+Command posture:
+- Hard rule from G on 2026-05-04: never change aiASAP copy, UI, branding, layout, behavior, prompts, social assets, deploy/smoke flow, or adjacent files unless G and the assistant have discussed that exact change first. Do only the requested change. If a related change seems necessary, stop and ask before editing.
+- Artwork cleanup rule from G on 2026-05-06: when a new artwork version makes older artwork invalid or unusable, do not leave broken garbage around. Identify the obsolete files/folders and delete the confirmed cleanup set; because deletion is destructive, do not guess broadly.
+- Absolute queue-check law from G on 2026-05-04: before any final Vercel build/deploy and before any smoke test to Telegram or the thread, stop and review queued user instructions/messages first. Do not build, deploy, or smoke from stale assumptions. If the queue changes scope, handle the queue first.
+- Completion ping rule from G on 2026-05-05: every single time any task is finished, send G a Telegram ping with a very short brief of what was accomplished, even if there was no smoke test or deploy.
+- Multi-task checklist law from G on 2026-05-05: any time Codex has more than one task or issue to handle, whether Supabase-related or not, make a concrete checklist first. Work down that checklist item by item and do not report done or send smoke until every item is fixed/accomplished or explicitly marked blocked/deferred.
+- Do the work. Ask G for help only when the assistant absolutely cannot complete the task after checking the real workspace and connected services.
+- Work the service problem first: Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, local envs, helper scripts, CLIs/APIs, dashboards, and practical routes around blockers.
+- On startup, immediately read this SOP plus `PROJECT_MEMORY.md` and `AIASAP_REBOOT_HANDOFF.md`, then operate from them. Do not make G restate known routes.
+- If a known sandbox, Windows policy, network, protected-preview, or Dropbox-lock issue appears, use the known bypass drill below immediately.
+- Codex app right-sidebar rule from G on 2026-05-05: do not open the right-side code/file preview sidebar unless it is absolutely necessary for the active task. Prefer plain filenames/paths instead of clickable file links in replies. If G needs to see something there, tell him first and let him choose to click/open it. If the sidebar must be opened, close it as soon as it is no longer needed.
+- Color-change removal from G on 2026-05-05: user-requested list/sticky-note color changes are off. 6 must not offer them, claim a color changed, or let color-review phrases become list items.
+- List-start correction from G/Supabase on 2026-05-05: when an explicit list command already opens the visible list, 6 must not ask `Want me to start that list for you?`; review phrases about the list popping up or numbered junk must not become list items.
+- Current visible brand-line correction from G on 2026-05-05 night: the under-logo line is back to `Take the Leap`. `TurboCharge Your Life` remains a major broader brand/practice theme, but stale notes saying `Take the Leap` is retired are superseded.
+- Latest list-routing correction from G/Supabase on 2026-05-05 night: active shopping/grocery lists must accept multi-item speech like `bananas, blueberries, bread and butter`; `I said jam, not damn` fixes the visible item; filler/ASR junk like `damn`, `there we go`, `up`, and `my` must not become list items; `put/bring up/where's the grocery list` switches/opens the existing list; `remove/delete the Walmart list` deletes the list.
+- Keep comms operational: brief, direct, military lingo with G, links whenever G needs to go somewhere, questions only at the end under `Brief`, Dropbox screenshots checked when requested, and copyable blocks/files when G needs to paste something.
+
+Lanes:
+- Codex owns aiASAP.
+- Claude owns iSolve unless G explicitly redirects.
+- Do not cross lanes unless G knows it. Shared/root SOP files can be edited for coordination; product code stays in the assigned lane.
+
+Security and deploy gates:
+- Security is #1. Check as often as appropriate and always before anything goes live.
+- Keep secrets out of source, chat summaries, and durable memory. Use local `.env` files and approved provider dashboards/CLIs.
+- Shelly, or Mrs. Claws, is the local OpenClaw keymaster for keys, pins, and security. Start her in motion for secure actions, defer to her, and do not spy on her.
+- Every assistant change, rewrite, rule update, or code update gets a Vercel preview deploy after reasonable checks and the required queue check. Do not wait for separate G approval for preview deploys.
+- Every assistant change, rewrite, rule update, or code update also gets a Telegram smoke test and a smoke-test link in the conversation thread, but only after the required queue check.
+- Production/domain promotion is different: never push/promote to `aiasap.ai`, `aiASAP.ai`, `iSolveUrProblems.ai`, or another live domain without explicit G approval plus security review.
+- Current aiASAP deployment rule from G on 2026-05-03: default to Vercel deployment links/builds. Codex is free to change and deploy Vercel builds as needed after reasonable checks. Write/push/promote to `aiasap.ai` or `www.aiasap.ai` only when G gives explicit permission for that specific domain move, always with security review.
+
+Telegram and smoke tests:
+- Telegram is the default alert lane.
+- After reboot, reconnect Telegram and send a text proving the line is alive and can accept G's voice notes.
+- G authorizes Vercel preview smoke tests and Telegram/thread delivery after every assistant change or rewrite.
+- Call them `smoke test`.
+- Smoke-test format: build/version, Vercel link or relevant link, super brief summary, and exactly what G should test/look for.
+- Send smoke tests to Telegram unless G says otherwise. Also give desktop links in chat when useful.
+- Make sure Telegram voice notes can be understood, not just received.
+
+Supabase, transcripts, and learning:
+- Before meaningful aiASAP work, confirm the app is set to capture a full transcript: every word from G, any user, and 6.
+- Until G says otherwise, Supabase is the transcript source of truth and should keep every word from G, any user, and 6 so assistants can learn from it and brief G with important product information.
+- After every smoke test when appropriate, check Supabase or the relevant backend, report the lesson briefly, and use it going forward.
+- During G/operator beta sessions, treat what G says to 6 as product feedback unless it is clearly normal user tasking.
+- If G says `sup`, `check sup`, `check soup`, or similar, inspect the latest full Supabase transcript sequence before patching.
+- Supabase passes also follow the multi-task checklist law: make a concrete list of the transcript issues/tasks found, work down it, and do not report done or send smoke until the list is handled or explicitly marked blocked/deferred.
+
+Known bypass drill:
+- Vercel preview deploy: run `npx.cmd vercel deploy --yes` from `C:\Users\sgdie\Dropbox\Codex\aiASAP`. Preview only unless `--prod` is explicitly used.
+- Protected preview verification: raw browser fetch may return `401`; verify with `npx.cmd vercel curl / --deployment <preview-url>` instead of spinning.
+- Protected preview share link: try the Vercel share helper once. If it fails, say the preview is Vercel-auth protected and send the preview URL anyway.
+- Telegram smoke test: use `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\send_telegram_smoke_test.ps1 ...` so Windows script policy does not block the send.
+- Sandbox network block: if Telegram, Vercel fetch/curl/logs, or another required service fails with network access, rerun the same operation with escalation.
+- Vercel logs after smoke: run `npx.cmd vercel logs <deployment-id> --no-follow --level error --since 10m`.
+- Local build lock: if `npm.cmd run build` compiles but fails on Dropbox `.next\export` cleanup or webpack cache rename, treat it as a Dropbox file-lock issue. Do not block preview deploy if typecheck, secret scan, and Vercel remote build pass.
+- `npm.cmd` / `npx.cmd` path weirdness: if the command is intermittently not found in the sandbox, retry the same Vercel/NPM operation with escalation.
+
+LiveAvatar and 6:
+- 6 is always `6`, never `Six`.
+- When 6 speaks the company name, it is pronounced `a-i-ASAP` every time so the a and i are enunciated. Written/UI brand stays `aiASAP`.
+- Automatically update the LiveAvatar context window/SW on liveavatar.com when aiASAP behavior, prompts, voice flow, or context needs to change.
+- Always keep 6's context window current with both what aiASAP can do now and what it cannot do yet.
+- 6 should be able to tell users, "If you wanna know what I can do, just ask," then accurately explain and use the current feature set.
+- Codex / aiASAP LiveAvatar IDs:
+  - `3cbe98e4-50ff-4e48-8954-7685fcf09dac`
+  - `33a7aeb4-cd4a-4ae3-a2ed-39abf8db2930`
+  - `a65a59af-39bd-4f57-8cc6-235449ca3348`
+
+Reboot, bedtime, and domains:
+- When G says get ready for a reboot, ready the workspace and write a paste-back note so the next assistant can pick up exactly where this one stopped.
+- G's bedtime is 10:00 PM Eastern. Help him get to bed on time.
+- Backorder `aiASAP.com` and other useful aiASAP domains when domain work is active.
+
+Shorthand:
+- `sup` = Supabase
+- `ss` = check both Supabase and Dropbox screenshots; read the latest full transcript sequence and check current screenshots before deciding on a patch.
+- `t` = Telegram
+- `db` = Dropbox
+- `cw` = context window in LiveAvatar.com
+- If meaning is unclear, check this SOP before guessing or asking G.
+
+Latest aiASAP checkpoint - 2026-05-03 2:34 PM ET:
+- G explicitly approved live domain promotion before dinner/nap shutdown.
+- Production is live at `https://aiasap.ai` from deployment `dpl_32tTMm3gL1rZnXdjnBxC9i4QV77g`.
+- Production URL: `https://ai-asap-8czcz14l2-team-dietz.vercel.app`.
+- Verified: typecheck, `git diff --check`, deploy-relevant secret scan, Vercel remote production build, live `https://aiasap.ai` HTTP 200, Vercel inspect aliases, and no production error logs.
+- Local build compiled but hit the known Dropbox `.next\export` cleanup lock; do not treat that as source failure when Vercel remote build passes.
+- Telegram smoke was sent with the live domain.
+- Final visual state live: desktop pillbox sides pulled inward only; desktop font, height, and vertical placement unchanged; mobile pillbox dimensions unchanged and mobile font one point smaller than the prior oversized test.
+- Resume after G's dinner/nap by reading `AIASAP_REBOOT_HANDOFF.md` section `Dinner / Nap Stand-Down - 2026-05-03 2:34 PM ET`. Check Supabase only if G asks `sup` or gives behavior feedback.
+- LiveAvatar context update succeeded with code `1000`; security gate before deploy passed.
+- Post-resume rule: default aiASAP delivery is Vercel builds/links. Send Vercel deployment/build links unless G explicitly asks for a domain move.
+- Next move: wait for G to test the Vercel build, then check `sup` only after feedback.
+- No production/domain push to `aiasap.ai` / `www.aiasap.ai` unless G gives explicit permission for that specific domain move and security review passes.
+
+Latest Social CENTCOM artwork checkpoint - 2026-05-04 7:41 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Social Artwork Pause / Step-Out Handoff - 2026-05-04 7:41 AM ET`.
+- Stay in aiASAP lane and preserve dirty worktree. Work in Vercel previews only; do not touch/promote `aiasap.ai` unless G explicitly says so.
+- G wants desktop links for artwork review right now. No Telegram links/smokes unless he asks.
+- All social artwork is draft-only until G approves exact files. Do not upload profile images, banners, covers, thumbnails, or post templates to socials yet.
+- Current v7 draft kit is in `public/social-artwork/v7/` and Social CENTCOM points to it.
+- Current preview: `https://ai-asap-epp1lcdtf-team-dietz.vercel.app/social`, deployment `dpl_DYMxrHDxSHepCUPu7NfP7ZxHcfQ5`.
+- Local review server used `http://127.0.0.1:3004/social`; old `3003` may be stale.
+- G-approved artwork direction: 6 with C tone redness reduction, no gold/yellow profile ring, no inner circle, face crop from final no-ring proof, clean screenshot edges, soft-brown/black-edge palette, and clean italic website-style `aiASAP`.
+- Official email is `aiASAP@pm.me` with exact capitalization.
+
+Latest Social CENTCOM artwork checkpoint - 2026-05-04 9:58 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Social Artwork v11 Big-6 Preview - 2026-05-04 9:58 AM ET`.
+- Stay in aiASAP lane and preserve dirty worktree. Work in Vercel previews only; do not touch/promote `aiasap.ai` unless G explicitly says so.
+- G wants desktop links for artwork review right now. No Telegram links/smokes unless he asks.
+- All social artwork is draft-only until G approves exact files. Do not upload profile images, banners, covers, thumbnails, or post templates to socials yet.
+- Current v11 draft kit is in `public/social-artwork/v11/` and Social CENTCOM points to it.
+- Current preview: `https://ai-asap-8b1xpt8oo-team-dietz.vercel.app/social`, deployment `dpl_A562ghzPhcGpPsbakmQJ2qotBTBL`.
+- Current proof: `https://ai-asap-8b1xpt8oo-team-dietz.vercel.app/social-artwork/v11/aiasap-social-artwork-v11-proof-sheet.png`.
+- Local review server used `http://127.0.0.1:3004/social`; old `3003` may be stale.
+- v11 artwork direction: profile circles keep the approved no-ring HeadShot crop; banners/covers make 6 much bigger and focus mostly on his face/upper torso.
+- Logo/wordmark artwork must use the real mobile website font styling from `app/globals.css`, not screenshot scans.
+- Keep C tone redness reduction, soft-brown/black-edge palette, no teal/tan bars, no decorative accent lines, no strong yellow profile ring, no inner profile circle, and no blue/gray screenshot bars.
+- Official email is `aiASAP@pm.me` with exact capitalization.
+
+Latest Social CENTCOM artwork checkpoint - 2026-05-04 10:05 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Social Artwork v12 Stronger Italic Preview - 2026-05-04 10:05 AM ET`.
+- Stay in aiASAP lane and preserve dirty worktree. Work in Vercel previews only; do not touch/promote `aiasap.ai` unless G explicitly says so.
+- G wants desktop links for artwork review right now. No Telegram links/smokes unless he asks.
+- All social artwork is draft-only until G approves exact files. Do not upload profile images, banners, covers, thumbnails, or post templates to socials yet.
+- Current v12 draft kit is in `public/social-artwork/v12/` and Social CENTCOM points to it.
+- Current preview: `https://ai-asap-lcbptiwd7-team-dietz.vercel.app/social`, deployment `dpl_4CC8Uqm6pXwEEWVXfesnUVa4wXwh`.
+- Current proof: `https://ai-asap-lcbptiwd7-team-dietz.vercel.app/social-artwork/v12/aiasap-social-artwork-v12-proof-sheet.png`.
+- Local review server used `http://127.0.0.1:3004/social`; old `3003` may be stale.
+- v12 artwork direction: keep v11 profile/banner composition but make the `aiASAP` wordmark more right-leaning/italic like the mobile reference.
+- Logo/wordmark artwork must use real mobile website styling direction, not screenshot scans.
+- Official email is `aiASAP@pm.me` with exact capitalization.
+
+Latest Social CENTCOM platform-order checkpoint - 2026-05-04 10:14 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Social CENTCOM Platform Order Pass - 2026-05-04 10:14 AM ET`.
+- Required platform order everywhere: X, YouTube, TikTok, Facebook, Instagram, Threads.
+- Current preview: `https://ai-asap-d6naxg20o-team-dietz.vercel.app/social`, deployment `dpl_4ozGiSwKsbqx19iR9iD7edQX7rm1`.
+- Current proof: `https://ai-asap-d6naxg20o-team-dietz.vercel.app/social-artwork/v12/aiasap-social-artwork-v12-proof-sheet.png`.
+- The order is enforced in Social CENTCOM UI, draft platform buttons/labels, artwork spec cards, artwork asset cards, setup callbacks, stored draft platform arrays, and v12 proof/manifest ordering.
+- Stay in aiASAP lane, preserve dirty worktree, preview only, no Telegram unless G asks, no social upload until exact artwork approval.
+
+Latest prompt pill / CW checkpoint - 2026-05-04 10:31 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Prompt Pill / CW Doctrine Update - 2026-05-04 10:31 AM ET`.
+- Current first-four idea boxes from G's 2026-05-05 Supabase correction, exact order: `Create Financial Freedom`, `Build Relationships`, `Set & Track Goals`, `Build Your Socials`.
+- Current list/sticky note behavior from G's 2026-05-05 Supabase correction: if a list is already visibly open, 6 must not ask whether to open it again; use the visible list. Active grocery/shopping lists must accept short item fragments like `coffee`, `tea`, and `cereal`, while product-review fragments like `because we need more space` must not become list items. Keep the outer compact note size fixed; make the header smaller and title larger.
+- Current pop-up list rule from G's 2026-05-05 Supabase correction: explicit commands like `pop up a grocery list`, `pop up a to-do list`, `pop up a honey-do list`, `pop up a Walmart list`, or `pop up a weekend planning list` open the matching visible list immediately. Do not ask whether to start it after that direct command.
+- User-facing beta wording rule: 6 should not say `MVP` or `minimum viable product` to normal users. For video creation, say not directly yet, new features are being added weekly, video is planned, and 6 can help now with scripts, shot lists, captions, prompts, and rollout planning.
+- Sprinkle those four heavily throughout broad conversations when no stronger focused topic overrides them.
+- Sprinkle the broader list after them: `Create a Shopping List`, `Build a Better Life`, `Make More Money`, `Find Your Life Partner`, `Build a Business`, `Build Friendships`, `Build Your Brand`, `Market Yourself`, `Create WalMart List`, `Create To Do List`, `Plan Your Weekend`, `Market Your Product`, `Market Your Service`, `Next Vacation Ideas`.
+- Build Your Socials explanation: do not undersell it. aiASAP/Codex can help build the whole social machine: full brand, platform choices, gorgeous artwork, profile copy, content strategy, post copy, launch content, content calendar, command center, account-linking flows, platform-ready posts, and posting support for nearly any major site once connected. User stays in the driver's seat: gas, brake, steering wheel, permissions, account ownership, and final publish/save approvals. The value promise is strong ROI on setup time because most planning, branding, artwork, content, setup, linking, and operation can happen by talking to 6 after permissions and account-owner steps are handled.
+- Pocket-friend dialogue: 6 should naturally and often make clear that the more people use aiASAP, the more they will feel the power and ease of it. They can have 6 in their pocket, pull him out any time, and have a buddy right when they need one: `If you've got a phone, you've got a friend.` Tie this to real life: relationships, financial freedom, social channels, content, business, brand, goals, lists, and next steps.
+- LiveAvatar context update succeeded with code `1000`.
+- Current preview: `https://ai-asap-3bqblxaxr-team-dietz.vercel.app`, deployment `dpl_J888fLV323P6r8uK37pFNLBZpYks`.
+- Latest laptop sides four-smidge adjustment: G requested only left/right inward four smidges each. On laptop only, keep top/bottom unchanged and bring only left/right sides inward. Current laptop-only rule covers `901px-1999px` wide and `680px+` tall CSS viewports, keeps logo `font-size: clamp(2.05rem, 4.05vh, 3.38rem)`, keeps `top: calc(var(--aiasap-lock-top) + 47.2vh)`, `gap: 0.24rem`, and `height: 2.36rem`, and uses `width: min(100%, 41vw, 15.5rem)`. Short-height desktop and iPad/tall-tablet rules were not changed. Telegram smoke was sent.
+- Superseded previous laptop sides two-smidge adjustment: older pass used `width: min(100%, 43vw, 16.5rem)`. Use the current sides four-smidge rule above instead.
+- Superseded previous laptop logo / four-smidge in-up adjustment: older pass used `width: min(100%, 44vw, 17rem)`. Use the current sides two-smidge rule above instead.
+- Superseded previous laptop three-side four-smidge adjustment: older pass used `top: 47.8vh`, `gap: 0.28rem`, `height: 2.46rem`, and `width: min(100%, 46vw, 18rem)`. Use the current laptop logo / four-smidge in-up rule above instead.
+- Superseded previous laptop smidge adjustment: the older smidge pass used `gap: 0.32rem`, `height: 2.56rem`, and `width: min(100%, 48vw, 19rem)`. Use the current three-side four-smidge rule above instead.
+- Latest screenshot-check rule from G: create and inspect local screenshots inside Codex's own system before deploy/smoke/final outputs when changing visual layout. For the laptop retry, Comet-only screenshots were created and inspected before output.
+- Latest laptop screenshot-checked refinement: G's `unnamed.png` laptop screenshot is the newest visual target. Wide/tall laptop open prompt pills now use `top: calc(var(--aiasap-lock-top) + 47.8vh)`, `gap: 0.28rem`, `height: 2.48rem`, and `width: min(100%, 46vw, 15.5rem)` for `901px+` wide and `780px+` tall CSS viewports. This catches the likely laptop browser-chrome height that missed the `841px+` rule and makes the stack about the blue-line width, shorter, tighter, and in the marked torso zone. Short-height desktop and iPad/tall-tablet rules were not changed.
+- Superseded previous laptop blue-line refinement: the older `841px+` laptop rule used `48.2vh`, `0.3rem`, `2.36rem`, and `13.5rem`, but G said the laptop did not change. Use the current `780px+` screenshot-checked rule above instead.
+- Latest Laptop2 blue-line visual pass: wide/tall laptop open prompt pills now use `top: calc(var(--aiasap-lock-top) + 50.2vh)` for `901px+` wide and `841px+` tall viewports, matching the approved desktop torso-zone placement. Short-height desktop and iPad/tall-tablet rules were not changed.
+- Latest iPad/tall-tablet visual pass: `aiASAP` logo a little bigger, `Take the Leap` label same text size but tighter letter spacing/less left-right spread, prompt pills moved north and narrowed to `width: min(100%, 46vw, 15rem)`. No Telegram smoke was sent because G explicitly said not to smoke test.
+- Latest visual lock: G's short-height desktop screenshot is perfect; do not change that desktop rule. Only the taller laptop open-prompt rule was narrowed to `width: min(100%, 50vw, 16rem)` and `max-width: 16rem`.
+- Stay in aiASAP lane, preserve dirty worktree, preview only, do not touch/promote `aiasap.ai` unless G explicitly says so, no Telegram unless G asks.
+- Current visible under-logo line is `Take the Leap`; `TurboCharge Your Life` remains a major broader brand/practice theme, not the current under-logo tagline unless G explicitly changes it again.
+
+Latest relationship conflict honesty checkpoint - 2026-05-04 10:39 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Relationship Conflict Honesty CW Update - 2026-05-04 10:39 AM ET`.
+- Relationship conflict help starts with honesty: 6 can help users repair relationships with spouses, parents, friends, family, coworkers, neighbors, boyfriend/girlfriend, or anyone else, but should say he needs the truth and the user's own part to help.
+- Relationship-repair idea boxes: `Be Fully Honest`, `Pick One Person`, `Own Your Part`, `Plan Better Talk`.
+- LiveAvatar context update succeeded with code `1000`.
+- Current preview: `https://ai-asap-ko7yjo92m-team-dietz.vercel.app`, deployment `dpl_9KBMjWfvFLSRsH28tHs6Zfpow62B`.
+- Stay in aiASAP lane, preserve dirty worktree, preview only, do not touch/promote `aiasap.ai` unless G explicitly says so, no Telegram unless G asks.
+
+Latest approved social artwork install checkpoint - 2026-05-04 10:46 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Approved Social Artwork Install Pass - 2026-05-04 10:46 AM ET`.
+- G approved exact v12 social artwork. Social CENTCOM marks it `G approved`, manifest records approval, and the approved install pack exists at `/social-artwork/v12/aiasap-social-artwork-v12-approved-install-pack.zip`.
+- `app/layout.tsx` uses approved v12 profile art for app icons/apple icon and v12 YouTube thumbnail for Open Graph/Twitter metadata.
+- Current preview: `https://ai-asap-jhd558ule-team-dietz.vercel.app`, deployment `dpl_7spQ1AAxVb3pbN9mkzbFdPbsENtd`.
+- Social CENTCOM: `https://ai-asap-jhd558ule-team-dietz.vercel.app/social`.
+- Approved install pack: `https://ai-asap-jhd558ule-team-dietz.vercel.app/social-artwork/v12/aiasap-social-artwork-v12-approved-install-pack.zip`.
+- Actual social-profile uploads still require provider account auth/setup; preview `/api/social/status` returned `Forbidden`.
+- Stay in aiASAP lane, preserve dirty worktree, preview only, do not touch/promote `aiasap.ai` unless G explicitly says so, no Telegram unless G asks.
+
+Superseded Life Builder brand doctrine checkpoint - 2026-05-04 10:53 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Life Builder Brand Doctrine Pass - 2026-05-04 10:53 AM ET`.
+- Superseded by the 2026-05-04 core doctrine correction below. Life Builder is important, but it is not the core identity.
+- Still push Life Builder wherever appropriate: better life, relationships, money stability, business, brand, socials, useful lists, plans, and the next step.
+- `Build a Better Life` is the main Life Builder entry point.
+- LiveAvatar context update succeeded with code `1000`.
+- Current preview: `https://ai-asap-k93rycpor-team-dietz.vercel.app`, deployment `dpl_22rMBPJSyvK9NkemvQsuxxKqDPvH`.
+- Stay in aiASAP lane, preserve dirty worktree, preview only, do not touch/promote `aiasap.ai` unless G explicitly says so, no Telegram unless G asks.
+
+Latest Social Install Console checkpoint - 2026-05-04 11:07 AM ET:
+- Resume by reading `AIASAP_REBOOT_HANDOFF.md` section `Social Install Console Pass - 2026-05-04 11:07 AM ET`.
+- G approved exact v12 artwork. The install work can proceed, but actual social account changes still require account-owner login/action and final save/publish confirmation.
+- Social CENTCOM now has an Install console in exact order: X, YouTube, TikTok, Facebook, Instagram, Threads.
+- The install console includes platform open buttons, approved asset slots, asset open/copy buttons, Life Builder profile copy, and official contact email `aiASAP@pm.me`.
+- Current preview: `https://ai-asap-7j1e8l47i-team-dietz.vercel.app/social`, deployment `dpl_7fYMNtLnrYLxW2xvJCdMa1H8hEPd`.
+- Local desktop page verified and opened: `http://127.0.0.1:3004/social`. Port `3003` later returned a local `500`; treat it as stale/unreliable unless restarted cleanly.
+- YouTube Studio and Explorer were opened; Explorer selected `public/social-artwork/v12/youtube-banner-2560x1440.png`.
+- Stay in aiASAP lane, preserve dirty worktree, preview only, do not touch/promote `aiasap.ai` unless G explicitly says so, no Telegram unless G asks.
+
+Dad break / social install checkpoint - 2026-05-04 11:55 AM ET:
+- Latest restart anchor: `AIASAP_REBOOT_HANDOFF.md` section `Dad Break / Social Install Handoff - 2026-05-04 11:55 AM ET`.
+- Continue from Social CENTCOM install console, not old artwork proofs.
+- Local desktop page: `http://127.0.0.1:3004/social`; preview: `https://ai-asap-7j1e8l47i-team-dietz.vercel.app/social`; deployment: `dpl_7fYMNtLnrYLxW2xvJCdMa1H8hEPd`.
+- Platform order remains X, YouTube, TikTok, Facebook, Instagram, Threads.
+- Start/continue with YouTube if G is ready; stop for platform login, account-owner actions, upload dialogs, and final save/publish confirmations.
+
+YouTube banner / Social CENTCOM URL checkpoint - 2026-05-06 8:28 AM ET:
+- Latest restart anchor: `AIASAP_REBOOT_HANDOFF.md` section `YouTube Banner / Social CENTCOM URL Preview - 2026-05-06 8:28 AM ET`.
+- Current preview: `https://ai-asap-jggf6sm6o-team-dietz.vercel.app/social`; deployment: `dpl_HuWdyoDZUR99qYiRFFCC1v5EDBTT`; `aiasap.ai` was not touched.
+- YouTube public handle URL: `https://www.youtube.com/@aiASAP-1`; channel ID URL: `https://www.youtube.com/channel/UCdYcVn1eBVvRIH4xfbdLAsw`; Studio customization URL: `https://studio.youtube.com/channel/UCdYcVn1eBVvRIH4xfbdLAsw/editing/profile`.
+- Do not store or reuse tokenized Google Brand Account URLs containing `rapt=`.
+- Rebuilt YouTube banner: `public/social-artwork/v12/youtube-banner-2560x1440.png`, `2560x1440`, `1094635` bytes, with logo and Six's full face inside the center safe area.
+- Social CENTCOM uses `x-profile-400.png` for the YouTube channel picture task and stores the direct YouTube URLs.
+- Live YouTube banner was uploaded from a separate Codex-only Comet window and verified on `https://www.youtube.com/@aiASAP-1`; Six's full face is visible in the desktop strip.
+- Browser boundary from G on 2026-05-06: leave whatever G is working on in Comet alone. Codex must use its own pages/windows for browser work and avoid interacting with G's active browsing.
+- Cleaned up 26 temporary YouTube/Comet screenshot files from the repo root after verification.
+
+TikTok profile install checkpoint - 2026-05-06 9:08 AM ET:
+- Latest restart anchor: `AIASAP_REBOOT_HANDOFF.md` section `TikTok Profile Install - 2026-05-06 9:08 AM ET`.
+- TikTok public URL: `https://www.tiktok.com/@aiasap.ai`.
+- Account name `aiASAP`, username/handle `aiasap.ai`, aiASAP/Six profile image installed and visible.
+- TikTok bio installed: `TurboCharge Your Life by Talking to Your Computer. The All-In-One App (beta).`
+- TikTok bio limit is `80` characters; full X bio cannot fit there. Installed bio is `77` characters.
+- Cleaned up 8 temporary TikTok screenshot files from the repo root after verification.
+- Next platform in order: Facebook.
+
+Core doctrine correction - 2026-05-04:
+- aiASAP's current brand line is `TurboCharge Your Life`; underneath it, aiASAP's heart is AI as soon as possible: getting useful, friendly, state-of-the-art AI to every person in the world as fast as possible and making it easy.
+- Plain mission support line: `Easy AI for Everyone, ASAP`.
+- Life Builder is a very important product lane, not the core identity.
+- Do not describe Life Builder as the core or product truth; say it is an important lane under the broader aiASAP mission.
+- Current preview for this correction: `https://ai-asap-mvj244y8h-team-dietz.vercel.app`, deployment `dpl_Av1h5nG5nz6UwiK9mpxU3Mo5jvQP`; `aiasap.ai` was not touched.
+
+Browser rule - 2026-05-04:
+- Use Comet only for aiASAP browser/screenshot work.
+- Do not use Microsoft Edge.
+- Local Comet path: `C:\Users\sgdie\AppData\Local\Perplexity\Comet\Application\comet.exe`.
