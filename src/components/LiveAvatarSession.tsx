@@ -5887,14 +5887,17 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {/* Text overlays at the top */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2 md:top-[calc(11.5vh-5.15rem)] md:pt-0">
+      {/* Text overlays at the top — positioned to overlap the avatar frame top, with Take the Leap tagline */}
+      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-3 sm:pt-4 pb-1 md:top-[calc(11.5vh+0.5rem)] md:pt-0">
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-3 bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-[2.35rem] sm:text-[3rem] md:text-[4rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-[2rem] sm:text-[2.4rem] md:text-[3.25rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
+          <p className="text-inset mt-1 text-[0.95rem] sm:text-[1.05rem] md:text-[1.25rem] font-semibold tracking-[0.18em] uppercase">
+            Take the Leap
+          </p>
         </div>
         {microphoneWarning && (
           <div className="mt-4 bg-yellow-500 text-black px-4 py-2 rounded-md max-w-2xl text-center">
@@ -6433,7 +6436,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.72rem] md:min-h-[3.12rem] w-[min(100%,17.25rem)] md:w-[min(100%,21rem)] overflow-hidden rounded-full border border-[#9b9b9b]/50 bg-[#4c4c4c]/42 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.08),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.4rem] md:min-h-[2.7rem] w-[min(100%,14rem)] md:w-[min(100%,17rem)] overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#e0aa62]/14 px-4 py-1.5 md:px-5 md:py-2 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
