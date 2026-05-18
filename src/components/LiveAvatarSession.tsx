@@ -38,7 +38,7 @@ function getLiveAvatarSessionId(session: unknown): string | null {
 }
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your a-i buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier?";
+  "Hi, I'm 6, your a-i-buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier?";
 const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
@@ -403,9 +403,10 @@ const LIST_MUTATION_SIGNAL_RE =
 const LIST_START_WITH_REFERENCED_ITEMS_RE =
   /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
-  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's|so close|close to be|close to being)\b/i;
+  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's|so close|close to be|close to being|for the record|for the records|made it|he just|she just|they just|it just|we just|it ought|it should|it would|the system|the system automatically)\b/i;
 const LIST_NAME_CAPTURE_INTENT_RE =
   /\b(?:my name (?:is|'?s)|(?:i'?m|i am) called|you can call me)\b/i;
+const LIST_MID_SENTENCE_DASH_RE = /[–—]/;
 const LIST_FILLER_ITEM_RE =
   /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|you know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|a couple more|couple more|a couple more things|couple more things|a few more|few more|more things|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery|a dad|that to)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
@@ -894,6 +895,7 @@ function cleanListItem(
     return null;
   }
   if (LIST_NAME_CAPTURE_INTENT_RE.test(value)) return null;
+  if (LIST_MID_SENTENCE_DASH_RE.test(value)) return null;
 
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
@@ -957,6 +959,7 @@ function canInferListItems(
 ): boolean {
   if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return false;
   if (LIST_NAME_CAPTURE_INTENT_RE.test(text)) return false;
+  if (LIST_MID_SENTENCE_DASH_RE.test(text)) return false;
   if (hasEndSessionIntent(text)) return false;
   if (isListRoutingOnlyCommand(text)) return false;
   if (REMOVE_COMMAND_RE.test(text)) return false;
@@ -6332,8 +6335,12 @@ const LiveAvatarSessionComponent: React.FC<{
             !lookupPanelVisible &&
             activeList && (
               <div
-                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.35rem)] left-1/2 z-30 flex h-[37vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md md:h-[39vh]"
-                style={compactListPanelStyle}
+                className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
+                style={{
+                  ...compactListPanelStyle,
+                  top: "calc(var(--stage-top) + var(--stage-height) * 0.38)",
+                  height: "calc(var(--stage-height) * 0.32)",
+                }}
               >
                 <div
                   className="absolute inset-x-6 top-0 h-1 rounded-b-full"
@@ -6415,18 +6422,30 @@ const LiveAvatarSessionComponent: React.FC<{
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             voiceIsActive &&
-            !activeList &&
+            !isShoppingMode &&
             !emailEntryOpen && (
               <div
-                className="fixed left-1/2 z-30 flex w-[94%] -translate-x-1/2 flex-col items-center gap-2 md:gap-2.5 text-center pointer-events-none"
-                style={{
-                  "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                  /* Stage-anchored bottom: env safe-area + frame bottom + lift split (34% too low, 40% too high)
-                     38% so top pillbox edge lands above top button per G's blue-box markup. */
-                  bottom: "calc(env(safe-area-inset-bottom) + var(--stage-bottom) + clamp(7rem, calc(var(--stage-height) * 0.38), 26rem))",
-                  /* Wider cap so pillboxes span shirt-sides not just center */
-                  maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
-                } as React.CSSProperties}
+                className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
+                  activeList
+                    ? "grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
+                    : "flex w-[94%] flex-col items-center gap-2 md:gap-2.5"
+                }`}
+                style={
+                  activeList
+                    ? ({
+                        "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
+                        top: "calc(var(--stage-top) + var(--stage-height) * 0.72)",
+                        height: "calc(var(--stage-height) * 0.20)",
+                        maxWidth: "min(32rem, calc(var(--stage-width) * 0.95))",
+                      } as React.CSSProperties)
+                    : ({
+                        "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
+                        /* Stage-anchored TOP: 40% of stage-height down from stage top
+                           lands the top pillbox at 6's top button area (G's blue box). */
+                        top: "calc(var(--stage-top) + var(--stage-height) * 0.40)",
+                        maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
+                      } as React.CSSProperties)
+                }
               >
                 {visibleThoughtPrompts.slice(0, visiblePromptLimit).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
@@ -6437,14 +6456,20 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.9rem] md:min-h-[3.4rem] w-full max-w-[16rem] md:max-w-[22rem] overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#e0aa62]/14 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.2rem)] font-semibold leading-none text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#e0aa62]/14 font-semibold leading-tight text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                        activeList
+                          ? "h-full w-full px-2 py-1.5 md:px-3 md:py-2 text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.05rem)] whitespace-normal break-words"
+                          : "min-h-[2.9rem] md:min-h-[3.4rem] w-full max-w-[16rem] md:max-w-[22rem] px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.2rem)]"
+                      } ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
                       }`}
                       style={{
                         animationDelay: `${index * 80}ms`,
-                        "--prompt-font-size": `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
+                        "--prompt-font-size": activeList
+                          ? `${0.78 + promptSizeLevel * 0.06}rem`
+                          : `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
                         color: "#e0aa62",
                         fontFamily:
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
