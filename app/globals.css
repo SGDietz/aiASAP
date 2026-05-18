@@ -15,9 +15,9 @@
 }
 @media (min-width: 768px) {
   :root {
-    /* Desktop: video fills 98vh capped at 80rem so frame extends as far north-south
-       as possible (per G's blue-line markup), preserving 9:16. */
-    --stage-height: min(98vh, 80rem);
+    /* Desktop: video fills 94vh capped at 80rem — a hair of breathing room top+bottom
+       while still preserving 9:16 and reaching close to G's blue-line markup. */
+    --stage-height: min(94vh, 80rem);
     --stage-width: calc(var(--stage-height) * 9 / 16);
     --stage-top: calc((100vh - var(--stage-height)) / 2);
     --stage-bottom: var(--stage-top);
