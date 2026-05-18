@@ -403,7 +403,9 @@ const LIST_MUTATION_SIGNAL_RE =
 const LIST_START_WITH_REFERENCED_ITEMS_RE =
   /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
-  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's)\b/i;
+  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's|so close|close to be|close to being)\b/i;
+const LIST_NAME_CAPTURE_INTENT_RE =
+  /\b(?:my name (?:is|'?s)|(?:i'?m|i am) called|you can call me)\b/i;
 const LIST_FILLER_ITEM_RE =
   /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|you know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|a couple more|couple more|a couple more things|couple more things|a few more|few more|more things|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery|a dad|that to)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
@@ -891,6 +893,7 @@ function cleanListItem(
   if (/[?]/.test(value) || LIST_CONVERSATION_FRAGMENT_RE.test(value)) {
     return null;
   }
+  if (LIST_NAME_CAPTURE_INTENT_RE.test(value)) return null;
 
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
@@ -953,6 +956,7 @@ function canInferListItems(
   options: { allowBareItems?: boolean } = {},
 ): boolean {
   if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return false;
+  if (LIST_NAME_CAPTURE_INTENT_RE.test(text)) return false;
   if (hasEndSessionIntent(text)) return false;
   if (isListRoutingOnlyCommand(text)) return false;
   if (REMOVE_COMMAND_RE.test(text)) return false;
