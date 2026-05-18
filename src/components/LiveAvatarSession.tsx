@@ -6065,7 +6065,7 @@ const LiveAvatarSessionComponent: React.FC<{
       {shouldShowLoadingSurface && (
         <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none" style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.70)" }}>
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
-            <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
+            <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               Loading
             </p>
             <div className="mx-auto mt-3 h-1.5 w-36 overflow-hidden rounded-full bg-white/10">
@@ -6450,7 +6450,9 @@ const LiveAvatarSessionComponent: React.FC<{
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
                       } as React.CSSProperties}
                     >
-                      {prompt}
+                      <span className="bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                        {prompt}
+                      </span>
                     </button>
                   );
                 })}
@@ -6459,21 +6461,21 @@ const LiveAvatarSessionComponent: React.FC<{
 
           {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
             <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-[calc((var(--stage-bottom)-0.875rem)/2)] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
-              <span className="text-center text-[10px] sm:text-[11px] text-[#d7a05a]/70 whitespace-nowrap">
+              <span className="text-center text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
                 &copy; 2026 aiASAP All Rights Reserved &middot;
               </span>
               <Link
                 href="/terms"
                 target="_blank"
-                className="text-[10px] sm:text-[11px] text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors whitespace-nowrap"
+                className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
               >
                 Terms
               </Link>
-              <span className="text-[10px] sm:text-[11px] text-[#d7a05a]/70">&middot;</span>
+              <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">&middot;</span>
               <Link
                 href="/privacy"
                 target="_blank"
-                className="text-[10px] sm:text-[11px] text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors whitespace-nowrap"
+                className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
               >
                 Privacy
               </Link>
