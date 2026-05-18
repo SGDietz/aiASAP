@@ -5888,7 +5888,7 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {/* Text overlays — locked inside avatar frame top via --stage-top var (scales with viewport) */}
-      <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 1.25rem)" }}>
+      <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
             <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-[2rem] sm:text-[2.4rem] md:text-[3.25rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
@@ -5930,7 +5930,7 @@ const LiveAvatarSessionComponent: React.FC<{
           className={`${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
-              : "h-full w-full object-contain md:h-[96vh] md:max-h-[62rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#e0aa62]/18 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(255,255,255,0.035),0_30px_90px_rgba(0,0,0,0.72)]"
+              : "h-full w-full object-contain object-top md:object-center md:h-[96vh] md:max-h-[62rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#e0aa62]/18 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(255,255,255,0.035),0_30px_90px_rgba(0,0,0,0.72)]"
           }`}
         />
 
