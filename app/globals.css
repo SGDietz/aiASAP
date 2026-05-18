@@ -15,8 +15,8 @@
 }
 @media (min-width: 768px) {
   :root {
-    /* Desktop: video h-[77vh] max-h-[62rem] w-auto aspect-[9/16] centered. */
-    --stage-height: min(77vh, 62rem);
+    /* Desktop: video fills 94vh capped at 62rem, aspect 9:16, centered. */
+    --stage-height: min(94vh, 62rem);
     --stage-width: calc(var(--stage-height) * 9 / 16);
     --stage-top: calc((100vh - var(--stage-height)) / 2);
     --stage-bottom: var(--stage-top);
