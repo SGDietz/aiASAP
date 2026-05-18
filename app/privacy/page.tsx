@@ -90,7 +90,7 @@ const sections: Array<{
   {
     title: "11. Contact",
     paragraphs: [
-      "For privacy questions, data requests, or to report a concern, contact sgdietz@pm.me.",
+      "For privacy questions, data requests, or to report a concern, contact aiASAP@pm.me.",
     ],
   },
 ];

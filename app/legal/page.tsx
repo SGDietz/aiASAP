@@ -81,7 +81,7 @@ const sections: Array<{
   {
     title: "12. Contact",
     paragraphs: [
-      "For legal, privacy, or bug-report inquiries for the Creator/Builder/Founder/Financier/CEO aiASAP, contact sgdietz@pm.me.",
+      "For legal, privacy, or bug-report inquiries, contact aiASAP@pm.me.",
     ],
   },
 ];
