@@ -2,6 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Metallica-style locked-stage variables. The avatar video has aspect 9:16 and is
+   centered. These vars expose the actual frame top/bottom/width/height so logo,
+   tagline, and pillboxes can anchor to the frame instead of drifting with viewport. */
+:root {
+  /* Phone default: video object-contain inside w-full h-full → letterboxed when
+     viewport is taller than 9:16. */
+  --stage-height: min(100vh, calc(100vw * 16 / 9));
+  --stage-width: calc(var(--stage-height) * 9 / 16);
+  --stage-top: calc((100vh - var(--stage-height)) / 2);
+  --stage-bottom: var(--stage-top);
+}
+@media (min-width: 768px) {
+  :root {
+    /* Desktop: video h-[77vh] max-h-[62rem] w-auto aspect-[9/16] centered. */
+    --stage-height: min(77vh, 62rem);
+    --stage-width: calc(var(--stage-height) * 9 / 16);
+    --stage-top: calc((100vh - var(--stage-height)) / 2);
+    --stage-bottom: var(--stage-top);
+  }
+}
+
 @keyframes fade-opacity {
   0%, 100% {
     opacity: 1;

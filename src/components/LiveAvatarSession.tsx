@@ -5887,8 +5887,8 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {/* Text overlays at the top — positioned to overlap the avatar frame top, with Take the Leap tagline */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-3 sm:pt-4 pb-1 md:top-[calc(11.5vh+0.5rem)] md:pt-0">
+      {/* Text overlays — locked to avatar frame top via --stage-top var (scales with viewport) */}
+      <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.5rem)" }}>
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
             <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-[2rem] sm:text-[2.4rem] md:text-[3.25rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
@@ -6422,9 +6422,12 @@ const LiveAvatarSessionComponent: React.FC<{
             !activeList &&
             !emailEntryOpen && (
               <div
-                className="fixed left-1/2 bottom-[calc(env(safe-area-inset-bottom)+var(--prompt-lift))] md:bottom-[calc(11.5vh+9rem)] z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 md:gap-2 text-center pointer-events-none"
+                className="fixed left-1/2 z-30 flex w-[94%] -translate-x-1/2 flex-col items-center gap-1.5 md:gap-2 text-center pointer-events-none"
                 style={{
                   "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
+                  /* Stage-anchored bottom: env safe-area + frame bottom + lift that scales with frame height (3rem to 11rem). */
+                  bottom: "calc(env(safe-area-inset-bottom) + var(--stage-bottom) + clamp(3rem, calc(var(--stage-height) * 0.18), 11rem))",
+                  maxWidth: "min(32rem, calc(var(--stage-width) * 0.88))",
                 } as React.CSSProperties}
               >
                 {visibleThoughtPrompts.slice(0, visiblePromptLimit).map((prompt, index) => {
@@ -6436,7 +6439,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.4rem] md:min-h-[2.7rem] w-[min(100%,14rem)] md:w-[min(100%,17rem)] overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#e0aa62]/14 px-4 py-1.5 md:px-5 md:py-2 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto min-h-[2.4rem] md:min-h-[2.7rem] w-full max-w-[14rem] md:max-w-[17rem] overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#e0aa62]/14 px-4 py-1.5 md:px-5 md:py-2 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
