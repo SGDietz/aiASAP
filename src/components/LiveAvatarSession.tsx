@@ -6460,13 +6460,24 @@ const LiveAvatarSessionComponent: React.FC<{
             )}
 
           {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-[calc((var(--stage-bottom)-0.875rem)/2)] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-[calc((var(--stage-bottom)-0.875rem)/2)] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
+              <span className="text-center text-[10px] sm:text-[11px] text-[#d7a05a]/70 whitespace-nowrap">
+                &copy; 2026 aiASAP All Rights Reserved &middot;
+              </span>
               <Link
                 href="/terms"
                 target="_blank"
-                className="block text-center text-[10px] sm:text-[11px] text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors whitespace-nowrap"
+                className="text-[10px] sm:text-[11px] text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors whitespace-nowrap"
               >
-                &copy; 2026 aiASAP All Rights Reserved &middot; Terms
+                Terms
+              </Link>
+              <span className="text-[10px] sm:text-[11px] text-[#d7a05a]/70">&middot;</span>
+              <Link
+                href="/privacy"
+                target="_blank"
+                className="text-[10px] sm:text-[11px] text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors whitespace-nowrap"
+              >
+                Privacy
               </Link>
             </div>
           )}
