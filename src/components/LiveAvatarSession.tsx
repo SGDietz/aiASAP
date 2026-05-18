@@ -5891,11 +5891,11 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#7a4f1f] bg-clip-text text-[2rem] sm:text-[2.4rem] md:text-[3.25rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[2rem] sm:text-[2.4rem] md:text-[3.25rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
-          <p className="mt-1 text-[0.95rem] sm:text-[1.05rem] md:text-[1.25rem] font-semibold tracking-[0.18em] uppercase bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#7a4f1f] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+          <p className="mt-1 text-[0.95rem] sm:text-[1.05rem] md:text-[1.25rem] font-semibold tracking-[0.18em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
         </div>
@@ -6063,7 +6063,7 @@ const LiveAvatarSessionComponent: React.FC<{
       </div>
 
       {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 top-[54vh] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none">
+        <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none" style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.70)" }}>
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
             <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
               Loading
@@ -6148,21 +6148,17 @@ const LiveAvatarSessionComponent: React.FC<{
                 isStreamReady && (
                   <div className="w-full flex items-center justify-center text-center">
                     <p className="px-1 w-full max-w-none text-balance">
-                      {voiceStartAwaitingReady ? (
-                        <span className="block">Starting…</span>
-                      ) : (
-                        <span
-                          className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
-                          style={tapPromptFont}
-                        >
-                          <span className="flex translate-y-0.5 items-center text-[1.2rem] sm:text-[1.35rem] md:text-[1.55rem] font-extrabold uppercase tracking-[0.14em] text-[#f1c477]/82">
-                            Tap Anywhere
-                          </span>
-                          <span className="text-[2.6rem] sm:text-[3rem] md:text-[3.5rem] font-black tracking-[-0.025em] leading-none">
-                            To Talk to 6
-                          </span>
+                      <span
+                        className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
+                        style={tapPromptFont}
+                      >
+                        <span className="flex translate-y-0.5 items-center text-[1.2rem] sm:text-[1.35rem] md:text-[1.55rem] font-extrabold uppercase tracking-[0.14em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+                          Tap Anywhere
                         </span>
-                      )}
+                        <span className="text-[2.6rem] sm:text-[3rem] md:text-[3.5rem] font-black tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+                          To Talk to 6
+                        </span>
+                      </span>
                     </p>
                   </div>
                 )}
@@ -6425,9 +6421,9 @@ const LiveAvatarSessionComponent: React.FC<{
                 className="fixed left-1/2 z-30 flex w-[94%] -translate-x-1/2 flex-col items-center gap-2 md:gap-2.5 text-center pointer-events-none"
                 style={{
                   "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                  /* Stage-anchored bottom: env safe-area + frame bottom + bigger lift (7rem to 28rem)
-                     so pillbox stack lands in G's blue-box area: top pillbox near the top buttoned button on 6's shirt, generous space above hands. */
-                  bottom: "calc(env(safe-area-inset-bottom) + var(--stage-bottom) + clamp(7rem, calc(var(--stage-height) * 0.40), 28rem))",
+                  /* Stage-anchored bottom: env safe-area + frame bottom + dialed-back lift (7rem to 24rem)
+                     34% of stage so top pillbox sits at top buttoned button (was 40% which overshot to chin). */
+                  bottom: "calc(env(safe-area-inset-bottom) + var(--stage-bottom) + clamp(7rem, calc(var(--stage-height) * 0.34), 24rem))",
                   /* Wider cap so pillboxes span shirt-sides not just center */
                   maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
                 } as React.CSSProperties}
