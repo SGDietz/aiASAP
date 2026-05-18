@@ -6155,10 +6155,10 @@ const LiveAvatarSessionComponent: React.FC<{
                           className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
                           style={tapPromptFont}
                         >
-                          <span className="flex translate-y-0.5 items-center text-[0.92rem] font-extrabold uppercase tracking-[0.14em] text-[#f1c477]/82">
+                          <span className="flex translate-y-0.5 items-center text-[1.2rem] sm:text-[1.35rem] md:text-[1.55rem] font-extrabold uppercase tracking-[0.14em] text-[#f1c477]/82">
                             Tap Anywhere
                           </span>
-                          <span className="text-[1.95rem] sm:text-[2.3rem] font-black tracking-[-0.025em] leading-none">
+                          <span className="text-[2.6rem] sm:text-[3rem] md:text-[3.5rem] font-black tracking-[-0.025em] leading-none">
                             To Talk to 6
                           </span>
                         </span>
@@ -6460,7 +6460,7 @@ const LiveAvatarSessionComponent: React.FC<{
             )}
 
           {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-[0.2rem] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-[calc((var(--stage-bottom)-0.875rem)/2)] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
               <Link
                 href="/terms"
                 target="_blank"
