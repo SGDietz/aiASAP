@@ -5930,7 +5930,7 @@ const LiveAvatarSessionComponent: React.FC<{
           className={`${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
-              : "h-full w-full object-contain object-top md:object-center md:h-[96vh] md:max-h-[62rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#e0aa62]/18 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(255,255,255,0.035),0_30px_90px_rgba(0,0,0,0.72)]"
+              : "h-full w-full object-contain object-top md:object-center md:h-[98vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#e0aa62]/18 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(255,255,255,0.035),0_30px_90px_rgba(0,0,0,0.72)]"
           }`}
         />
 

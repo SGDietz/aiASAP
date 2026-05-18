@@ -15,8 +15,9 @@
 }
 @media (min-width: 768px) {
   :root {
-    /* Desktop: video fills 96vh capped at 62rem, aspect 9:16, centered. Tight to top+bottom. */
-    --stage-height: min(96vh, 62rem);
+    /* Desktop: video fills 98vh capped at 80rem so frame extends as far north-south
+       as possible (per G's blue-line markup), preserving 9:16. */
+    --stage-height: min(98vh, 80rem);
     --stage-width: calc(var(--stage-height) * 9 / 16);
     --stage-top: calc((100vh - var(--stage-height)) / 2);
     --stage-bottom: var(--stage-top);
