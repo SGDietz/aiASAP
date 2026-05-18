@@ -6421,9 +6421,9 @@ const LiveAvatarSessionComponent: React.FC<{
                 className="fixed left-1/2 z-30 flex w-[94%] -translate-x-1/2 flex-col items-center gap-2 md:gap-2.5 text-center pointer-events-none"
                 style={{
                   "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                  /* Stage-anchored bottom: env safe-area + frame bottom + dialed-back lift (7rem to 24rem)
-                     34% of stage so top pillbox sits at top buttoned button (was 40% which overshot to chin). */
-                  bottom: "calc(env(safe-area-inset-bottom) + var(--stage-bottom) + clamp(7rem, calc(var(--stage-height) * 0.34), 24rem))",
+                  /* Stage-anchored bottom: env safe-area + frame bottom + lift split (34% too low, 40% too high)
+                     38% so top pillbox edge lands above top button per G's blue-box markup. */
+                  bottom: "calc(env(safe-area-inset-bottom) + var(--stage-bottom) + clamp(7rem, calc(var(--stage-height) * 0.38), 26rem))",
                   /* Wider cap so pillboxes span shirt-sides not just center */
                   maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
                 } as React.CSSProperties}
