@@ -6141,7 +6141,7 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
-          {visionMode !== "streaming" && !isCameraActive && !voiceIsActive && (
+          {visionMode !== "streaming" && !isCameraActive && !voiceIsActive && !shouldShowLoadingSurface && (
             <div className="fixed left-1/2 bottom-[10.875rem] sm:bottom-[11.375rem] md:bottom-[calc(11.5vh+13rem)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
