@@ -6440,9 +6440,11 @@ const LiveAvatarSessionComponent: React.FC<{
                       } as React.CSSProperties)
                     : ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                        /* Stage-anchored TOP: 40% of stage-height down from stage top
-                           lands the top pillbox at 6's top button area (G's blue box). */
-                        top: "calc(var(--stage-top) + var(--stage-height) * 0.40)",
+                        /* Stage-anchored TOP: 58% of stage-height down from stage top.
+                           Per G's locked envelope (project_aiasap_closed_pillbox_envelope.md):
+                           top of pillbox stack = 42% above stage bottom = 58% from stage top.
+                           Lowered 2026-05-21 from 0.40 → 0.58 to land in G's blue box. */
+                        top: "calc(var(--stage-top) + var(--stage-height) * 0.58)",
                         maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
                       } as React.CSSProperties)
                 }
