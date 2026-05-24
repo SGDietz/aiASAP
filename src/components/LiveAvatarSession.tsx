@@ -1755,7 +1755,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const [dissolvingPrompt, setDissolvingPrompt] = useState<string | null>(null);
   const [assistantLists, setAssistantLists] =
     useState<AssistantList[]>(loadAssistantLists);
-  const [activeListId, setActiveListId] = useState<string | null>(null);
+  const [activeListIdRaw, setActiveListId] = useState<string | null>(null);
+  // v1 LIST_UI_DORMANT: force activeListId to null so even if code paths set it
+  // (e.g., LIST_TRIGGER_RE matched on user text), nothing downstream sees a list,
+  // 6 doesn't narrate a phantom list, and pillboxes stay in their narrow layout.
+  const activeListId = LIST_UI_DORMANT ? null : activeListIdRaw;
   const [isShoppingMode, setIsShoppingMode] = useState(false);
   const [deviceProfile, setDeviceProfile] =
     useState<DeviceProfile>(loadDeviceProfile);
@@ -6561,11 +6565,12 @@ const LiveAvatarSessionComponent: React.FC<{
                       } as React.CSSProperties)
                     : ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                        /* Stage-anchored TOP: 58% of stage-height down from stage top.
-                           Per G's locked envelope (project_aiasap_closed_pillbox_envelope.md):
-                           top of pillbox stack = 42% above stage bottom = 58% from stage top.
-                           Lowered 2026-05-21 from 0.40 → 0.58 to land in G's blue box. */
-                        top: "calc(var(--stage-top) + var(--stage-height) * 0.58)",
+                        /* Stage-anchored TOP. History:
+                           - May 18 original: 0.40
+                           - 2026-05-21 G tweak: 0.40 → 0.58 to land in his blue box (smaller font)
+                           - 2026-05-24 G feedback: with font +2 the stack overflows on Droid;
+                             reverted to 0.40 to compensate for the taller pillboxes. */
+                        top: "calc(var(--stage-top) + var(--stage-height) * 0.40)",
                         maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
                       } as React.CSSProperties)
                 }
@@ -6580,7 +6585,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
                       className={`pointer-events-auto overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#e0aa62]/14 font-semibold leading-tight text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
-                        activeList
+                        showActiveList
                           ? "h-full w-full px-2 py-1.5 md:px-3 md:py-2 text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.05rem)] whitespace-normal break-words"
                           : "min-h-[2.9rem] md:min-h-[3.4rem] w-full max-w-[16rem] md:max-w-[22rem] px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.2rem)]"
                       } ${
@@ -6590,7 +6595,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       }`}
                       style={{
                         animationDelay: `${index * 80}ms`,
-                        "--prompt-font-size": activeList
+                        "--prompt-font-size": showActiveList
                           ? `${0.78 + promptSizeLevel * 0.06}rem`
                           : `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
                         color: "#e0aa62",
