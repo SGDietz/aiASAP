@@ -5868,7 +5868,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const showActiveList = !LIST_UI_DORMANT && activeList;
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(circle_at_center,#3a2108_0%,#1f1208_58%,#0a0604_100%)] flex flex-col">
+    <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(circle_at_center,#251407_0%,#130a04_58%,#050201_100%)] flex flex-col">
       {/* Session start error (e.g. no credits) - show message and do not auto-restart */}
       {sessionStartError && (
         <div className="absolute inset-x-0 top-0 z-50 bg-red-900/95 text-white px-4 py-4 text-center shadow-lg">
