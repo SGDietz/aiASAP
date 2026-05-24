@@ -38,7 +38,7 @@ function getLiveAvatarSessionId(session: unknown): string | null {
 }
 
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your a-i-buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier?";
+  "Hi, I'm 6, your a-i-buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit better today?";
 const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
@@ -61,7 +61,7 @@ const RETURNING_GREETING_OPTIONS = [
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Build Relationships",
-  "Create Financial Freedom",
+  "Financial Freedom",
   "Set & Track Goals",
   "Build Your Socials",
 ];
@@ -121,7 +121,7 @@ const getThoughtPrompts = (text: string): string[] => {
     return [
       "Make More Money",
       "Build a Business",
-      "Create Financial Freedom",
+      "Financial Freedom",
       "Market Yourself",
     ];
   }
@@ -257,7 +257,7 @@ const getThoughtPrompts = (text: string): string[] => {
     return [
       "Set & Track Goals",
       "Build a Better Life",
-      "Create Financial Freedom",
+      "Financial Freedom",
       "Build Relationships",
     ];
   }
@@ -291,7 +291,7 @@ const getThoughtPrompts = (text: string): string[] => {
       "Build a Better Life",
       "Set & Track Goals",
       "Build Relationships",
-      "Create Financial Freedom",
+      "Financial Freedom",
     ];
   }
 
@@ -1783,7 +1783,8 @@ const LiveAvatarSessionComponent: React.FC<{
   const [postVerifyGreeting, setPostVerifyGreeting] = useState<string | null>(
     null,
   );
-  const [promptSizeLevel, setPromptSizeLevel] = useState(0);
+  // v1 2026-05-24 (G): pillbox font 2 sizes larger. Each level = +0.06rem (list mode) or +0.1rem (open mode).
+  const [promptSizeLevel, setPromptSizeLevel] = useState(2);
   const tapPromptFont = useMemo<React.CSSProperties>(() => {
     if (typeof window === "undefined") return TAP_PROMPT_FONT_OPTIONS.default;
     const requested = new URLSearchParams(window.location.search).get(
