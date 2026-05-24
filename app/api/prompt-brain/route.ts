@@ -147,6 +147,10 @@ export async function POST(request: Request) {
           .map((item: string) => truncateUtf8String(item.trim(), 120))
           .filter(Boolean)
       : [];
+    const sessionId =
+      typeof body.sessionId === "string" && body.sessionId.length > 0
+        ? body.sessionId
+        : null;
 
     if (!latestUserText && recentUserTexts.length === 0) {
       return new Response(JSON.stringify({ prompts: FALLBACK_PROMPTS }), {
@@ -199,6 +203,31 @@ export async function POST(request: Request) {
     const content = data?.choices?.[0]?.message?.content;
     const parsed = typeof content === "string" ? JSON.parse(content) : {};
     const prompts = normalizePrompts(parsed.prompts);
+
+    // v1 brain output logging: fire-and-forget to Supabase conversation_messages
+    // so we can query pillbox state alongside user/assistant turns.
+    const supaUrl = process.env.SUPABASE_URL;
+    const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (supaUrl && supaKey && sessionId) {
+      void fetch(`${supaUrl}/rest/v1/conversation_messages`, {
+        method: "POST",
+        headers: {
+          apikey: supaKey,
+          Authorization: `Bearer ${supaKey}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          role: "brain_output",
+          message: JSON.stringify({ latestUserText, prompts }),
+          source: "prompt_brain_v1",
+          la_absolute_timestamp: Math.floor(Date.now() / 1000),
+        }),
+      }).catch((err) =>
+        console.error("[prompt-brain] supabase log failed:", err),
+      );
+    }
 
     return new Response(JSON.stringify({ prompts }), {
       status: 200,

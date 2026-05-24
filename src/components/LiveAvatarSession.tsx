@@ -2101,6 +2101,7 @@ const LiveAvatarSessionComponent: React.FC<{
           latestUserText,
           recentUserTexts,
           currentPrompts: fallbackPrompts,
+          sessionId: dbSessionIdRef.current,
         }),
       });
 
