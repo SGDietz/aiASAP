@@ -224,8 +224,12 @@ export async function POST(request: Request) {
           Prefer: "return=minimal",
         },
         body: JSON.stringify({
+          // conversation_messages has a CHECK constraint allowing only role
+          // 'user' or 'assistant'. Brain output rides as 'assistant' with the
+          // distinguishing source 'prompt_brain_v1' so smoke queries can
+          // filter brain rows out from real voice turns.
           session_id: sessionId,
-          role: "brain_output",
+          role: "assistant",
           message: JSON.stringify({ latestUserText, prompts }),
           source: "prompt_brain_v1",
           la_absolute_timestamp: Math.floor(Date.now() / 1000),
