@@ -5868,7 +5868,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const showActiveList = !LIST_UI_DORMANT && activeList;
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-black md:bg-[radial-gradient(circle_at_center,#251407_0%,#080403_58%,#000_100%)] flex flex-col">
+    <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(circle_at_center,#3a2108_0%,#1f1208_58%,#0a0604_100%)] flex flex-col">
       {/* Session start error (e.g. no credits) - show message and do not auto-restart */}
       {sessionStartError && (
         <div className="absolute inset-x-0 top-0 z-50 bg-red-900/95 text-white px-4 py-4 text-center shadow-lg">
@@ -6552,25 +6552,22 @@ const LiveAvatarSessionComponent: React.FC<{
               <div
                 className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
                   showActiveList
-                    ? "grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
-                    : "flex w-[94%] flex-col items-center gap-2 md:gap-2.5"
+                    ? "top-[calc(var(--stage-top)+var(--stage-height)*0.72)] grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
+                    : "top-[calc(var(--stage-top)+var(--stage-height)*0.40)] md:top-[calc(var(--stage-top)+var(--stage-height)*0.55)] flex w-[94%] flex-col items-center gap-2 md:gap-2.5"
                 }`}
                 style={
                   showActiveList
                     ? ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                        top: "calc(var(--stage-top) + var(--stage-height) * 0.72)",
                         height: "calc(var(--stage-height) * 0.20)",
                         maxWidth: "min(32rem, calc(var(--stage-width) * 0.95))",
                       } as React.CSSProperties)
                     : ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                        /* Stage-anchored TOP. History:
-                           - May 18 original: 0.40
-                           - 2026-05-21 G tweak: 0.40 → 0.58 to land in his blue box (smaller font)
-                           - 2026-05-24 G feedback: with font +2 the stack overflows on Droid;
-                             reverted to 0.40 to compensate for the taller pillboxes. */
-                        top: "calc(var(--stage-top) + var(--stage-height) * 0.40)",
+                        /* Stage-anchored TOP via Tailwind responsive className.
+                           Mobile (Droid <768px): 0.40 (fits 4 pillboxes with font +2).
+                           Tablet/desktop (≥768px): 0.55 (iPad has more vertical room,
+                           keeps pillboxes above 6's hands instead of way up in middle). */
                         maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
                       } as React.CSSProperties)
                 }
