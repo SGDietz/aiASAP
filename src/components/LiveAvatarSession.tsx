@@ -1230,13 +1230,14 @@ function getOnlineLookupResultLines(answer: string): string[] {
 }
 
 function formatOnlineLookupSpeech(lines: string[], query: string): string {
+  // v1: LOOKUP_UI_DORMANT — no on-screen popup. 6 says results verbally instead.
   if (lines.length === 0) {
     return "I found a few options. Want me to narrow them down?";
   }
   if (/\b(?:weather|forecast)\b/i.test(query)) {
-    return "I put the weekend weather on the screen. Want me to use that to pick the best day?";
+    return "Here is the weekend weather. Want me to use that to pick the best day?";
   }
-  return `I found ${lines.length} quick ideas and put them on the screen. Want one of these, or a few more?`;
+  return `I have got ${lines.length} ideas for you. Want me to walk through them?`;
 }
 
 function extractListItems(
