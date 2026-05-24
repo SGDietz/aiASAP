@@ -60,11 +60,17 @@ const RETURNING_GREETING_OPTIONS = [
 ];
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Plan This Weekend",
-  "To Do List",
-  "Start a Grocery List",
-  "Explore aiASAP",
+  "Build Relationships",
+  "Create Financial Freedom",
+  "Set & Track Goals",
+  "Build Your Socials",
 ];
+
+// v1 dormant flags (2026-05-24): hide list panel + lookup popup UI surfaces
+// per G's spec ("no ability to pop up lists of any kind in this version").
+// Underlying logic preserved per DORMANT-DEFAULT pattern; flip to false to re-enable.
+const LIST_UI_DORMANT = true;
+const LOOKUP_UI_DORMANT = true;
 
 function keepExploreAiASAPLow(prompts: string[]): string[] {
   const explore = prompts.find((prompt) => /^explore\s+aiasap$/i.test(prompt));
@@ -101,82 +107,191 @@ const PROMPT_SIZE_REQUEST_RE =
 const getThoughtPrompts = (text: string): string[] => {
   const value = text.toLowerCase();
 
-  if (
-    value.includes("todo") ||
-    value.includes("to-do") ||
-    value.includes("to do") ||
-    value.includes("task")
-  ) {
-    return [
-      "To Do List",
-      "Open Work To Do",
-      "Open Family To Do",
-      "Add Next Task",
-    ];
-  }
-
-  if (value.includes("birthday")) {
-    return [
-      "Birthday Gift List",
-      "Plan a Gift",
-      "Birthday To Do",
-      "Plan This Weekend",
-    ];
-  }
-
-  if (value.includes("anniversary")) {
-    return [
-      "Anniversary Gift List",
-      "Plan a Gift",
-      "Anniversary To Do",
-      "Plan This Weekend",
-    ];
-  }
+  // v1 keyword pool (2026-05-24): surfaces topics from G's 14-option pool
+  // based on what 6 is talking about. Mechanism is keyword-driven; for truly
+  // LLM-driven swaps see v2 runPromptBrain.
 
   if (
-    value.includes("shopping") ||
-    value.includes("grocery") ||
-    value.includes("store") ||
-    value.includes("home depot") ||
-    value.includes("walmart") ||
-    value.includes("list")
+    value.includes("money") ||
+    value.includes("income") ||
+    value.includes("earn") ||
+    value.includes("salary") ||
+    value.includes("wage")
   ) {
     return [
-      value.includes("walmart") ? "Open Walmart List" : "Open Grocery List",
-      "To Do List",
-      "Close List",
-      "Open Another List",
-    ];
-  }
-
-  if (
-    value.includes("hike") ||
-    value.includes("hiking") ||
-    value.includes("trail") ||
-    value.includes("park") ||
-    value.includes("outside") ||
-    value.includes("outdoor") ||
-    value.includes("weekend")
-  ) {
-    return [
-      "Find Local Hikes",
-      value.includes("weekend") ? "Check Weekend Weather" : "Check the Weather",
-      "Give ZIP Code",
-      "Easy Hikes",
+      "Make More Money",
+      "Build a Business",
+      "Create Financial Freedom",
+      "Market Yourself",
     ];
   }
 
   if (
     value.includes("business") ||
     value.includes("company") ||
-    value.includes("money") ||
-    value.includes("build")
+    value.includes("startup") ||
+    value.includes("venture")
   ) {
     return [
-      "Pick the Next Step",
-      "Make a Simple Plan",
-      "Find Helpful People",
-      "Make Money Ideas",
+      "Build a Business",
+      "Make More Money",
+      "Market Your Product",
+      "Market Your Service",
+    ];
+  }
+
+  if (
+    value.includes("partner") ||
+    value.includes("dating") ||
+    value.includes("spouse") ||
+    value.includes("wife") ||
+    value.includes("husband") ||
+    value.includes("girlfriend") ||
+    value.includes("boyfriend") ||
+    value.includes("crush") ||
+    value.includes("romance")
+  ) {
+    return [
+      "Find Your Life Partner",
+      "Build Relationships",
+      "Build Friendships",
+      "Set & Track Goals",
+    ];
+  }
+
+  if (
+    value.includes("friend") ||
+    value.includes("lonely") ||
+    value.includes("community") ||
+    value.includes("meet people")
+  ) {
+    return [
+      "Build Friendships",
+      "Build Relationships",
+      "Build Your Socials",
+      "Build a Better Life",
+    ];
+  }
+
+  if (
+    value.includes("social media") ||
+    value.includes("instagram") ||
+    value.includes("tiktok") ||
+    value.includes("youtube") ||
+    value.includes("facebook") ||
+    value.includes("brand") ||
+    value.includes("content") ||
+    value.includes("follower") ||
+    value.includes("influencer")
+  ) {
+    return [
+      "Build Your Socials",
+      "Build Your Brand",
+      "Market Yourself",
+      "Make More Money",
+    ];
+  }
+
+  if (
+    value.includes("product") ||
+    value.includes("inventory") ||
+    value.includes("merchandise")
+  ) {
+    return [
+      "Market Your Product",
+      "Build a Business",
+      "Build Your Brand",
+      "Make More Money",
+    ];
+  }
+
+  if (
+    value.includes("service") ||
+    value.includes("consulting") ||
+    value.includes("freelance") ||
+    value.includes("client") ||
+    value.includes("customer")
+  ) {
+    return [
+      "Market Your Service",
+      "Build a Business",
+      "Build Your Brand",
+      "Make More Money",
+    ];
+  }
+
+  if (
+    value.includes("weekend") ||
+    value.includes("saturday") ||
+    value.includes("sunday")
+  ) {
+    return [
+      "Plan Your Weekend",
+      "Next Vacation Ideas",
+      "Build Relationships",
+      "Set & Track Goals",
+    ];
+  }
+
+  if (
+    value.includes("vacation") ||
+    value.includes("trip") ||
+    value.includes("travel") ||
+    value.includes("getaway") ||
+    value.includes("holiday")
+  ) {
+    return [
+      "Next Vacation Ideas",
+      "Plan Your Weekend",
+      "Set & Track Goals",
+      "Build a Better Life",
+    ];
+  }
+
+  if (
+    value.includes("goal") ||
+    value.includes("achievement") ||
+    value.includes("target") ||
+    value.includes("milestone")
+  ) {
+    return [
+      "Set & Track Goals",
+      "Build a Better Life",
+      "Create Financial Freedom",
+      "Build Relationships",
+    ];
+  }
+
+  if (
+    value.includes("relationship") ||
+    value.includes("argue") ||
+    value.includes("fight") ||
+    value.includes("apology") ||
+    value.includes("family") ||
+    value.includes("parent") ||
+    value.includes("sibling")
+  ) {
+    return [
+      "Build Relationships",
+      "Build Friendships",
+      "Set & Track Goals",
+      "Build a Better Life",
+    ];
+  }
+
+  if (
+    value.includes("improve") ||
+    value.includes("better") ||
+    value.includes("change") ||
+    value.includes("self-help") ||
+    value.includes("self help") ||
+    value.includes("grow")
+  ) {
+    return [
+      "Build a Better Life",
+      "Set & Track Goals",
+      "Build Relationships",
+      "Create Financial Freedom",
     ];
   }
 
@@ -5737,10 +5852,13 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   };
 
-  const lookupPanelVisible = Boolean(
+  // v1 dormant: LOOKUP_UI_DORMANT hides the popup. Logic still runs so 6 answers verbally.
+  const lookupPanelVisible = !LOOKUP_UI_DORMANT && Boolean(
     onlineLookupNotice || onlineLookupResultLines.length > 0,
   );
   const visiblePromptLimit = lookupPanelVisible ? 3 : 4;
+  // v1 dormant: LIST_UI_DORMANT hides the list panels. activeList state still tracked.
+  const showActiveList = !LIST_UI_DORMANT && activeList;
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-black md:bg-[radial-gradient(circle_at_center,#251407_0%,#080403_58%,#000_100%)] flex flex-col">
@@ -6239,7 +6357,7 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
-          {activeList && isShoppingMode && (
+          {showActiveList && isShoppingMode && (
             <div
               className="fixed inset-0 z-[80] flex flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)]"
               style={{
@@ -6333,7 +6451,7 @@ const LiveAvatarSessionComponent: React.FC<{
             voiceIsActive &&
             !isShoppingMode &&
             !lookupPanelVisible &&
-            activeList && (
+            showActiveList && (
               <div
                 className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
                 style={{
@@ -6426,12 +6544,12 @@ const LiveAvatarSessionComponent: React.FC<{
             !emailEntryOpen && (
               <div
                 className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
-                  activeList
+                  showActiveList
                     ? "grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
                     : "flex w-[94%] flex-col items-center gap-2 md:gap-2.5"
                 }`}
                 style={
-                  activeList
+                  showActiveList
                     ? ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
                         top: "calc(var(--stage-top) + var(--stage-height) * 0.72)",
