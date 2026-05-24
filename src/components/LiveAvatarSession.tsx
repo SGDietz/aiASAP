@@ -6553,7 +6553,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
                   showActiveList
                     ? "top-[calc(var(--stage-top)+var(--stage-height)*0.72)] grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
-                    : "top-[calc(var(--stage-top)+var(--stage-height)*0.40)] md:top-[calc(var(--stage-top)+var(--stage-height)*0.55)] flex w-[94%] flex-col items-center gap-2 md:gap-2.5"
+                    : "bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.20)] flex w-[94%] flex-col items-center gap-2 md:gap-2.5"
                 }`}
                 style={
                   showActiveList
@@ -6564,10 +6564,13 @@ const LiveAvatarSessionComponent: React.FC<{
                       } as React.CSSProperties)
                     : ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                        /* Stage-anchored TOP via Tailwind responsive className.
-                           Mobile (Droid <768px): 0.40 (fits 4 pillboxes with font +2).
-                           Tablet/desktop (≥768px): 0.55 (iPad has more vertical room,
-                           keeps pillboxes above 6's hands instead of way up in middle). */
+                        /* LOCKED SPEC per CLAUDE.md aiASAP build facts:
+                             bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.20)
+                             Tweak envelope 0.16-0.21.
+                           Bottom-anchored so the stack stays at the same visual
+                           position no matter how tall pillboxes get (font, padding,
+                           gap). DO NOT switch back to top-anchored values without
+                           an explicit ask. */
                         maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
                       } as React.CSSProperties)
                 }
