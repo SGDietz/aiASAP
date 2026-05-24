@@ -6283,7 +6283,7 @@ const LiveAvatarSessionComponent: React.FC<{
                         <span className="flex translate-y-0.5 items-center text-[1.2rem] sm:text-[1.35rem] md:text-[1.55rem] font-extrabold uppercase tracking-[0.14em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
                           Tap Anywhere
                         </span>
-                        <span className="text-[2.6rem] sm:text-[3rem] md:text-[3.5rem] font-black tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+                        <span className="text-[2.6rem] sm:text-[3rem] md:text-[3.5rem] font-extrabold md:font-black tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
                           To Talk to 6
                         </span>
                       </span>
