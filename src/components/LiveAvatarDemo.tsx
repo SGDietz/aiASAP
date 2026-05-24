@@ -223,8 +223,8 @@ export const LiveAvatarDemo = () => {
   if (isExited) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#090604] text-[#f1c477]">
-        <div className="text-inset text-2xl font-black">Session Ended</div>
-        <div className="text-inset text-center text-lg opacity-95">
+        <div className="text-2xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">Session Ended</div>
+        <div className="text-center text-lg bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
           Thank you for using aiASAP
         </div>
         <button

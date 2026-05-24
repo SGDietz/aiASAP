@@ -53,7 +53,7 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.14),
       inset 0 -10px 24px rgba(0, 0, 0, 0.22),
       0 10px 26px rgba(0, 0, 0, 0.28);
-    border: 1px solid rgba(155, 155, 155, 0.5);
+    border: 1px solid rgba(120, 80, 40, 0.55); /* brand warm-brown tone, replaces whitish gray */
     text-shadow:
       0 1px 0 rgba(0, 0, 0, 0.4),
       0 -1px 0 rgba(241, 196, 119, 0.08);
