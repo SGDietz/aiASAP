@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,700;0,800;1,700&family=Archivo+Black&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -77,9 +79,9 @@
   }
 
   .aiasap-logo-mark {
-    font-family: "Arial Black", Impact, "Arial Narrow", sans-serif;
+    font-family: "Archivo Black", "Arial Black", Impact, sans-serif;
     font-style: italic;
-    font-weight: 800;
+    font-weight: 900;
     letter-spacing: 0;
     transform: skewX(-8deg) scaleX(0.94);
     transform-origin: center;

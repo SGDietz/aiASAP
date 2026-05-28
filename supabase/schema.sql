@@ -96,6 +96,7 @@ create table if not exists public.conversation_messages (
   message text not null,
   la_absolute_timestamp bigint,
   source text not null default 'app',
+  tester_label text,
   created_at timestamptz not null default now(),
   unique (session_id, role, la_absolute_timestamp)
 );
@@ -108,6 +109,7 @@ create table if not exists public.transcript_events (
   extracted_phone text,
   extracted_name text,
   follow_up_intent text,
+  tester_label text,
   created_at timestamptz not null default now()
 );
 
@@ -123,6 +125,7 @@ create table if not exists public.media_events (
   gemini_analysis text,
   problem_at_time text,
   error text,
+  tester_label text,
   created_at timestamptz not null default now()
 );
 
@@ -133,6 +136,7 @@ create table if not exists public.contact_entities (
   email text,
   phone text,
   source_text text,
+  tester_label text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -146,6 +150,7 @@ create table if not exists public.lead_sessions (
   phone text,
   last_prompted_field text,
   last_prompted_at timestamptz,
+  tester_label text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -287,5 +292,38 @@ alter table public.assistant_lists enable row level security;
 alter table public.reminders enable row level security;
 alter table public.notification_preferences enable row level security;
 alter table public.bug_reports enable row level security;
+
+-- Tester-link attribution (2026-05-25).
+-- Slug captured from ?tester=<slug> on first page load and threaded through
+-- active write paths. Stored as plain text; sanitized client + server side
+-- to lowercase a-z, 0-9, hyphen, underscore (max 64 chars). Used to bucket
+-- product-use data by tester for UX improvements. NOT for sale, NOT for
+-- spam, NOT for outreach beyond what the tester opts into.
+alter table public.conversation_messages
+  add column if not exists tester_label text;
+alter table public.lead_sessions
+  add column if not exists tester_label text;
+alter table public.transcript_events
+  add column if not exists tester_label text;
+alter table public.contact_entities
+  add column if not exists tester_label text;
+alter table public.media_events
+  add column if not exists tester_label text;
+
+create index if not exists idx_conversation_messages_tester_label
+  on public.conversation_messages (tester_label)
+  where tester_label is not null;
+create index if not exists idx_lead_sessions_tester_label
+  on public.lead_sessions (tester_label)
+  where tester_label is not null;
+create index if not exists idx_transcript_events_tester_label
+  on public.transcript_events (tester_label)
+  where tester_label is not null;
+create index if not exists idx_contact_entities_tester_label
+  on public.contact_entities (tester_label)
+  where tester_label is not null;
+create index if not exists idx_media_events_tester_label
+  on public.media_events (tester_label)
+  where tester_label is not null;
 
 -- No public RLS policies yet. The app writes through server routes using SUPABASE_SERVICE_ROLE_KEY.

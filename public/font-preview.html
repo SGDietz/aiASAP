@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>aiASAP — Tap/Click Font Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Bangers&family=Bebas+Neue&family=Black+Ops+One&family=Cinzel:wght@400;800&family=Comfortaa:wght@400;700&family=Inter:wght@900&family=Lora:ital,wght@0,600;0,700;0,800;1,700;1,800&family=Montserrat:wght@900&family=Nunito:wght@900&family=Oswald:wght@500&family=Pacifico&family=Permanent+Marker&family=Playfair+Display:ital,wght@0,900;1,400&family=Poppins:wght@600;900&family=Quicksand:wght@700&family=Russo+One&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(ellipse at center, #251407 0%, #130a04 65%, #050201 100%);
+    color: #d7a05a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    padding: 2rem 1rem;
+  }
+  h1 {
+    text-align: center;
+    background: linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-size: 2rem;
+    font-weight: 800;
+    font-style: italic;
+    font-family: "Lora", Georgia, serif;
+    margin: 0 0 0.5rem 0;
+  }
+  .sub {
+    text-align: center;
+    color: #d7a05a;
+    opacity: 0.7;
+    font-size: 0.9rem;
+    margin-bottom: 2.5rem;
+  }
+  .grid {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .card {
+    background: rgba(40, 22, 8, 0.4);
+    border: 1px solid rgba(215, 160, 90, 0.25);
+    border-radius: 1rem;
+    padding: 1.75rem 1.5rem;
+    text-align: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+  .num {
+    display: inline-block;
+    background: #3a2108;
+    color: #d7a05a;
+    border-radius: 999px;
+    padding: 0.15rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+  }
+  .label {
+    color: #d7a05a;
+    opacity: 0.7;
+    font-size: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+  .tap-line {
+    background: linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-size: 1.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 0.15rem;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.6);
+  }
+  .talk-line {
+    background: linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-size: 3.5rem;
+    font-weight: 900;
+    letter-spacing: -0.025em;
+    line-height: 1;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.6);
+  }
+  /* Per-option font overrides */
+  .opt-1  .tap-line, .opt-1  .talk-line { font-family: "Lora", Georgia, serif; font-style: italic; font-weight: 700; }
+  .opt-2  .tap-line { font-family: "Trebuchet MS", "Avenir Next", sans-serif; font-weight: 700; font-style: normal; }
+  .opt-2  .talk-line { font-family: "Lora", Georgia, serif; font-style: italic; font-weight: 700; }
+  .opt-3  .tap-line { font-family: "Lora", Georgia, serif; font-style: italic; font-weight: 700; }
+  .opt-3  .talk-line { font-family: "Lora", Georgia, serif; font-style: normal; font-weight: 800; }
+  .opt-4  .tap-line, .opt-4  .talk-line { font-family: "Bebas Neue", Impact, sans-serif; font-weight: 400; }
+  .opt-5  .tap-line { font-family: "Bebas Neue", Impact, sans-serif; }
+  .opt-5  .talk-line { font-family: "Lora", Georgia, serif; font-style: italic; font-weight: 700; }
+  .opt-6  .tap-line { font-family: Impact, "Arial Narrow", sans-serif; }
+  .opt-6  .talk-line { font-family: "Anton", Impact, sans-serif; }
+  .opt-7  .tap-line { font-family: "Montserrat", sans-serif; font-weight: 900; }
+  .opt-7  .talk-line { font-family: "Playfair Display", Georgia, serif; font-weight: 900; }
+  .opt-8  .tap-line, .opt-8  .talk-line { font-family: "Cinzel", "Trajan Pro", serif; }
+  .opt-8  .talk-line { font-weight: 800; }
+  .opt-9  .tap-line { font-family: "Playfair Display", Georgia, serif; font-weight: 900; font-style: normal; }
+  .opt-9  .talk-line { font-family: "Playfair Display", Georgia, serif; font-style: italic; font-weight: 400; }
+  .opt-10 .tap-line, .opt-10 .talk-line { font-family: "Inter", -apple-system, sans-serif; font-weight: 900; }
+  .opt-11 .tap-line, .opt-11 .talk-line { font-family: "Cooper Black", "Bookman Old Style", serif; font-weight: 900; }
+  .opt-12 .tap-line { font-family: "Bebas Neue", Impact, sans-serif; }
+  .opt-12 .talk-line { font-family: "Cooper Black", "Bookman Old Style", serif; }
+  .opt-13 .tap-line { font-family: "Pacifico", cursive; }
+  .opt-13 .talk-line { font-family: "Bebas Neue", Impact, sans-serif; }
+  .opt-14 .tap-line { font-family: "Permanent Marker", cursive; }
+  .opt-14 .talk-line { font-family: "Bebas Neue", Impact, sans-serif; }
+  .opt-15 .tap-line { font-family: "Bangers", cursive; }
+  .opt-15 .talk-line { font-family: "Bebas Neue", Impact, sans-serif; }
+  .opt-16 .tap-line { font-family: "Comfortaa", sans-serif; font-weight: 400; }
+  .opt-16 .talk-line { font-family: "Comfortaa", sans-serif; font-weight: 700; }
+  .opt-17 .tap-line { font-family: "Quicksand", sans-serif; font-weight: 700; }
+  .opt-17 .talk-line { font-family: "Nunito", sans-serif; font-weight: 900; }
+  .opt-18 .tap-line { font-family: "Poppins", sans-serif; font-weight: 600; }
+  .opt-18 .talk-line { font-family: "Poppins", sans-serif; font-weight: 900; }
+  .opt-19 .tap-line { font-family: "Oswald", sans-serif; font-weight: 500; }
+  .opt-19 .talk-line { font-family: "Lora", Georgia, serif; font-style: italic; font-weight: 700; }
+  .opt-20 .tap-line { font-family: "Black Ops One", "Impact", sans-serif; }
+  .opt-20 .talk-line { font-family: Impact, sans-serif; }
+  .opt-21 .tap-line, .opt-21 .talk-line { font-family: "Russo One", Impact, sans-serif; }
+  .opt-22 .tap-line { font-family: Georgia, "Times New Roman", serif; font-weight: 700; }
+  .opt-22 .talk-line { font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>aiASAP — Pick a Font Mix</h1>
+<p class="sub">Each card shows "Tap/Click Anywhere" + "To Talk to 6" in the real fonts. Pick a number.</p>
+<div class="grid">
+
+  <div class="card opt-1">
+    <span class="num">1</span>
+    <div class="label">Pure brand — matches aiASAP wordmark</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-2">
+    <span class="num">2</span>
+    <div class="label">Brand split — Trebuchet bold + Lora italic</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-3">
+    <span class="num">3</span>
+    <div class="label">Brand reversed — Lora italic small + Lora straight large</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-4">
+    <span class="num">4</span>
+    <div class="label">Tall display — Bebas Neue both</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-5">
+    <span class="num">5</span>
+    <div class="label">Display + brand — Bebas top, Lora italic bottom</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-6">
+    <span class="num">6</span>
+    <div class="label">Heavy stencil — Impact + Anton</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-7">
+    <span class="num">7</span>
+    <div class="label">Modern editorial — Montserrat Black + Playfair Display Black</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-8">
+    <span class="num">8</span>
+    <div class="label">Roman classy — Cinzel + Cinzel 800</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-9">
+    <span class="num">9</span>
+    <div class="label">Magazine italic — Playfair Display + Playfair italic</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-10">
+    <span class="num">10</span>
+    <div class="label">Modern UI — Inter 900 both</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-11">
+    <span class="num">11</span>
+    <div class="label">Retro chunky — Cooper Black both</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-12">
+    <span class="num">12</span>
+    <div class="label">Display + retro — Bebas + Cooper Black</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-13">
+    <span class="num">13</span>
+    <div class="label">Script + bold — Pacifico + Bebas Neue</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-14">
+    <span class="num">14</span>
+    <div class="label">Marker + bold — Permanent Marker + Bebas</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-15">
+    <span class="num">15</span>
+    <div class="label">Comic energy — Bangers + Bebas Neue</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-16">
+    <span class="num">16</span>
+    <div class="label">Soft rounded — Comfortaa + Comfortaa Bold</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-17">
+    <span class="num">17</span>
+    <div class="label">Friendly modern — Quicksand + Nunito Black</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-18">
+    <span class="num">18</span>
+    <div class="label">Poppins clean — Poppins SemiBold + Poppins Black</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-19">
+    <span class="num">19</span>
+    <div class="label">Narrow modern — Oswald + Lora italic</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-20">
+    <span class="num">20</span>
+    <div class="label">Stencil military — Black Ops One + Impact</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-21">
+    <span class="num">21</span>
+    <div class="label">Heavy modern — Russo One both</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+  <div class="card opt-22">
+    <span class="num">22</span>
+    <div class="label">Classic serif — Georgia bold + Georgia bold italic</div>
+    <div class="tap-line">Tap/Click Anywhere</div>
+    <div class="talk-line">To Talk to 6</div>
+  </div>
+
+</div>
+</body>
+</html>

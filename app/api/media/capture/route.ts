@@ -10,6 +10,7 @@ import {
   parseCookie,
 } from "../../../../src/lib/accountPersistence";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
+import { normalizeTesterLabel } from "../../../../src/lib/testerAttribution";
 
 const BUCKET = process.env.AIASAP_MEDIA_BUCKET || "aiasap-media";
 const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
@@ -108,6 +109,7 @@ export async function POST(request: Request) {
   const geminiAnalysisRaw = (form.get("gemini_analysis") as string | null) ?? "";
   const problemRaw = (form.get("problem") as string | null) ?? "";
   const errorRaw = (form.get("error") as string | null) ?? "";
+  const testerLabel = normalizeTesterLabel(form.get("tester_label"));
 
   if (!fileOrBlob) return jsonError("file is required", 400);
   if (!VALID_SOURCES.has(source)) return jsonError("invalid source", 400);
@@ -179,6 +181,7 @@ export async function POST(request: Request) {
     problem_at_time: problem || null,
     error: errText || null,
     created_at: now.toISOString(),
+    ...(testerLabel ? { tester_label: testerLabel } : {}),
   };
 
   const metadataRes = await uploadObject({

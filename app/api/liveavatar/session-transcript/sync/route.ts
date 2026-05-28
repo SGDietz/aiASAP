@@ -7,6 +7,7 @@ import {
 import { checkRateLimit } from "../../../../../src/lib/rateLimit";
 import { persistUserUtteranceLeadCapture } from "../../../../../src/lib/leadCaptureFromUserText";
 import { getSupabaseAdminConfig } from "../../../../../src/lib/supabaseAdmin";
+import { normalizeTesterLabel } from "../../../../../src/lib/testerAttribution";
 import { API_KEY, API_URL } from "../../../secrets";
 
 /** Skip lead extraction for long context lines mis-tagged as user or internal prompts. */
@@ -86,6 +87,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { liveAvatarSessionId: rawSessionId, startTimestamp } = body;
+    const testerLabel = normalizeTesterLabel(body.testerLabel);
 
     if (!isSafeTranscriptionSessionId(rawSessionId)) {
       return new Response(JSON.stringify({ error: "Invalid liveAvatarSessionId" }), {
@@ -160,6 +162,7 @@ export async function POST(request: Request) {
       message: truncateUtf8String(row.transcript.trim(), MAX_TRANSCRIPTION_TEXT_CHARS),
       la_absolute_timestamp: Math.floor(row.absolute_timestamp),
       source: "liveavatar_api",
+      ...(testerLabel ? { tester_label: testerLabel } : {}),
     }));
 
     if (rows.length > 0) {
@@ -188,7 +191,7 @@ export async function POST(request: Request) {
       const line = row.transcript.trim();
       if (!line || !shouldRunLeadCaptureOnUserTranscript(line)) continue;
       try {
-        await persistUserUtteranceLeadCapture(liveAvatarSessionId, line);
+        await persistUserUtteranceLeadCapture(liveAvatarSessionId, line, testerLabel);
       } catch (err) {
         leadCaptureErrors++;
         console.error("Lead capture from transcript sync failed:", err);

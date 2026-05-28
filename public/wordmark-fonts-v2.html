@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>aiASAP Wordmark Font Sheet V2 — Double-Story "a" — 2026-05-21</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Yeseva+One&family=Bodoni+Moda:wght@700;900&family=Playfair+Display:wght@700;900&family=DM+Serif+Display&family=Libre+Bodoni:wght@700;900&family=Cormorant+Garamond:wght@700&family=Lora:wght@700&family=Spectral:wght@700;800&family=Crimson+Pro:wght@700;900&family=EB+Garamond:wght@700;800&family=Cardo:wght@700&family=Old+Standard+TT:wght@700&family=Marcellus&family=Cinzel:wght@700;900&family=Cormorant+SC:wght@700&family=Source+Serif+4:wght@700;900&family=PT+Serif:wght@700&family=Merriweather:wght@700;900&family=Abril+Fatface&family=Bree+Serif&family=IM+Fell+English&family=IM+Fell+English+SC&family=IM+Fell+Double+Pica&family=IM+Fell+Double+Pica+SC&family=IM+Fell+DW+Pica&family=IM+Fell+DW+Pica+SC&family=IM+Fell+French+Canon&family=IM+Fell+French+Canon+SC&family=Big+Shoulders+Display:wght@700;900&family=Cormorant+Infant:wght@700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold-1: #ffe9c2;
+      --gold-2: #d7a05a;
+      --gold-3: #3a2108;
+      --bg: #150a05;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 1rem;
+      background:
+        radial-gradient(circle at 50% 20%, rgba(80, 40, 15, 0.55), transparent 32rem),
+        var(--bg);
+      color: #f1c477;
+      font-family: "Aptos", "Segoe UI", Arial, sans-serif;
+      min-height: 100vh;
+    }
+    .header {
+      max-width: 1400px;
+      margin: 0 auto 1.5rem;
+      text-align: center;
+      padding: 0.5rem;
+    }
+    .title {
+      font-size: 1.4rem;
+      margin: 0 0 0.4rem;
+      color: #e0aa62;
+    }
+    .subtitle {
+      font-size: 0.9rem;
+      color: rgba(247, 217, 158, 0.72);
+      line-height: 1.45;
+      margin: 0 auto;
+      max-width: 56rem;
+    }
+    .subtitle strong { color: #f1c477; }
+    .subtitle em { color: #ffe9c2; font-style: normal; font-weight: 700; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 0.85rem;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+    .card {
+      background: linear-gradient(180deg, rgba(50, 26, 12, 0.72), rgba(12, 6, 3, 0.92));
+      border: 1px solid rgba(201, 132, 60, 0.42);
+      border-radius: 14px;
+      padding: 1.3rem 1.1rem 0.85rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 200px;
+      text-align: center;
+      overflow: hidden;
+    }
+    .card.reference {
+      border-color: rgba(247, 217, 158, 0.85);
+      box-shadow: 0 0 0 1px rgba(247, 217, 158, 0.25), 0 14px 36px rgba(0, 0, 0, 0.5);
+    }
+    .wordmark {
+      font-size: clamp(2.8rem, 10vw, 3.6rem);
+      /* G 2026-05-21: all aiASAP wordmarks italicized via browser-synthesized
+         italic (slants regular glyphs). Preserves the double-story "a" that
+         true italic variants would swap to single-story. */
+      font-style: italic;
+      font-weight: 900;
+      line-height: 1.05;
+      background: linear-gradient(180deg, var(--gold-1), var(--gold-2) 50%, var(--gold-3));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow: 0 2px 18px rgba(0, 0, 0, 0.5);
+      letter-spacing: -0.005em;
+      /* extra horizontal padding fixes italic-p right-edge clipping */
+      padding: 0 0.22em;
+      overflow: visible;
+    }
+    /* tagline stays non-italic per G */
+    .tagline { font-style: normal; }
+    .tagline {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 600;
+      background: linear-gradient(180deg, var(--gold-1), var(--gold-2) 50%, var(--gold-3));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .label {
+      margin-top: auto;
+      font-size: 0.82rem;
+      color: rgba(247, 217, 158, 0.7);
+      font-weight: 600;
+      padding-top: 0.5rem;
+      border-top: 1px solid rgba(201, 132, 60, 0.28);
+      width: 100%;
+    }
+    .label strong { color: #f1c477; font-weight: 800; }
+    .label .tag { color: rgba(247, 217, 158, 0.5); font-weight: 500; font-size: 0.74rem; }
+    .section {
+      grid-column: 1 / -1;
+      padding: 0.8rem 0 0.2rem;
+      color: #d7a05a;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-bottom: 1px solid rgba(201, 132, 60, 0.3);
+      margin-top: 0.6rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 class="title">aiASAP Wordmark V2 — Double-Story "a" Fonts</h1>
+    <p class="subtitle">
+      2026-05-21 · You said <em>#15 (Yeseva One)</em> had the right "a" — circle + line/hook above (<strong>double-story a</strong>). <strong>All aiASAP wordmarks now italicized</strong> (Take the Leap stays non-italic per your spec). Italics use browser-synthesized slant on regular glyphs so the double-story "a" is preserved — true italic variants would swap to single-story. Padding added to fix the italic-p right-edge clipping. Send me the number.
+    </p>
+  </div>
+
+  <div class="grid">
+
+    <div class="section">Reference (the one you liked from sheet v1)</div>
+
+    <div class="card reference"><div class="wordmark" style="font-family: 'Yeseva One', serif;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#15</strong> · Yeseva One <span class="tag">(your pick from v1)</span></div></div>
+
+    <div class="section">Classic Old-Style Serifs (IM Fell — woodcut, distinctive lowercase)</div>
+
+    <div class="card"><div class="wordmark" style="font-family: 'IM Fell English', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#101</strong> · IM Fell English</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'IM Fell English', serif; font-weight: 400; transform: skewX(-8deg);">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#102</strong> · IM Fell English <span class="tag">(stronger slant)</span></div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'IM Fell DW Pica', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#103</strong> · IM Fell DW Pica</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'IM Fell DW Pica', serif; font-weight: 400; transform: skewX(-8deg);">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#104</strong> · IM Fell DW Pica <span class="tag">(stronger slant)</span></div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'IM Fell Double Pica', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#105</strong> · IM Fell Double Pica</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'IM Fell Double Pica', serif; font-weight: 400; transform: skewX(-8deg);">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#106</strong> · IM Fell Double Pica <span class="tag">(stronger slant)</span></div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'IM Fell French Canon', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#107</strong> · IM Fell French Canon</div></div>
+
+    <div class="section">Modern Display Serifs (non-italic — double-story a)</div>
+
+    <div class="card"><div class="wordmark" style="font-family: 'Bodoni Moda', serif;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#108</strong> · Bodoni Moda Black</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Playfair Display', serif;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#109</strong> · Playfair Display Black</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'DM Serif Display', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#110</strong> · DM Serif Display</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Libre Bodoni', serif;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#111</strong> · Libre Bodoni Black</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Abril Fatface', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#112</strong> · Abril Fatface</div></div>
+
+    <div class="section">Classical Garamond / Old-Style</div>
+
+    <div class="card"><div class="wordmark" style="font-family: 'Cormorant Garamond', serif; font-weight: 700;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#113</strong> · Cormorant Garamond</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Cormorant SC', serif; font-weight: 700;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#114</strong> · Cormorant SC <span class="tag">(small caps)</span></div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Cormorant Infant', serif; font-weight: 700;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#115</strong> · Cormorant Infant</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'EB Garamond', serif; font-weight: 800;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#116</strong> · EB Garamond Heavy</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Cardo', serif; font-weight: 700;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#117</strong> · Cardo Bold</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Old Standard TT', serif; font-weight: 700;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#118</strong> · Old Standard TT</div></div>
+
+    <div class="section">Modern/Workhorse Serifs</div>
+
+    <div class="card"><div class="wordmark" style="font-family: 'Lora', serif; font-weight: 700;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#119</strong> · Lora Bold</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Spectral', serif; font-weight: 800;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#120</strong> · Spectral Extra-Bold</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Crimson Pro', serif; font-weight: 900;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#121</strong> · Crimson Pro Black</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Source Serif 4', serif; font-weight: 900;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#122</strong> · Source Serif 4 Black</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'PT Serif', serif; font-weight: 700;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#123</strong> · PT Serif Bold</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Merriweather', serif; font-weight: 900;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#124</strong> · Merriweather Black</div></div>
+
+    <div class="section">Display / Elegant</div>
+
+    <div class="card"><div class="wordmark" style="font-family: 'Cinzel', serif; font-weight: 900;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#125</strong> · Cinzel Black <span class="tag">(uppercase forms)</span></div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Marcellus', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#126</strong> · Marcellus</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Bree Serif', serif; font-weight: 400;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#127</strong> · Bree Serif</div></div>
+    <div class="card"><div class="wordmark" style="font-family: 'Big Shoulders Display', sans-serif; font-weight: 900;">aiASAP</div><div class="tagline">Take the Leap</div><div class="label"><strong>#128</strong> · Big Shoulders Display Black <span class="tag">(condensed)</span></div></div>
+
+  </div>
+</body>
+</html>

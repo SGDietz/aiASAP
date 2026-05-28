@@ -65,6 +65,7 @@ export async function POST() {
         avatar_id: AVATAR_ID,
         max_session_duration: 20 * 60, // 20 minutes (LiveAvatar API: seconds)
         avatar_persona: avatarPersona,
+        turn_eagerness: "patient",
       }),
     });
     if (!res.ok) {

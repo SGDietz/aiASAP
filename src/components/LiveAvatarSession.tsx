@@ -13,6 +13,7 @@ import { SessionState, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
 import { captureMedia } from "../lib/captureMedia";
 import { extractContactDetails } from "../lib/contactExtraction";
+import { captureTesterLabelFromUrl } from "../lib/testerAttribution";
 import {
   Radio,
   Camera,
@@ -39,6 +40,21 @@ function getLiveAvatarSessionId(session: unknown): string | null {
 
 const VOICE_START_GREETING =
   "Hi, I'm 6, your a-i-buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit better today?";
+
+// G spec 2026-05-27: if user interrupts the hard-coded intro before 6 finishes,
+// fire one of these as 6's 2nd utterance after the interruption so the intro
+// always lands. Random pick = chaos preference + variety on retest.
+const GREETING_COMPLETION_POOL = [
+  "They call me 6 'cuz I got your back. So how can I make your life a little bit better today?",
+  "Oh and real quick — they call me 6 'cuz I got your back. So how can I make your life a little bit better today?",
+  "Oh and I was saying, they call me 6 'cuz I got your back. So how can I make your life a little bit better today?",
+];
+
+const pickGreetingCompletion = (): string =>
+  GREETING_COMPLETION_POOL[
+    Math.floor(Math.random() * GREETING_COMPLETION_POOL.length)
+  ];
+
 const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
@@ -1738,10 +1754,21 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const isAttachedRef = useRef<boolean>(false);
   const greetingTriggeredRef = useRef<boolean>(false);
+  // Greeting-interrupt completion (G spec 2026-05-27): force 6 to complete the
+  // intro by his 2nd utterance after the interruption.
+  const greetingInFlightRef = useRef<boolean>(false);
+  const greetingInterruptedRef = useRef<boolean>(false);
+  const greetingCompletionPendingRef = useRef<boolean>(false);
+  // Latest spoken text from 6 (AVATAR_TRANSCRIPTION). Used to skip the
+  // completion injection when the LLM already re-delivered the greeting on
+  // its own (e.g., user said "What did you just say?" and LLM repeats it).
+  const lastAvatarTranscriptionRef = useRef<string>("");
   const audioUnlockedRef = useRef<boolean>(false);
   const wasMutedBeforeRecordingRef = useRef<boolean>(false);
   /** LiveAvatar server session id — used for DB + official transcript API (set when CONNECTED). */
   const dbSessionIdRef = useRef<string | null>(null);
+  /** Tester slug from ?tester=<slug>, persisted via sessionStorage. Threaded into write paths for attribution. */
+  const testerLabelRef = useRef<string | null>(null);
   /** Cursor for GET /v1/sessions/{id}/transcript (LiveAvatar `next_timestamp`). */
   const transcriptCursorRef = useRef<number | null>(null);
   const lastSyncedLaSessionIdRef = useRef<string | null>(null);
@@ -2094,7 +2121,10 @@ const LiveAvatarSessionComponent: React.FC<{
     promptBrainHistoryRef.current = recentUserTexts;
 
     const sequence = ++promptBrainSeqRef.current;
-    setThoughtPrompts(fallbackPrompts);
+    // Note: we used to call setThoughtPrompts(fallbackPrompts) here before the brain
+    // fetch. Removed per G's "old goes out, new comes in" — current pills stay until
+    // brain returns. fallbackPrompts is still passed in the request body as
+    // currentPrompts context. If brain fails entirely, current pills stay (no flash).
 
     try {
       const response = await fetch("/api/prompt-brain", {
@@ -2107,6 +2137,7 @@ const LiveAvatarSessionComponent: React.FC<{
           recentUserTexts,
           currentPrompts: fallbackPrompts,
           sessionId: dbSessionIdRef.current,
+          testerLabel: testerLabelRef.current,
         }),
       });
 
@@ -2148,9 +2179,11 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      setThoughtPrompts(
-        normalizeThoughtPrompts(getThoughtPrompts(latestUserText)),
-      );
+      // Note: we used to call setThoughtPrompts(getThoughtPrompts(text)) here as an
+      // immediate keyword-match update before brain runs. That caused a flash where
+      // defaults briefly appeared when no keyword matched, then real brain output
+      // replaced them. Removed per G's "old goes out, new comes in" — current pills
+      // stay until brain returns the next set.
 
       if (promptBrainTimeoutRef.current) {
         clearTimeout(promptBrainTimeoutRef.current);
@@ -3034,18 +3067,29 @@ const LiveAvatarSessionComponent: React.FC<{
     [repeat],
   );
 
+  // Capture ?tester=<slug> on first mount and persist for the visit.
+  useEffect(() => {
+    testerLabelRef.current = captureTesterLabelFromUrl();
+  }, []);
+
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
       if (sessionStartErrorRef.current) {
         setSessionStartError(sessionStartErrorRef.current);
         sessionStartErrorRef.current = null;
         greetingTriggeredRef.current = false;
+        greetingInFlightRef.current = false;
+        greetingInterruptedRef.current = false;
+        greetingCompletionPendingRef.current = false;
         return;
       }
       if (explicitEndSessionRef.current) {
         explicitEndSessionRef.current = false;
         onExit?.(false);
         greetingTriggeredRef.current = false;
+        greetingInFlightRef.current = false;
+        greetingInterruptedRef.current = false;
+        greetingCompletionPendingRef.current = false;
         return;
       }
       const opts: SessionStoppedReason | undefined = wasStoppedDueToInactivity()
@@ -3054,8 +3098,80 @@ const LiveAvatarSessionComponent: React.FC<{
       onSessionStopped(opts);
       // Reset greeting trigger when session disconnects
       greetingTriggeredRef.current = false;
+      greetingInFlightRef.current = false;
+      greetingInterruptedRef.current = false;
+      greetingCompletionPendingRef.current = false;
     }
   }, [sessionState, onSessionStopped, wasStoppedDueToInactivity]);
+
+  // Greeting interrupt → completion injection (G spec 2026-05-27).
+  // If user interrupts the hard-coded intro before 6 finishes, fire a random
+  // pool line as 6's 2nd utterance after the interruption so the intro lands.
+  useEffect(() => {
+    if (isUserTalking && greetingInFlightRef.current) {
+      greetingInterruptedRef.current = true;
+    }
+  }, [isUserTalking]);
+
+  useEffect(() => {
+    if (isAvatarTalking) return;
+    if (greetingInFlightRef.current) {
+      greetingInFlightRef.current = false;
+      if (greetingInterruptedRef.current) {
+        greetingCompletionPendingRef.current = true;
+      }
+      return;
+    }
+    if (greetingCompletionPendingRef.current) {
+      greetingCompletionPendingRef.current = false;
+      greetingInterruptedRef.current = false;
+      // Redundancy guard: when the LLM's first response post-interrupt already
+      // re-delivered the greeting on its own (common when the user said "What
+      // did you just say?" style), skip our injection so 6 doesn't sound like
+      // a broken record. Match against 6's latest spoken text.
+      const lastSpoken = lastAvatarTranscriptionRef.current ?? "";
+      const greetingMarkerRe =
+        /(your back|a[-\s]?i[-\s]?buddy|make your life|call me (?:6|six)|i['']?m (?:6|six))/i;
+      if (greetingMarkerRe.test(lastSpoken)) {
+        return;
+      }
+      const line = pickGreetingCompletion();
+      window.setTimeout(() => {
+        void Promise.resolve(repeat(line))
+          .then(() => {
+            lastAvatarResponseRef.current = line;
+            rememberConversationLine("assistant", line);
+          })
+          .catch((err) => {
+            console.warn("Greeting completion injection failed:", err);
+          });
+      }, 600);
+    }
+  }, [isAvatarTalking, repeat, rememberConversationLine]);
+
+  // Track 6's most recent spoken text via AVATAR_TRANSCRIPTION events. Used by
+  // the greeting-injection guard above to detect when the LLM already covered
+  // the greeting content naturally.
+  useEffect(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    const onAvatarTranscription = (event: { text?: string }) => {
+      const text = event?.text;
+      if (typeof text === "string" && text.trim().length > 0) {
+        lastAvatarTranscriptionRef.current = text;
+      }
+    };
+    session.on(
+      AgentEventsEnum.AVATAR_TRANSCRIPTION,
+      onAvatarTranscription as never,
+    );
+    return () => {
+      session.off(
+        AgentEventsEnum.AVATAR_TRANSCRIPTION,
+        onAvatarTranscription as never,
+      );
+    };
+  }, [sessionRef]);
 
   useEffect(() => {
     if (sessionState === SessionState.INACTIVE) {
@@ -3082,6 +3198,7 @@ const LiveAvatarSessionComponent: React.FC<{
           body: JSON.stringify({
             liveAvatarSessionId: sid,
             ...(cursor != null ? { startTimestamp: cursor } : {}),
+            testerLabel: testerLabelRef.current,
           }),
           keepalive: true,
         }).catch(() => {});
@@ -3109,6 +3226,9 @@ const LiveAvatarSessionComponent: React.FC<{
       const body: Record<string, unknown> = { liveAvatarSessionId: sid };
       if (transcriptCursorRef.current != null) {
         body.startTimestamp = transcriptCursorRef.current;
+      }
+      if (testerLabelRef.current) {
+        body.testerLabel = testerLabelRef.current;
       }
       try {
         const res = await fetch("/api/liveavatar/session-transcript/sync", {
@@ -3196,6 +3316,9 @@ const LiveAvatarSessionComponent: React.FC<{
     if (isOnHomeScreen()) {
       // On home screen: stop session so parent can show start screen.
       greetingTriggeredRef.current = false; // Reset greeting trigger
+      greetingInFlightRef.current = false;
+      greetingInterruptedRef.current = false;
+      greetingCompletionPendingRef.current = false;
       stopSession();
     } else {
       // Not on home screen: reset to home screen (keep session)
@@ -3207,6 +3330,9 @@ const LiveAvatarSessionComponent: React.FC<{
     explicitEndSessionRef.current = true;
     endSessionConfirmationPendingRef.current = false;
     greetingTriggeredRef.current = false;
+    greetingInFlightRef.current = false;
+    greetingInterruptedRef.current = false;
+    greetingCompletionPendingRef.current = false;
     try {
       stopListening();
     } catch {
@@ -3776,6 +3902,9 @@ const LiveAvatarSessionComponent: React.FC<{
       if (mode === "FULL") {
         resumeListeningAfterAvatarSpeech(9000);
       }
+      greetingInFlightRef.current = true;
+      greetingInterruptedRef.current = false;
+      greetingCompletionPendingRef.current = false;
       await repeat(greeting);
       if (mode === "FULL") {
         window.setTimeout(() => {
@@ -5023,6 +5152,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 body: JSON.stringify({
                   sessionId: captureSessionId,
                   text: userText,
+                  testerLabel: testerLabelRef.current,
                 }),
               })
             : null;
@@ -5868,7 +5998,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const showActiveList = !LIST_UI_DORMANT && activeList;
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(circle_at_center,#251407_0%,#130a04_58%,#050201_100%)] flex flex-col">
+    <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(circle_at_center,#3a2108_0%,#1f1208_58%,#0a0604_100%)] flex flex-col">
       {/* Session start error (e.g. no credits) - show message and do not auto-restart */}
       {sessionStartError && (
         <div className="absolute inset-x-0 top-0 z-50 bg-red-900/95 text-white px-4 py-4 text-center shadow-lg">
@@ -6019,11 +6149,11 @@ const LiveAvatarSessionComponent: React.FC<{
       <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
         <div className="text-center px-4">
           <div className="flex items-start justify-center">
-            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[2rem] sm:text-[2.4rem] md:text-[3.25rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               aiASAP
             </h1>
           </div>
-          <p className="mt-1 text-[0.95rem] sm:text-[1.05rem] md:text-[1.25rem] font-semibold tracking-[0.18em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+          <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-semibold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
         </div>
@@ -6046,7 +6176,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
       {/* Full screen video */}
       <div
-        className={`relative w-full flex-1 flex items-center justify-center md:px-8 ${isCameraActive ? "pt-24" : ""}`}
+        className={`relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8 ${isCameraActive ? "pt-24" : ""}`}
       >
         {/* Avatar video - full screen when camera inactive, small overlay in left corner when active */}
         <video
@@ -6058,7 +6188,7 @@ const LiveAvatarSessionComponent: React.FC<{
           className={`${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
-              : "h-full w-full object-contain object-top md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#e0aa62]/18 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(255,255,255,0.035),0_30px_90px_rgba(0,0,0,0.72)]"
+              : "h-full w-full object-cover md:object-contain md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           }`}
         />
 
@@ -6191,7 +6321,7 @@ const LiveAvatarSessionComponent: React.FC<{
       </div>
 
       {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none" style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.70)" }}>
+        <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none top-[calc(var(--stage-top)+var(--stage-height)*0.55)]">
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
             <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
               Loading
@@ -6270,7 +6400,7 @@ const LiveAvatarSessionComponent: React.FC<{
           )}
 
           {visionMode !== "streaming" && !isCameraActive && !voiceIsActive && !shouldShowLoadingSurface && (
-            <div className="fixed left-1/2 bottom-[10.875rem] sm:bottom-[11.375rem] md:bottom-[calc(11.5vh+13rem)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
+            <div className="fixed left-1/2 bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.14)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 !isAvatarTalking &&
                 isStreamReady && (
@@ -6280,11 +6410,11 @@ const LiveAvatarSessionComponent: React.FC<{
                         className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
                         style={tapPromptFont}
                       >
-                        <span className="flex translate-y-0.5 items-center text-[1.2rem] sm:text-[1.35rem] md:text-[1.55rem] font-extrabold uppercase tracking-[0.14em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
-                          Tap Anywhere
+                        <span className="flex -translate-y-1.5 items-center text-[calc(var(--stage-width)*0.05)] font-bold italic tracking-[0.14em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#9e6a35] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
+                          Tap/Click ANYWHERE
                         </span>
-                        <span className="text-[2.6rem] sm:text-[3rem] md:text-[3.5rem] font-extrabold md:font-black tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
-                          To Talk to 6
+                        <span className="-translate-y-1 text-[calc(var(--stage-width)*0.10)] font-extrabold tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
+                          To Talk To 6
                         </span>
                       </span>
                     </p>
@@ -6553,7 +6683,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
                   showActiveList
                     ? "top-[calc(var(--stage-top)+var(--stage-height)*0.72)] grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
-                    : "bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.12)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.20)] flex w-[94%] flex-col items-center gap-2 md:gap-2.5"
+                    : "bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.12)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] flex w-[94%] flex-col items-center gap-[calc(var(--stage-height)*0.010)]"
                 }`}
                 style={
                   showActiveList
@@ -6577,17 +6707,25 @@ const LiveAvatarSessionComponent: React.FC<{
               >
                 {visibleThoughtPrompts.slice(0, visiblePromptLimit).map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
-                  const compactPrompt = prompt.length > 25;
+                  const _visiblePromptsForSize = visibleThoughtPrompts.slice(0, visiblePromptLimit);
+                  const _maxPromptLen = Math.max(...(_visiblePromptsForSize.map((p) => p.length)), 0);
+                  let _tierBase: number;
+                  if (_maxPromptLen > 26) _tierBase = 0.70;
+                  else if (_maxPromptLen > 22) _tierBase = 0.85;
+                  else _tierBase = 1.06;
+                  const _noBumpInCompact = _maxPromptLen > 22;
                   return (
                     <button
                       type="button"
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#e0aa62]/14 font-semibold leading-tight text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#3a2108]/30 font-semibold leading-tight text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
                         showActiveList
                           ? "h-full w-full px-2 py-1.5 md:px-3 md:py-2 text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.05rem)] whitespace-normal break-words"
-                          : "min-h-[2.9rem] md:min-h-[3.4rem] w-full max-w-[16rem] md:max-w-[22rem] px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.2rem)]"
+                          : _noBumpInCompact
+                            ? "min-h-[calc(var(--stage-height)*0.046)] w-full max-w-[min(calc(var(--stage-width)*0.60),80vw)] px-4 py-[calc(var(--stage-height)*0.006)] whitespace-nowrap text-ellipsis text-[calc(var(--stage-height)*0.022)]"
+                            : "min-h-[calc(var(--stage-height)*0.046)] w-full max-w-[min(calc(var(--stage-width)*0.60),80vw)] px-4 py-[calc(var(--stage-height)*0.006)] whitespace-nowrap text-ellipsis text-[calc(var(--stage-height)*0.025)]"
                       } ${
                         isDissolving
                           ? "animate-prompt-dissolve"
@@ -6597,7 +6735,7 @@ const LiveAvatarSessionComponent: React.FC<{
                         animationDelay: `${index * 80}ms`,
                         "--prompt-font-size": showActiveList
                           ? `${0.78 + promptSizeLevel * 0.06}rem`
-                          : `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
+                          : `${_tierBase + promptSizeLevel * 0.1}rem`,
                         color: "#e0aa62",
                         fontFamily:
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
@@ -6613,10 +6751,7 @@ const LiveAvatarSessionComponent: React.FC<{
             )}
 
           {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-[calc((var(--stage-bottom)-0.875rem)/2)] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
-              <span className="text-center text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-                &copy; 2026 aiASAP All Rights Reserved &middot;
-              </span>
+            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] md:bottom-[calc((var(--stage-bottom)-0.875rem)/2)] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
               <Link
                 href="/terms"
                 target="_blank"
@@ -6624,6 +6759,10 @@ const LiveAvatarSessionComponent: React.FC<{
               >
                 Terms
               </Link>
+              <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">&middot;</span>
+              <span className="text-center text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                &copy; 2026 aiASAP All Rights Reserved
+              </span>
               <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">&middot;</span>
               <Link
                 href="/privacy"

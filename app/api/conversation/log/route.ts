@@ -6,6 +6,7 @@ import {
 } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
+import { normalizeTesterLabel } from "../../../../src/lib/testerAttribution";
 
 type SpeakerRole = "user" | "assistant";
 
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
 
     const sessionId = rawSessionId.trim();
     const text = truncateUtf8String(rawText.trim(), MAX_TRANSCRIPTION_TEXT_CHARS);
+    const testerLabel = normalizeTesterLabel(body.testerLabel);
     const { url, serviceRoleKey } = getSupabaseAdminConfig();
 
     const res = await fetch(`${url}/rest/v1/conversation_messages`, {
@@ -61,6 +63,7 @@ export async function POST(request: Request) {
         session_id: sessionId,
         role,
         message: text,
+        ...(testerLabel ? { tester_label: testerLabel } : {}),
       }),
     });
 

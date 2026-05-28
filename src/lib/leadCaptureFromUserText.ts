@@ -8,6 +8,7 @@ import {
   isGarbageNameCandidate,
 } from "./contactExtraction";
 import { getSupabaseAdminConfig } from "./supabaseAdmin";
+import { normalizeTesterLabel } from "./testerAttribution";
 
 export type LeadSessionRow = {
   session_id: string;
@@ -119,6 +120,7 @@ async function upsertMergedContactEntity(
     email: string | null;
     phone: string | null;
     source_text: string;
+    tester_label: string | null;
   },
 ) {
   const listRes = await fetch(
@@ -167,6 +169,7 @@ async function upsertMergedContactEntity(
         email,
         phone,
         source_text: sourceText || null,
+        ...(partial.tester_label ? { tester_label: partial.tester_label } : {}),
       }),
     });
     if (!res.ok) {
@@ -186,6 +189,7 @@ async function upsertMergedContactEntity(
         email,
         phone,
         source_text: sourceText || null,
+        ...(partial.tester_label ? { tester_label: partial.tester_label } : {}),
       }),
     },
   );
@@ -308,10 +312,12 @@ function chooseNextPrompt(
 export async function persistUserUtteranceLeadCapture(
   sessionId: string,
   rawText: string,
+  testerLabelInput?: string | null,
 ): Promise<LeadCaptureResult> {
   const text = truncateUtf8String(rawText.trim(), MAX_TRANSCRIPTION_TEXT_CHARS);
   const { email, phone, fullName } = extractContactDetails(text);
   const intent = detectFollowUpIntent(text);
+  const testerLabel = normalizeTesterLabel(testerLabelInput);
   const { url, serviceRoleKey } = getSupabaseAdminConfig();
 
   let existingLead: LeadSessionRow | null = null;
@@ -364,6 +370,7 @@ export async function persistUserUtteranceLeadCapture(
       : intent.declined
         ? "declined"
         : "neutral",
+    ...(testerLabel ? { tester_label: testerLabel } : {}),
   });
 
   if (email || phone || fullName) {
@@ -372,6 +379,7 @@ export async function persistUserUtteranceLeadCapture(
       phone,
       full_name: fullName,
       source_text: text,
+      tester_label: testerLabel,
     });
   }
 
@@ -384,6 +392,7 @@ export async function persistUserUtteranceLeadCapture(
     last_prompted_field: mergedLead.last_prompted_field,
     last_prompted_at: mergedLead.last_prompted_at,
     updated_at: nowIso,
+    ...(testerLabel ? { tester_label: testerLabel } : {}),
   });
 
   return {

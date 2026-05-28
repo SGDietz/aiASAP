@@ -259,7 +259,7 @@ export const LiveAvatarContextProvider = ({
   // Conversational silence re-engagement:
   // - after avatar turn ends, wait for the user instead of rushing them
   // - if still silent, emit synthetic user message to trigger fail-safe
-  // - do this at most twice (10s, then 15s), reset when user speaks
+  // - do this at most twice (3s, then 6s), reset when user speaks
   useEffect(() => {
     if (mode !== "FULL") {
       return;
@@ -281,7 +281,7 @@ export const LiveAvatarContextProvider = ({
       if (reengagementAttemptsRef.current >= 2) {
         return;
       }
-      const delaySeconds = reengagementAttemptsRef.current === 0 ? 10 : 15;
+      const delaySeconds = reengagementAttemptsRef.current === 0 ? 3 : 6;
       const delayMs = delaySeconds * 1000;
 
       reengagementTimeoutRef.current = setTimeout(() => {

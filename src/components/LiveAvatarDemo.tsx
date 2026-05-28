@@ -225,7 +225,7 @@ export const LiveAvatarDemo = () => {
       <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#090604] text-[#f1c477]">
         <div className="text-2xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">Session Ended</div>
         <div className="text-center text-lg bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-          Thank you for using aiASAP
+          Thank you for using <span style={{ display: 'inline-block', transform: 'skewX(-10deg)', background: 'linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>aiASAP</span>
         </div>
         <button
           type="button"
@@ -330,12 +330,27 @@ export const LiveAvatarDemo = () => {
         {!error && (
           <div className="text-inset text-xl">Loading...</div>
         )}
-        <Link
-          href="/terms"
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-2"
-        >
-          © 2026 aiASAP All Rights Reserved · Terms
-        </Link>
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
+          <Link
+            href="/terms"
+            target="_blank"
+            className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
+          >
+            Terms
+          </Link>
+          <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">·</span>
+          <span className="text-center text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+            © 2026 aiASAP All Rights Reserved
+          </span>
+          <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">·</span>
+          <Link
+            href="/privacy"
+            target="_blank"
+            className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
+          >
+            Privacy
+          </Link>
+        </div>
       </div>
     );
   }
