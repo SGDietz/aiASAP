@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getUserId } from "../../../../src/lib/auth/getUser";
+import { getUser } from "../../../../src/lib/auth/getUser";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
 import {
   extractFactsFromTurn,
@@ -30,10 +30,12 @@ function isSafeSessionId(s: unknown): s is string {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = await getUserId();
-  if (!userId) {
+  const user = await getUser();
+  if (!user) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
   }
+  const userId = user.id;
+  const userEmail = user.email ?? null;
 
   let body: unknown;
   try {
@@ -43,16 +45,7 @@ export async function POST(request: NextRequest) {
   }
 
   const rawIds = (body as { session_ids?: unknown })?.session_ids;
-  if (!Array.isArray(rawIds)) {
-    return NextResponse.json(
-      { error: "session_ids must be an array" },
-      { status: 400 },
-    );
-  }
-  const ids = rawIds.filter(isSafeSessionId).slice(0, MAX_IDS);
-  if (ids.length === 0) {
-    return NextResponse.json({ ok: true, linked: 0, tables: {} });
-  }
+  const browserIds = Array.isArray(rawIds) ? rawIds.filter(isSafeSessionId) : [];
 
   let url: string;
   let serviceRoleKey: string;
@@ -68,6 +61,35 @@ export async function POST(request: NextRequest) {
     "Content-Type": "application/json",
     Prefer: "return=representation",
   } as const;
+
+  // Robust linking (2026-05-31 memory fix): the browser's localStorage list of
+  // session_ids often doesn't survive the magic-link round-trip (different tab/
+  // browser), so linking + memory silently produced nothing. We ALSO pull every
+  // session_id recorded server-side against this user's email at magic-link-send
+  // time, and union the two — so linking + retro fact extraction work regardless
+  // of the browser handoff.
+  const emailIds: string[] = [];
+  if (userEmail) {
+    try {
+      const linkRes = await fetch(
+        `${url}/rest/v1/account_email_links?email=eq.${encodeURIComponent(userEmail)}&select=session_id&order=created_at.desc&limit=${MAX_IDS}`,
+        { method: "GET", headers },
+      );
+      if (linkRes.ok) {
+        const rows = (await linkRes.json()) as Array<{ session_id: unknown }>;
+        for (const r of rows) {
+          if (isSafeSessionId(r.session_id)) emailIds.push(r.session_id);
+        }
+      }
+    } catch (e) {
+      console.error("link-session: email-link lookup failed", e);
+    }
+  }
+
+  const ids = Array.from(new Set([...browserIds, ...emailIds])).slice(0, MAX_IDS);
+  if (ids.length === 0) {
+    return NextResponse.json({ ok: true, linked: 0, tables: {} });
+  }
 
   // Build a PostgREST `in.(...)` filter once.
   const inFilter = `in.(${ids.map((id) => `"${id.replace(/"/g, '""')}"`).join(",")})`;

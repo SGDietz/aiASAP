@@ -133,8 +133,12 @@ export async function POST(request: Request) {
   // Save lists + resumeState to account_email_links for post-tap recovery.
   // Use service role to bypass RLS. Failures here don't block the response —
   // the magic link is the critical path.
+  // Always record the email -> session_id link (even with no lists), so
+  // link-session can re-key + extract memory by EMAIL on sign-in without
+  // depending on the browser handing over its localStorage session_ids
+  // (2026-05-31 memory fix). captured_lists may be empty.
   let pendingStateToken: string | null = null;
-  if (serviceRoleKey && (lists.length > 0 || resumeState)) {
+  if (serviceRoleKey && sessionId) {
     try {
       pendingStateToken = crypto.randomUUID();
       const tokenHash = await hashToken(pendingStateToken);
