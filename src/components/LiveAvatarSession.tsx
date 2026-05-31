@@ -557,6 +557,25 @@ const END_SESSION_CONFIRM_RE =
   /\b(?:yes|yeah|yep|yup|yea|sure|ok|okay|correct|right|do it|go ahead|close|stop|end|quit|exit|shut\s+(?:it\s+)?down|that'?s right|that is right|please)\b/i;
 const END_SESSION_CANCEL_RE =
   /\b(?:no|nope|nah|not now|later|never mind|nevermind|cancel|keep going|continue|stay|don'?t|do not)\b/i;
+// --- Close-confirmation hardening (2026-06-01) ---------------------------------
+// A passing MENTION of closing must never end the session. While waiting on a
+// confirm we accept only three shapes, all unambiguous:
+//   1. An explicit verb+object close command at any length ("close it",
+//      "shut it down", "end the session").
+//   2. A whole-utterance bare command ("stop.", "close", "done") — these are
+//      exactly the words 6's own confirm prompt tells the user to say.
+//   3. A whole-utterance affirmation ("yes", "yeah ok", "go ahead").
+// A long sentence that merely CONTAINS "yeah/ok/right/stop/close" is ordinary
+// conversation and must NOT confirm (this is what closed G's session twice).
+const END_SESSION_CLOSE_VERB_RE =
+  /\b(?:close|end|stop|quit|exit|finish|wrap\s+up|hang\s+up)\s+(?:it|this|us|me\s+out|the\s+(?:session|conversation|chat|call|talk|app|site))\b|\bshut\s+(?:it\s+)?down\b/i;
+const END_SESSION_CONFIRM_CMD_RE =
+  /^(?:stop|close|end|quit|exit|done|finish|shut\s*it\s*down|shut\s*down|hang\s*up|sign\s*off|log\s*off|that'?s\s+all|i'?m\s+done)[\s.,!-]*$/i;
+const END_SESSION_AFFIRM_ONLY_RE =
+  /^(?:(?:yes|yeah|yep|yup|yea|sure|ok|okay|okey|kay|correct|right|alright|all\s+right|affirmative|please|do\s+it|go\s+ahead|go\s+for\s+it|that'?s\s+right|that\s+is\s+right)[\s.,!-]*)+$/i;
+// "How do I close", "don't close", "not yet", "maybe later" must NOT arm the prompt.
+const END_SESSION_BLOCK_RE =
+  /\b(?:don'?t|do\s+not|won'?t|will\s+not|can'?t|cannot|how\s+(?:do|can|to|would)|what\s+(?:if|happens)|why|maybe|might|if\s+i|when\s+i|not\s+(?:yet|now|sure|really))\b/i;
 const ONLINE_LOOKUP_TOPIC_RE =
   /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|waterfall|waterfalls|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
 const ONLINE_LOOKUP_ACTION_RE =
@@ -828,12 +847,23 @@ function hasEndSessionIntent(text: string): boolean {
   ) {
     return false;
   }
+  // A question about closing or a negated mention is not a request to close.
+  if (END_SESSION_BLOCK_RE.test(text)) return false;
   return END_CONVERSATION_RE.test(text);
 }
 
 function confirmsEndSession(text: string): boolean {
-  if (END_SESSION_CANCEL_RE.test(text)) return false;
-  return END_SESSION_CONFIRM_RE.test(text) || hasEndSessionIntent(text);
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  // A cancel/negation always wins ("no", "not now", "keep going", "don't").
+  if (END_SESSION_CANCEL_RE.test(trimmed)) return false;
+  // 1. Explicit verb+object close command — confirms at any length.
+  if (END_SESSION_CLOSE_VERB_RE.test(trimmed)) return true;
+  // 2. Whole-utterance bare command ("stop", "close", "done").
+  if (END_SESSION_CONFIRM_CMD_RE.test(trimmed)) return true;
+  // 3. Whole-utterance affirmation ("yes", "yeah ok"). A long sentence that just
+  //    contains a filler "yeah/ok/right" is NOT a confirmation.
+  return END_SESSION_AFFIRM_ONLY_RE.test(trimmed);
 }
 
 function isListRoutingOnlyCommand(text: string): boolean {
@@ -4925,12 +4955,11 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (endSessionConfirmationPendingRef.current) {
-        if (confirmsEndSession(userText)) {
-          void handleEndSession();
-          return;
-        }
+        // Ignore empty/echo fragments — keep waiting for a real answer.
+        if (!userText.trim()) return;
         if (END_SESSION_CANCEL_RE.test(userText)) {
           endSessionConfirmationPendingRef.current = false;
+          endSessionConfirmationAskedAtRef.current = 0;
           const spoken = "Okay, we'll keep going.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -4938,21 +4967,15 @@ const LiveAvatarSessionComponent: React.FC<{
           schedulePromptBrain(userText);
           return;
         }
-        if (Date.now() - endSessionConfirmationAskedAtRef.current < 8000) {
+        if (confirmsEndSession(userText)) {
+          void handleEndSession();
           return;
         }
-        endSessionConfirmationAskedAtRef.current = Date.now();
-        const spoken =
-          "I can close it. Say stop or close to end it, or keep going.";
-        await interrupt();
-        if (mode === "FULL") {
-          stopListening();
-          resumeListeningAfterAvatarSpeech(4500);
-        }
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
-        return;
+        // Not a confirm and not a cancel: the user simply kept talking. Drop the
+        // close prompt and handle their words normally below — never swallow the
+        // turn or auto-close on a passing mention.
+        endSessionConfirmationPendingRef.current = false;
+        endSessionConfirmationAskedAtRef.current = 0;
       }
 
       if (await handlePromptSizeSpeech(userText)) {
