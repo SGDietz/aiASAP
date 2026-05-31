@@ -4,33 +4,49 @@
 -- sessions launched via clean tester links (e.g. https://aiasap.ai/?tester=john-tn)
 -- are distinguishable in the data.
 --
--- LOCAL ONLY. Do not apply to remote DB without G's explicit instruction.
--- All ALTERs and CREATE INDEXes use IF NOT EXISTS guards so the migration
--- is safe to run repeatedly.
+-- All ALTERs and CREATE INDEXes use existence guards so this migration is safe
+-- to run against remote projects where older optional tables may not exist yet.
 
-alter table public.conversation_messages
-  add column if not exists tester_label text;
-alter table public.lead_sessions
-  add column if not exists tester_label text;
-alter table public.transcript_events
-  add column if not exists tester_label text;
-alter table public.contact_entities
-  add column if not exists tester_label text;
-alter table public.media_events
-  add column if not exists tester_label text;
+DO $$
+BEGIN
+  IF to_regclass('public.conversation_messages') IS NOT NULL THEN
+    ALTER TABLE public.conversation_messages
+      ADD COLUMN IF NOT EXISTS tester_label text;
+    CREATE INDEX IF NOT EXISTS idx_conversation_messages_tester_label
+      ON public.conversation_messages (tester_label)
+      WHERE tester_label IS NOT NULL;
+  END IF;
 
-create index if not exists idx_conversation_messages_tester_label
-  on public.conversation_messages (tester_label)
-  where tester_label is not null;
-create index if not exists idx_lead_sessions_tester_label
-  on public.lead_sessions (tester_label)
-  where tester_label is not null;
-create index if not exists idx_transcript_events_tester_label
-  on public.transcript_events (tester_label)
-  where tester_label is not null;
-create index if not exists idx_contact_entities_tester_label
-  on public.contact_entities (tester_label)
-  where tester_label is not null;
-create index if not exists idx_media_events_tester_label
-  on public.media_events (tester_label)
-  where tester_label is not null;
+  IF to_regclass('public.lead_sessions') IS NOT NULL THEN
+    ALTER TABLE public.lead_sessions
+      ADD COLUMN IF NOT EXISTS tester_label text;
+    CREATE INDEX IF NOT EXISTS idx_lead_sessions_tester_label
+      ON public.lead_sessions (tester_label)
+      WHERE tester_label IS NOT NULL;
+  END IF;
+
+  IF to_regclass('public.transcript_events') IS NOT NULL THEN
+    ALTER TABLE public.transcript_events
+      ADD COLUMN IF NOT EXISTS tester_label text;
+    CREATE INDEX IF NOT EXISTS idx_transcript_events_tester_label
+      ON public.transcript_events (tester_label)
+      WHERE tester_label IS NOT NULL;
+  END IF;
+
+  IF to_regclass('public.contact_entities') IS NOT NULL THEN
+    ALTER TABLE public.contact_entities
+      ADD COLUMN IF NOT EXISTS tester_label text;
+    CREATE INDEX IF NOT EXISTS idx_contact_entities_tester_label
+      ON public.contact_entities (tester_label)
+      WHERE tester_label IS NOT NULL;
+  END IF;
+
+  IF to_regclass('public.media_events') IS NOT NULL THEN
+    ALTER TABLE public.media_events
+      ADD COLUMN IF NOT EXISTS tester_label text;
+    CREATE INDEX IF NOT EXISTS idx_media_events_tester_label
+      ON public.media_events (tester_label)
+      WHERE tester_label IS NOT NULL;
+  END IF;
+END
+$$;

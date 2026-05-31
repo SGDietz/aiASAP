@@ -6,6 +6,13 @@ import {
 } from "../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../src/lib/rateLimit";
 import { OPENAI_API_KEY } from "../secrets";
+import { getUserId } from "../../../src/lib/auth/getUser";
+import {
+  recallFacts,
+  formatRecalledFactsForPrompt,
+  extractFactsFromTurn,
+  storeFacts,
+} from "../../../src/lib/memory";
 
 const SYSTEM_PROMPT = [
   "You are 6, the aiASAP personal assistant and buddy.",
@@ -62,14 +69,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // Build messages array
+    // M1.2 — Memory recall pass. Only signed-in users have memory.
+    // Failures inside recallFacts return [], so this never breaks chat.
+    const userId = await getUserId();
+    const recalled =
+      userId !== null ? await recallFacts({ userId, query: message }) : [];
+    const memoryBlock = formatRecalledFactsForPrompt(recalled);
+
+    // Assemble system prompt: aiASAP base + (optional image context) + (optional memory).
+    const systemSections: string[] = [SYSTEM_PROMPT];
+    if (image_analysis) {
+      systemSections.push(
+        `IMPORTANT CONTEXT: The user has shared an image with you. You can see this image clearly, and here's what you observe: ${image_analysis}\n\nWhen the user asks questions about what they're seeing or asks questions about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility of the image. Never say you can't see the image or that you're relying on someone else's analysis. You are directly viewing this image.`,
+      );
+    }
+    if (memoryBlock) {
+      systemSections.push(memoryBlock);
+    }
+
     const messages: Array<{ role: string; content: string }> = [
-      {
-        role: "system",
-        content: image_analysis
-          ? `${SYSTEM_PROMPT}\n\nIMPORTANT CONTEXT: The user has shared an image with you. You can see this image clearly, and here's what you observe: ${image_analysis}\n\nWhen the user asks questions about what they're seeing or asks questions about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility of the image. Never say you can't see the image or that you're relying on someone else's analysis. You are directly viewing this image.`
-          : SYSTEM_PROMPT,
-      },
+      { role: "system", content: systemSections.join("\n\n") },
       { role: "user", content: message },
     ];
 
@@ -104,6 +123,25 @@ export async function POST(request: Request) {
 
     const data = await res.json();
     const response = data.choices[0].message.content;
+
+    // M1.2 — Memory writer pass. Extract durable facts from this turn
+    // and persist them. Fire-and-forget — never block the reply on
+    // the writer. Only runs for signed-in users.
+    if (userId) {
+      void (async () => {
+        try {
+          const facts = await extractFactsFromTurn({
+            userMessage: message,
+            assistantReply: response,
+          });
+          if (facts.length > 0) {
+            await storeFacts({ userId, facts });
+          }
+        } catch (e) {
+          console.error("[memory:writer] failed", e);
+        }
+      })();
+    }
 
     return new Response(JSON.stringify({ response }), {
       status: 200,

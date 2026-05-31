@@ -14,6 +14,7 @@ import { useAvatarActions } from "../liveavatar/useAvatarActions";
 import { captureMedia } from "../lib/captureMedia";
 import { extractContactDetails } from "../lib/contactExtraction";
 import { captureTesterLabelFromUrl } from "../lib/testerAttribution";
+import { rememberAnonymousSessionId } from "../lib/auth/AuthProvider";
 import {
   Radio,
   Camera,
@@ -59,7 +60,11 @@ const SESSION_END_CONFIRMATION_MESSAGE =
   "Want me to close this session? Say stop or close to end it, or keep going.";
 const LIST_CLOSE_EDUCATION =
   "If you want this list off the screen, just ask me to close the list.";
-const ACCOUNT_BETA_DISABLED = true;
+// v2.1 (2026-05-28): voice magic-link sign-in + per-user memory ENABLED.
+// Was gated true on gold while the account flow was held back; flipped to
+// false here so startAccountSetup / handleAccountSetupSpeech / the email
+// readback UI / the /api/account/me resume path all go live.
+const ACCOUNT_BETA_DISABLED = false;
 
 const ACCOUNT_MEMORY_VALUE_LINES = [
   "With an account, your lists stay intact, I remember the last conversation, and we pick up where we left off every time.",
@@ -1968,9 +1973,21 @@ const LiveAvatarSessionComponent: React.FC<{
     [],
   );
 
+  // v2.1 resume-bug fix (part b): this used to be a no-op (`return message`),
+  // so a returning signed-in user's memory snapshot never reached 6's brain.
+  // Now it prepends the resume context (built in the /api/account/me effect)
+  // to the FIRST brain message after a return, then flips the injected flag
+  // so we don't re-send the dump on every turn. Part (a)'s connect-time
+  // effect is the primary delivery path; this is belt-and-suspenders for the
+  // case where the user speaks before that effect fires.
   const buildMemoryAugmentedMessage = useCallback(
     (message: string) => {
-      return message;
+      if (accountMemoryContextInjectedRef.current) return message;
+      const snapshot = accountMemorySnapshotRef.current;
+      const contextText = snapshot?.contextText?.trim();
+      if (!contextText) return message;
+      accountMemoryContextInjectedRef.current = true;
+      return `${contextText}\n\nThe user just said: ${message}`;
     },
     [],
   );
@@ -2387,6 +2404,55 @@ const LiveAvatarSessionComponent: React.FC<{
       lastVisionResponseTimeRef.current = Date.now();
     });
   }, [isStreamReady, postVerifyGreeting, rememberConversationLine, repeat, sessionState]);
+
+  // v2.1 resume-bug fix (part a): once the LiveAvatar session is CONNECTED and
+  // the resume snapshot hasn't been injected yet, feed the SIGNED-IN USER
+  // MEMORY (contextText) into 6's brain via sessionRef.message() and — unless
+  // the ?account=verified welcome already spoke (postVerifyGreeting) — speak a
+  // buildReturningGreeting() line so 6 actually resumes instead of acting like
+  // a brand-new session. Sets accountMemoryContextInjectedRef so it fires once
+  // and so buildMemoryAugmentedMessage stops re-prepending the dump.
+  useEffect(() => {
+    if (
+      ACCOUNT_BETA_DISABLED ||
+      accountMemoryContextInjectedRef.current ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady
+    ) {
+      return;
+    }
+    const snapshot = accountMemorySnapshotRef.current;
+    const contextText = snapshot?.contextText?.trim();
+    if (!contextText) return;
+
+    accountMemoryContextInjectedRef.current = true;
+
+    // 1) Deliver the resume context to 6's brain (LLM), not spoken aloud.
+    if (sessionRef.current) {
+      sessionRef.current.message(contextText);
+    }
+
+    // 2) Speak a returning greeting — but only if the ?account=verified path
+    //    isn't already speaking its own welcome (avoid a double greeting).
+    if (!postVerifyGreeting && !postVerifyGreetingSpokenRef.current) {
+      const greeting = buildReturningGreeting(deviceProfileRef.current, snapshot);
+      void Promise.resolve(repeat(greeting))
+        .then(() => {
+          lastAvatarResponseRef.current = greeting;
+          rememberConversationLine("assistant", greeting);
+          lastVisionResponseTimeRef.current = Date.now();
+        })
+        .catch((err) => {
+          console.warn("Returning greeting injection failed:", err);
+        });
+    }
+  }, [
+    isStreamReady,
+    postVerifyGreeting,
+    rememberConversationLine,
+    repeat,
+    sessionState,
+  ]);
 
   useEffect(() => {
     if (!accountEmail || !accountListsLoadedRef.current) return;
@@ -3213,6 +3279,10 @@ const LiveAvatarSessionComponent: React.FC<{
         lastSyncedLaSessionIdRef.current = sid;
       }
       dbSessionIdRef.current = sid;
+      // v2.1: stash anonymous session_id so /api/auth/link-session can re-key
+      // these rows to the user's account when they sign in later. Safe to
+      // call repeatedly — the helper dedupes and caps localStorage size.
+      rememberAnonymousSessionId(sid);
     }
   }, [sessionState, sessionRef]);
 

@@ -1,4 +1,5 @@
-.env
+.env*
+!.env.example
 *.log
 node_modules/
 .next/
@@ -10,3 +11,6 @@ telegram_conversations.json
 telegram_conversations.json.tmp
 
 .vercel
+.env*.local
+supabase/.temp/
+.hermes-supabase-readonly/
