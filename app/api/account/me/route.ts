@@ -38,6 +38,8 @@ export async function GET(request: Request) {
   const TIMEOUT_MS = 1500;
   let userEmail: string | null = null;
   let userFullName: string | null = null;
+  let visitCount = 1;
+  let longGap = false;
 
   try {
     const authResult = await Promise.race([
@@ -65,6 +67,37 @@ export async function GET(request: Request) {
             : typeof meta.fullName === "string"
               ? (meta.fullName as string)
               : null;
+        // Per-account visit counter (drives 6's tiered returning intros).
+        // De-duped by a 30-min window so page refreshes don't inflate the count.
+        const prevVisits =
+          typeof meta.visit_count === "number" ? meta.visit_count : 0;
+        const lastVisitMs =
+          typeof meta.last_visit_at === "string"
+            ? Date.parse(meta.last_visit_at)
+            : NaN;
+        const nowMs = Date.now();
+        const isNewVisit =
+          Number.isNaN(lastVisitMs) || nowMs - lastVisitMs > 30 * 60 * 1000;
+        visitCount = isNewVisit ? prevVisits + 1 : Math.max(prevVisits, 1);
+        longGap =
+          !Number.isNaN(lastVisitMs) &&
+          nowMs - lastVisitMs > 14 * 24 * 60 * 60 * 1000;
+        if (isNewVisit) {
+          // Fire-and-forget: never block 6's greeting on the counter write.
+          void (async () => {
+            try {
+              const sb = await getSupabaseServer();
+              await sb.auth.updateUser({
+                data: {
+                  visit_count: visitCount,
+                  last_visit_at: new Date(nowMs).toISOString(),
+                },
+              });
+            } catch {
+              // best-effort only
+            }
+          })();
+        }
       }
     }
   } catch (error) {
@@ -132,6 +165,8 @@ export async function GET(request: Request) {
       user: { email: userEmail, fullName: userFullName },
       lists,
       resumeState,
+      visitCount,
+      longGap,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );

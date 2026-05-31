@@ -73,12 +73,48 @@ const ACCOUNT_MEMORY_VALUE_LINES = [
   "When you create an account, I will remember everything you ask me to keep.",
 ];
 
-const RETURNING_GREETING_OPTIONS = [
-  "Hey{name}, good to see you. What are we working on today?",
-  "Welcome back{name}. What's going on today?",
-  "{namePrefix}I'm here. What do you want to tackle first?",
-  "Good to see you{name}. Where should we pick up?",
-];
+// Returning-user intros, tiered by how many times the user + 6 have met
+// (G 2026-05-31 "keep all + rotate"): random pick within the tier each return.
+// {name} renders as ", Scott" when known and "" when not, so every line reads
+// cleanly with or without a name.
+const RETURNING_GREETING_TIERS: Record<string, string[]> = {
+  second: [
+    "Hey{name} — you came back! I was hoping you would. So what are we getting after today?",
+    "Well, look who's back{name}! Good to see you again — still got your back. What's on your mind?",
+    "Round two{name}! I remember you now — that's the whole point. What can I do for you today?",
+  ],
+  third: [
+    "Three times now{name} — I'd say we're officially a team. What's the mission today?",
+    "You're turning into a regular{name}, and I love it. Where do we start?",
+    "Hey{name} — every time you swing by, I get a little more useful. What are we tackling?",
+  ],
+  regular: [
+    "There you are{name}. Feels like old times. What's the move today?",
+    "Back again{name}! You know the deal — I've got your back. What's up?",
+    "Good to have you back{name}. We've got a rhythm now — what can I take off your plate?",
+  ],
+  longGap: [
+    "Long time{name}! Missed you, honestly — catch me up, what's new?",
+  ],
+};
+
+function pickReturningGreeting(
+  name: string | null,
+  visitCount: number,
+  longGap: boolean,
+): string {
+  const tier = longGap
+    ? "longGap"
+    : visitCount <= 1
+      ? "second"
+      : visitCount === 2
+        ? "third"
+        : "regular";
+  const pool = RETURNING_GREETING_TIERS[tier];
+  const template = pool[Math.floor(Math.random() * pool.length)];
+  const namePart = name ? `, ${name}` : "";
+  return template.replace("{name}", namePart);
+}
 
 const DEFAULT_THOUGHT_PROMPTS = [
   "Build Relationships",
@@ -475,6 +511,9 @@ type MemoryConversationLine = {
 type AccountMemorySnapshot = {
   greetingTopic: string | null;
   contextText: string;
+  name?: string | null;
+  visitCount?: number;
+  longGap?: boolean;
 };
 
 const ASSISTANT_LISTS_STORAGE_KEY = "aiasap.assistantLists.v1";
@@ -964,6 +1003,9 @@ function buildAccountMemorySnapshot(args: {
   restoredList: AssistantList | null;
   onlineQuery: string | null;
   onlineLocation: string | null;
+  name: string | null;
+  visitCount: number;
+  longGap: boolean;
 }): AccountMemorySnapshot | null {
   const lastUserText = cleanMemoryText(args.resumeState?.lastUserText);
   const lastAssistantText = cleanMemoryText(
@@ -1007,20 +1049,20 @@ function buildAccountMemorySnapshot(args: {
       "Do not recite this memory dump. Do not reopen lists, search, location, or other UI unless the user asks.",
       ...contextParts,
     ].join("\n"),
+    name: args.name,
+    visitCount: args.visitCount,
+    longGap: args.longGap,
   };
 }
 
 function buildReturningGreeting(
   profile: DeviceProfile,
-  _memory: AccountMemorySnapshot | null,
+  memory: AccountMemorySnapshot | null,
 ): string {
-  const template =
-    RETURNING_GREETING_OPTIONS[
-      profile.greetingCount % RETURNING_GREETING_OPTIONS.length
-    ];
-  const name = profile.name ? `, ${profile.name}` : "";
-  const namePrefix = profile.name ? `${profile.name}, ` : "";
-  return template.replace("{name}", name).replace("{namePrefix}", namePrefix);
+  const name = memory?.name ?? profile.name ?? null;
+  const visitCount = memory?.visitCount ?? 1;
+  const longGap = memory?.longGap ?? false;
+  return pickReturningGreeting(name, visitCount, longGap);
 }
 
 function cleanListItem(
@@ -2345,6 +2387,9 @@ const LiveAvatarSessionComponent: React.FC<{
           restoredList,
           onlineQuery: restoredOnlineQuery,
           onlineLocation: restoredOnlineLocation,
+          name: accountFullName,
+          visitCount: typeof data.visitCount === "number" ? data.visitCount : 1,
+          longGap: data.longGap === true,
         });
         accountMemoryContextInjectedRef.current = false;
 
@@ -2364,7 +2409,11 @@ const LiveAvatarSessionComponent: React.FC<{
         }
         if (accountStatus === "verified") {
           setPostVerifyGreeting(
-            "You're back. Account is set, and I can remember you now. We can pick up like friends.",
+            pickReturningGreeting(
+              accountFullName,
+              typeof data.visitCount === "number" ? data.visitCount : 1,
+              data.longGap === true,
+            ),
           );
           window.history.replaceState(
             {},
