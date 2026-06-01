@@ -4134,14 +4134,21 @@ const LiveAvatarSessionComponent: React.FC<{
       if (typeof text !== "string" || text.trim().length === 0) return;
       lastAvatarTranscriptionRef.current = text;
 
-      // Only mirror 6 into the box while we're actively collecting the account
-      // email. Outside that flow, 6's lines are normal conversation — never
-      // touch the box.
-      const emailSetupActive =
-        !ACCOUNT_BETA_DISABLED &&
-        (accountSetupAwaitingEmailRef.current ||
-          accountSetupPendingEmailRef.current !== null);
-      if (!emailSetupActive) return;
+      // FIX (2026-06-01, box-not-showing): 6's BRAIN often runs the email
+      // conversation itself (asks for the email, reads it back) and races AHEAD
+      // of the scripted handler — so accountSetupAwaitingEmailRef was never armed
+      // and the box never showed (G: "email not on screen"). Decouple the box
+      // from the scripted refs: show + mirror on ANY spelled-email readback while
+      // an account flow is plausibly in progress. The readback shape itself is
+      // strong evidence (6 only spells an address back during account setup), so
+      // we accept the scripted refs OR any account-flow ref OR an account trigger.
+      if (ACCOUNT_BETA_DISABLED) return;
+      const accountFlowPlausible =
+        accountSetupAwaitingEmailRef.current ||
+        accountSetupPendingEmailRef.current !== null ||
+        accountSetupAwaitingReadyRef.current ||
+        accountSetupAwaitingNameRef.current ||
+        accountSetupOfferMadeRef.current;
 
       // Gate cheaply on "this line looks like an email readback" before parsing:
       // it must contain an "@" OR the word "at" together with a "dot"/"period".
@@ -4153,6 +4160,15 @@ const LiveAvatarSessionComponent: React.FC<{
 
       const parsed = parseEmailFromAvatarReadback(text);
       if (!parsed) return;
+      // A real spelled-email readback that parses to a valid address is itself
+      // proof we're in account setup — show the box even if no ref was armed
+      // (brain-driven flow). If NOTHING about an account flow is in play AND the
+      // address didn't parse, the early returns above already bailed.
+      if (!accountFlowPlausible) {
+        // Brain drove straight to email without arming our refs — adopt the flow
+        // now so the box + the eventual "yes" → send all agree.
+        accountSetupAwaitingEmailRef.current = true;
+      }
 
       // CHANGE 1 pt.3: 6's confirmed address is now AUTHORITATIVE — it is what
       // gets sent when the user says "yes". Park it as the pending candidate so
