@@ -15,6 +15,7 @@ import { captureMedia } from "../lib/captureMedia";
 import { extractContactDetails } from "../lib/contactExtraction";
 import { captureTesterLabelFromUrl } from "../lib/testerAttribution";
 import { rememberAnonymousSessionId } from "../lib/auth/AuthProvider";
+import { getSupabaseBrowserOrNull } from "../lib/auth/supabaseBrowser";
 import {
   Radio,
   Camera,
@@ -56,8 +57,19 @@ const pickGreetingCompletion = (): string =>
     Math.floor(Math.random() * GREETING_COMPLETION_POOL.length)
   ];
 
-const SESSION_END_CONFIRMATION_MESSAGE =
-  "Want me to close this session? Say stop or close to end it, or keep going.";
+// G (2026-06-01): close should say ONE short line then close — no two-step
+// confirm dance, no re-prompt, no silence wait. Eager-close is fine because the
+// Restart button is right there on screen. Rotate the line for a little variety.
+const SESSION_CLOSE_GOODBYE_POOL = [
+  "Okay, closing up. Tap Restart any time.",
+  "All done. I'm closing now — Restart when you want me back.",
+  "Closing this up. The Restart button brings me right back.",
+  "Got it, shutting down. Hit Restart whenever you need me.",
+];
+const pickSessionCloseGoodbye = (): string =>
+  SESSION_CLOSE_GOODBYE_POOL[
+    Math.floor(Math.random() * SESSION_CLOSE_GOODBYE_POOL.length)
+  ];
 const LIST_CLOSE_EDUCATION =
   "If you want this list off the screen, just ask me to close the list.";
 // v2.1 (2026-05-28): voice magic-link sign-in + per-user memory ENABLED.
@@ -2221,6 +2233,12 @@ const LiveAvatarSessionComponent: React.FC<{
   const postVerifyGreetingSpokenRef = useRef(false);
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
+  // True between "ask the name" and "got the name" during account setup, so the
+  // next utterance is taken as the user's name even if 6's spoken line didn't
+  // match the name-ask regex. Guarantees deviceProfile.name is set BEFORE the
+  // email step, so startAccountSetup sends a real fullName (live bug: it was
+  // NULL because 6 jumped straight to email). 2026-06-01 name-capture fix.
+  const accountSetupAwaitingNameRef = useRef(false);
   const accountSetupPendingEmailRef = useRef<string | null>(null);
   const accountSetupRejectedEmailRef = useRef<string | null>(null);
   const accountSetupOfferMadeRef = useRef(false);
@@ -2629,9 +2647,51 @@ const LiveAvatarSessionComponent: React.FC<{
     }
 
     let cancelled = false;
-    fetch("/api/account/me")
+
+    // Magic-link return: aiASAP's OTP send issues an IMPLICIT-flow link, so the
+    // session token lands in the URL hash (#access_token=...). The server
+    // callback can't read a fragment, so it forwards us here with the hash
+    // intact. Before asking /api/account/me "are we signed in?", give the
+    // browser Supabase client a chance to parse that hash and PERSIST the
+    // session to cookies — otherwise the very first account/me reads anonymous
+    // (cookies not written yet) and 6 greets the returning user as brand-new
+    // this session. Awaiting getSession() resolves the SDK's URL-detection
+    // initialize step, which writes the cookies the server route then reads.
+    // (2026-06-01 magic-link recall fix.) Best-effort + short-bounded so a
+    // hung Supabase init never blocks 6's greeting.
+    const hasAuthHashOrCode = () => {
+      if (typeof window === "undefined") return false;
+      const hash = window.location.hash || "";
+      const search = window.location.search || "";
+      return (
+        hash.includes("access_token") ||
+        hash.includes("refresh_token") ||
+        /[?&#](code|token_hash)=/.test(`${search}${hash}`)
+      );
+    };
+
+    const ensureSessionFromUrl = async () => {
+      if (!hasAuthHashOrCode()) return;
+      const supabase = getSupabaseBrowserOrNull();
+      if (!supabase) return;
+      try {
+        await Promise.race([
+          supabase.auth.getSession(),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]);
+      } catch {
+        // Detection failed — fall through; account/me + the SIGNED_IN listener
+        // in AuthProvider remain the backstops.
+      }
+    };
+
+    void ensureSessionFromUrl()
+      .then(() => {
+        if (cancelled) return null;
+        return fetch("/api/account/me");
+      })
       .then(async (response) => {
-        if (!response.ok) return null;
+        if (!response || !response.ok) return null;
         return response.json();
       })
       .then((data) => {
@@ -3429,6 +3489,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const clearAccountEmailEntry = useCallback(() => {
     accountSetupAwaitingEmailRef.current = false;
+    accountSetupAwaitingNameRef.current = false;
     accountSetupPendingEmailRef.current = null;
     accountSetupRejectedEmailRef.current = null;
     accountSetupEmailMissCountRef.current = 0;
@@ -3706,6 +3767,63 @@ const LiveAvatarSessionComponent: React.FC<{
         return true;
       }
 
+      // FIX C (2026-06-01): we asked for the name and are waiting on it. Take
+      // this utterance as the name (allow a bare answer like "G"), save it into
+      // deviceProfile so startAccountSetup sends a real fullName, then move on
+      // to the email step. If we can't make out a name, ask once more rather
+      // than silently dropping to email with a NULL name.
+      if (accountSetupAwaitingNameRef.current) {
+        // A clear cancel still bails cleanly (don't trap the user at the name
+        // step). ACCOUNT_READY_NO_RE covers "no / not now / later / cancel".
+        if (ACCOUNT_READY_NO_RE.test(userText)) {
+          accountSetupAwaitingNameRef.current = false;
+          accountSetupAwaitingEmailRef.current = false;
+          accountSetupAwaitingReadyRef.current = false;
+          accountSetupDeclinedAtRef.current = Date.now();
+          accountSetupOfferMadeRef.current = false;
+          const spoken =
+            "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        const nameCandidate = extractDeviceNameCandidate(userText, true);
+        if (nameCandidate) {
+          setDeviceProfile((current) => ({
+            ...current,
+            name: nameCandidate,
+            updatedAt: Date.now(),
+          }));
+          deviceProfileRef.current = {
+            ...deviceProfileRef.current,
+            name: nameCandidate,
+            updatedAt: Date.now(),
+          };
+          accountSetupAwaitingNameRef.current = false;
+          accountSetupAwaitingEmailRef.current = true;
+          accountSetupPendingEmailRef.current = null;
+          accountSetupRejectedEmailRef.current = null;
+          accountSetupEmailMissCountRef.current = 0;
+          setEmailEntryOpen(false);
+          setTypedAccountEmail("");
+          lastAvatarParsedEmailRef.current = null;
+          chestEmailTextRef.current = "";
+          setChestEmailText("");
+          setShowChestEmail(true);
+          const spoken = `Thanks, ${nameCandidate}. Now spell your email slowly, one letter at a time. Say at for the at sign and dot for the dots. It will show on my chest as you go.`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        const spoken = "Sorry, I didn't catch your name. What should I call you?";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+
       const contact = extractContactDetails(userText);
       const correctedEmail = mergeEmailDomainCorrection(
         userText,
@@ -3813,6 +3931,20 @@ const LiveAvatarSessionComponent: React.FC<{
           return true;
         }
         if (ACCOUNT_READY_YES_RE.test(userText)) {
+          // FIX C (2026-06-01): capture the NAME before the email step. If we
+          // don't have one yet, ask for it now and wait — the next utterance is
+          // taken as the name (handled by the awaiting-name branch above). This
+          // is why captured_lists.fullName was NULL: 6 went straight to email.
+          if (!deviceProfileRef.current.name) {
+            accountSetupAwaitingReadyRef.current = false;
+            accountSetupAwaitingEmailRef.current = false;
+            accountSetupAwaitingNameRef.current = true;
+            const spoken = "Great. First, what's your name?";
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            lastVisionResponseTimeRef.current = Date.now();
+            return true;
+          }
           accountSetupAwaitingReadyRef.current = false;
           accountSetupAwaitingEmailRef.current = true;
           accountSetupPendingEmailRef.current = null;
@@ -4740,6 +4872,7 @@ const LiveAvatarSessionComponent: React.FC<{
     postVerifyGreetingSpokenRef.current = false;
     accountSetupAwaitingReadyRef.current = false;
     accountSetupAwaitingEmailRef.current = false;
+    accountSetupAwaitingNameRef.current = false;
     accountSetupPendingEmailRef.current = null;
     accountSetupRejectedEmailRef.current = null;
     accountSetupEmailMissCountRef.current = 0;
@@ -5776,17 +5909,20 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (hasEndSessionIntent(userText)) {
-        endSessionConfirmationPendingRef.current = true;
-        endSessionConfirmationAskedAtRef.current = Date.now();
-        const spoken = SESSION_END_CONFIRMATION_MESSAGE;
+        // G (2026-06-01): say ONE short closing line, then close. No two-step
+        // confirm, no re-prompt loop, no silence window. hasEndSessionIntent
+        // already excludes questions + negated mentions (END_SESSION_BLOCK_RE),
+        // so a passing "should I close?" or "no, keep going" never lands here —
+        // only a real close request does. Eager-close is intended: the Restart
+        // button is on screen if they tapped/said it by mistake.
+        endSessionConfirmationPendingRef.current = false;
+        endSessionConfirmationAskedAtRef.current = 0;
+        const spoken = pickSessionCloseGoodbye();
         await interrupt();
-        if (mode === "FULL") {
-          stopListening();
-          resumeListeningAfterAvatarSpeech(5000);
-        }
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
+        void handleEndSession();
         return;
       }
 

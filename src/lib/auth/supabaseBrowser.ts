@@ -22,7 +22,22 @@ export function getSupabaseBrowser(): SupabaseClient {
       "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set",
     );
   }
-  cached = createBrowserClient(url, anonKey);
+  // detectSessionInUrl MUST be on so the magic-link round-trip lands a session.
+  // aiASAP's OTP send (/api/account/start) issues an IMPLICIT-flow link, so the
+  // token comes back in the URL hash (#access_token=...). The server callback
+  // route can't read a fragment, so it forwards us here with the hash intact and
+  // this client parses it, persists the session to cookies, and fires SIGNED_IN
+  // (AuthProvider then links memory). flowType stays "pkce" so social-login OAuth
+  // (?code=) still works — implicit-hash detection runs regardless of flowType.
+  // (Both are the @supabase/ssr defaults; set explicitly to lock the behavior.)
+  cached = createBrowserClient(url, anonKey, {
+    auth: {
+      flowType: "pkce",
+      detectSessionInUrl: true,
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  });
   return cached;
 }
 
