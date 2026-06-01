@@ -1901,6 +1901,119 @@ function extractSpokenEmailCandidate(text: string): string | null {
   return isValidEmailCandidate(candidate) ? candidate : null;
 }
 
+/**
+ * CHANGE 1 (2026-06-01): parse the email out of 6's OWN spoken confirmation
+ * (AVATAR_TRANSCRIPTION), NOT the raw user STT. 6's brain denoises the spelled
+ * letters and reads the address back in a tight, parseable shape, e.g.
+ *   "Got it! That's S-G-D-I-E-T-Z at P-M dot M-E. Did I get that right?"
+ *   → "sgdietz@pm.me"
+ * That readback is the reliable source of truth, so the on-chest box mirrors it.
+ *
+ * Strategy: isolate the address SPAN around the "at"/"@" so surrounding chatter
+ * ("Got it!", "Did I get that right?") is dropped, then collapse the spelled
+ * letters/hyphens/spaces into the local part and domain. Also accepts an inline
+ * address if 6 happens to say one. Returns a lowercased address validated by
+ * isValidEmailCandidate, or null if there's no confident address.
+ */
+function parseEmailFromAvatarReadback(spokenText: string): string | null {
+  if (!spokenText || typeof spokenText !== "string") return null;
+
+  // 1) A clean inline address spoken verbatim ("sgdietz@pm.me") wins outright.
+  const directMatch = spokenText.match(EMAIL_RE);
+  const direct = directMatch?.[0]?.trim().toLowerCase();
+  if (direct && isValidEmailCandidate(direct)) {
+    return direct;
+  }
+
+  // Words that signal the readback has ENDED — trailing chatter after the
+  // address ("...dot com, did I get that right?"). These must not be pulled
+  // into the domain.
+  const READBACK_TAIL_STOP = new Set([
+    "did", "i", "get", "that", "right", "correct", "is", "it", "yes", "no",
+    "so", "okay", "ok", "and", "the", "your", "you", "does", "look", "looks",
+    "good", "sound", "sounds", "please", "ready", "send", "on", "screen",
+    "check", "make", "sure", "heard", "have",
+  ]);
+
+  // 2) Spelled readback. Lowercase, drop apostrophes/quotes, treat hyphens/
+  //    dashes between spelled letters as separators (S-G-D-I-E-T-Z →
+  //    "s g d i e t z"), turn spoken symbol words into the symbols, drop
+  //    sentence punctuation, and peel a trailing sentence period off the end of
+  //    a word ("m-e." → "m e") while keeping a standalone "." (from "dot") as a
+  //    separator.
+  const normalized = spokenText
+    .toLowerCase()
+    .replace(/[''"]/g, "")
+    .replace(/[–—-]+/g, " ")
+    .replace(/\bat sign\b/g, " @ ")
+    .replace(/\bat\b/g, " @ ")
+    .replace(/\b(?:dot|period|point)\b/g, " . ")
+    .replace(/\bunderscore\b/g, " _ ")
+    .replace(/\bunder score\b/g, " _ ")
+    .replace(/[!?;:,]/g, " ")
+    .replace(/([a-z0-9])\.(?=\s|$)/g, "$1 ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Tokenize; map spoken number words to digits ("seven" → "7").
+  const tokens = normalized
+    .split(/\s+/g)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => (t in SPELL_NUMBER_WORDS ? SPELL_NUMBER_WORDS[t] : t));
+
+  // Must contain an "@" anchor with something before it.
+  const atPos = tokens.indexOf("@");
+  if (atPos < 1) return null;
+
+  // 3) LOCAL PART: walk left from "@" collecting single-letter/digit and
+  //    single-symbol tokens (spelled local). ALSO accept ONE multi-char alnum
+  //    token if it sits directly against "@" (a glued/inline local like
+  //    "sgdietz"); then stop. Leading chatter ("that's", "email") never sits
+  //    flush against "@", so it is excluded.
+  const localParts: string[] = [];
+  for (let i = atPos - 1; i >= 0; i -= 1) {
+    const tok = tokens[i];
+    if (/^[a-z0-9]$/.test(tok) || /^[._%+-]$/.test(tok)) {
+      localParts.unshift(tok);
+      continue;
+    }
+    if (localParts.length === 0 && /^[a-z0-9][a-z0-9._%+-]*$/.test(tok)) {
+      localParts.unshift(tok);
+    }
+    break;
+  }
+  const local = localParts.join("");
+  if (local.length < 1 || !/^[a-z0-9._%+-]+$/.test(local)) return null;
+
+  // 4) DOMAIN: tokens after "@". The domain may be spelled letter-by-letter
+  //    ("p m") OR a whole word ("gmail"). Accept single chars, ".", and
+  //    domain-looking words; STOP at a trailing chatter word (READBACK_TAIL_STOP)
+  //    so "...dot com right?" doesn't pull "right" into the domain.
+  const domainParts: string[] = [];
+  for (let i = atPos + 1; i < tokens.length; i += 1) {
+    const tok = tokens[i];
+    if (tok === "." || /^[a-z0-9]$/.test(tok)) {
+      domainParts.push(tok);
+      continue;
+    }
+    if (/^[a-z0-9-]{2,}$/.test(tok)) {
+      if (READBACK_TAIL_STOP.has(tok)) break;
+      domainParts.push(tok);
+      continue;
+    }
+    break;
+  }
+  const domain = domainParts
+    .join("")
+    .replace(/^\.+/, "")
+    .replace(/\.+$/, "");
+  if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(domain)) return null;
+
+  const candidate = `${local}@${domain}`;
+  return isValidEmailCandidate(candidate) ? candidate : null;
+}
+
 function mergeEmailDomainCorrection(
   text: string,
   previousEmail: string | null,
@@ -2122,6 +2235,17 @@ const LiveAvatarSessionComponent: React.FC<{
   const chestRevealActiveRef = useRef(false);
   const tickAudioCtxRef = useRef<AudioContext | null>(null);
   const chestStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // CHANGE 1 (2026-06-01): the address last parsed out of 6's spoken readback
+  // (AVATAR_TRANSCRIPTION). Used to dedupe so the box only re-reveals when 6
+  // confirms a DIFFERENT address, never on every line he speaks.
+  const lastAvatarParsedEmailRef = useRef<string | null>(null);
+  // Mirror of chestEmailText so the AVATAR_TRANSCRIPTION event handler (a stable
+  // closure) can read the currently shown address without stale state.
+  const chestEmailTextRef = useRef<string>("");
+  // CHANGE 2 (2026-06-01): live mirror of isAvatarTalking so the email handlers
+  // (stable useCallbacks) can tell whether 6 is mid-sentence — and stay quiet
+  // instead of talking over him — without re-creating on every talk toggle.
+  const isAvatarTalkingRef = useRef(false);
   const accountPendingStateTokenRef = useRef<string | null>(null);
   const endSessionConfirmationPendingRef = useRef(false);
   const endSessionConfirmationAskedAtRef = useRef(0);
@@ -3144,6 +3268,9 @@ const LiveAvatarSessionComponent: React.FC<{
         if (data?.emailSent) {
           // FIX (2026-06-01): show the confirmation IN the chest box, not the top
           // banner. 1) clear the address, 2) show "Account Link Sent", 3) fade.
+          // CHANGE 1: forget 6's last parsed readback now the address is sent.
+          lastAvatarParsedEmailRef.current = null;
+          chestEmailTextRef.current = "";
           setChestEmailText("");
           setChestEmailStatus("Account Link Sent");
           setShowChestEmail(true);
@@ -3247,16 +3374,23 @@ const LiveAvatarSessionComponent: React.FC<{
   const confirmAccountEmailCandidate = useCallback(
     async (email: string) => {
       const normalizedEmail = email.trim().toLowerCase();
+      // CHANGE 2 (2026-06-01): when 6 is mid-sentence or has driven the box from
+      // his own readback, suppress the frontend's competing scripted line. The
+      // box still updates; 6's single voice carries the conversation.
+      const sixIsCarryingVoice =
+        isAvatarTalkingRef.current || lastAvatarParsedEmailRef.current !== null;
       if (!isValidEmailCandidate(normalizedEmail)) {
         // Not a complete address yet — keep the user on the spell-on-chest path
         // and never save a guess.
         accountSetupAwaitingEmailRef.current = true;
         setChestEmailText(normalizedEmail);
         setShowChestEmail(true);
-        const spoken = "Please spell it slowly.";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        if (!sixIsCarryingVoice) {
+          const spoken = "Please spell it slowly.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+        }
         return true;
       }
       accountSetupPendingEmailRef.current = normalizedEmail;
@@ -3271,10 +3405,14 @@ const LiveAvatarSessionComponent: React.FC<{
       // the user checks — that sidesteps mis-heard / mangled spoken readbacks.
       setChestEmailText(normalizedEmail);
       setShowChestEmail(true);
-      const spoken = "Is the email on screen correct?";
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
+      // CHANGE 2: don't ask "Is the email on screen correct?" over 6 — if he's
+      // already talking / just read it back, his own voice handles the ask.
+      if (!sixIsCarryingVoice) {
+        const spoken = "Is the email on screen correct?";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+      }
       return true;
     },
     [openEmailEntry, repeat],
@@ -3294,6 +3432,10 @@ const LiveAvatarSessionComponent: React.FC<{
     accountSetupPendingEmailRef.current = null;
     accountSetupRejectedEmailRef.current = null;
     accountSetupEmailMissCountRef.current = 0;
+    // CHANGE 1 (2026-06-01): forget the last address parsed from 6's readback so
+    // a fresh spell (even of the same address) reveals into the box again.
+    lastAvatarParsedEmailRef.current = null;
+    chestEmailTextRef.current = "";
     setEmailEntryOpen(false);
     setTypedAccountEmail("");
     setChestEmailText("");
@@ -3467,6 +3609,13 @@ const LiveAvatarSessionComponent: React.FC<{
   const appendSpelledEmailFromSpeech = useCallback(
     async (userText: string) => {
       const { chars, looksSpelled } = parseSpelledEmailChunk(userText);
+      // CHANGE 2 (2026-06-01): kill the double-voice. During the email flow 6's
+      // own brain is already talking (asking, confirming the readback). The
+      // frontend must NOT fire its own competing scripted lines over him. When
+      // 6 is mid-sentence OR has already driven the box from his readback, we
+      // do the VISUAL work (box) but stay silent and let his one voice carry.
+      const sixIsCarryingVoice =
+        isAvatarTalkingRef.current || lastAvatarParsedEmailRef.current !== null;
 
       if (!looksSpelled || !chars) {
         // Couldn't read it as a spelled address. Keep what we have, ask again.
@@ -3482,10 +3631,12 @@ const LiveAvatarSessionComponent: React.FC<{
             "I'm still not catching it. You can type your email address in here instead.",
           );
         }
-        const spoken = "Please spell it slowly.";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        if (!sixIsCarryingVoice) {
+          const spoken = "Please spell it slowly.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+        }
         return true;
       }
 
@@ -3523,10 +3674,14 @@ const LiveAvatarSessionComponent: React.FC<{
 
       // Stay in awaiting-email mode and let the user keep going.
       accountSetupAwaitingEmailRef.current = true;
-      const spoken = "Got it. Keep going.";
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
+      // CHANGE 2: stay silent if 6 is already talking / carrying the readback —
+      // the box updated visually, no competing "Got it. Keep going." over him.
+      if (!sixIsCarryingVoice) {
+        const spoken = "Got it. Keep going.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+      }
       return true;
     },
     [
@@ -3574,9 +3729,15 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (accountSetupPendingEmailRef.current) {
+        // CHANGE 1 (2026-06-01): 6's confirmed readback is authoritative. When
+        // it drove the pending value (lastAvatarParsedEmailRef set), do NOT let
+        // a raw-STT directEmail (which mangles spelled letters) overwrite it —
+        // the user must say "no" to re-spell. Only the typed/clean path (no 6
+        // readback) may still swap the candidate inline.
         if (
           directEmail &&
-          directEmail !== accountSetupPendingEmailRef.current
+          directEmail !== accountSetupPendingEmailRef.current &&
+          lastAvatarParsedEmailRef.current === null
         ) {
           return confirmAccountEmailCandidate(directEmail);
         }
@@ -3597,19 +3758,30 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupEmailMissCountRef.current = 0;
           // FIX 1: clear the on-chest box and let the user spell it again from
           // scratch. Never carry a rejected address forward.
+          // CHANGE 1: also forget 6's last parsed readback so his next
+          // confirmation re-reveals into the box.
+          lastAvatarParsedEmailRef.current = null;
+          chestEmailTextRef.current = "";
           setChestEmailText("");
           setShowChestEmail(true);
-          const spoken = "Okay, let's try again. Please spell it slowly.";
+          // CHANGE 2: stay quiet if 6 is still talking — don't step on him.
+          if (!isAvatarTalkingRef.current) {
+            const spoken = "Okay, let's try again. Please spell it slowly.";
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            lastVisionResponseTimeRef.current = Date.now();
+          }
+          return true;
+        }
+        // CHANGE 2: only nudge for a yes/no when 6 is NOT mid-sentence. If he's
+        // talking (e.g. still asking "Did I get that right?"), let him finish.
+        if (!isAvatarTalkingRef.current) {
+          const spoken =
+            "Before I send the account email, I need a yes or no. Is that email address correct?";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
-          return true;
         }
-        const spoken =
-          "Before I send the account email, I need a yes or no. Is that email address correct?";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
         return true;
       }
 
@@ -3649,6 +3821,9 @@ const LiveAvatarSessionComponent: React.FC<{
           setEmailEntryOpen(false);
           setTypedAccountEmail("");
           // FIX 1: prime the on-chest box for a fresh spell.
+          // CHANGE 1: forget any prior parsed readback for the clean start.
+          lastAvatarParsedEmailRef.current = null;
+          chestEmailTextRef.current = "";
           setChestEmailText("");
           setShowChestEmail(true);
           const spoken =
@@ -3798,17 +3973,89 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, [isAvatarTalking, repeat, rememberConversationLine]);
 
+  // CHANGE 1/2 (2026-06-01): keep refs in lockstep with state so the stable
+  // AVATAR_TRANSCRIPTION handler + email callbacks read live values, not stale
+  // closures. Cheap assigns; no subscriptions.
+  useEffect(() => {
+    chestEmailTextRef.current = chestEmailText;
+  }, [chestEmailText]);
+  useEffect(() => {
+    isAvatarTalkingRef.current = isAvatarTalking;
+  }, [isAvatarTalking]);
+
   // Track 6's most recent spoken text via AVATAR_TRANSCRIPTION events. Used by
   // the greeting-injection guard above to detect when the LLM already covered
   // the greeting content naturally.
+  //
+  // CHANGE 1 (2026-06-01): this is ALSO where the on-chest email box is now
+  // populated from what 6 UNDERSTOOD. Raw user STT mangles spelled letters
+  // ("tz@pm.me"), but 6's brain reads the address back cleanly
+  // ("S-G-D-I-E-T-Z at P-M dot M-E"). When account-email setup is active and 6
+  // speaks an email readback, we parse HIS text and drive the box to match —
+  // so the box and his voice always agree, and the address we ultimately send
+  // is the one he confirmed, never a raw-STT guess.
   useEffect(() => {
     const session = sessionRef.current;
     if (!session) return;
     const onAvatarTranscription = (event: { text?: string }) => {
       const text = event?.text;
-      if (typeof text === "string" && text.trim().length > 0) {
-        lastAvatarTranscriptionRef.current = text;
+      if (typeof text !== "string" || text.trim().length === 0) return;
+      lastAvatarTranscriptionRef.current = text;
+
+      // Only mirror 6 into the box while we're actively collecting the account
+      // email. Outside that flow, 6's lines are normal conversation — never
+      // touch the box.
+      const emailSetupActive =
+        !ACCOUNT_BETA_DISABLED &&
+        (accountSetupAwaitingEmailRef.current ||
+          accountSetupPendingEmailRef.current !== null);
+      if (!emailSetupActive) return;
+
+      // Gate cheaply on "this line looks like an email readback" before parsing:
+      // it must contain an "@" OR the word "at" together with a "dot"/"period".
+      const lowered = text.toLowerCase();
+      const looksLikeReadback =
+        /@/.test(text) ||
+        (/\bat\b/.test(lowered) && /\b(?:dot|period|point)\b/.test(lowered));
+      if (!looksLikeReadback) return;
+
+      const parsed = parseEmailFromAvatarReadback(text);
+      if (!parsed) return;
+
+      // CHANGE 1 pt.3: 6's confirmed address is now AUTHORITATIVE — it is what
+      // gets sent when the user says "yes". Park it as the pending candidate so
+      // the box value and the send value are the SAME source (6), never a
+      // raw-STT guess. Also clear awaiting-spell so the next "yes" sends.
+      accountSetupPendingEmailRef.current = parsed;
+      accountSetupRejectedEmailRef.current = null;
+      accountSetupAwaitingEmailRef.current = false;
+
+      // Dedupe: only re-reveal when 6 confirms a DIFFERENT address than the one
+      // we already mirrored from him (avoids looping on repeated confirmations).
+      if (parsed === lastAvatarParsedEmailRef.current) return;
+      // If the box already shows exactly this address, just record it and stop.
+      if (parsed === chestEmailTextRef.current) {
+        lastAvatarParsedEmailRef.current = parsed;
+        return;
       }
+      lastAvatarParsedEmailRef.current = parsed;
+
+      // 6's parsed value is authoritative — it is what gets confirmed + sent.
+      // Drive the box to it via the typewriter reveal the user loves, revealing
+      // from scratch so a divergent raw-STT guess is fully replaced (not just
+      // appended onto). Cancel any in-flight reveal first so they don't overlap.
+      if (chestRevealTimerRef.current) {
+        clearTimeout(chestRevealTimerRef.current);
+        chestRevealTimerRef.current = null;
+      }
+      chestRevealActiveRef.current = false;
+      chestEmailTextRef.current = "";
+      setChestEmailText("");
+      setChestEmailStatus(null);
+      setShowChestEmail(true);
+      void revealEmailChars("", parsed).then((shown) => {
+        chestEmailTextRef.current = shown;
+      });
     };
     session.on(
       AgentEventsEnum.AVATAR_TRANSCRIPTION,
@@ -3820,7 +4067,7 @@ const LiveAvatarSessionComponent: React.FC<{
         onAvatarTranscription as never,
       );
     };
-  }, [sessionRef]);
+  }, [sessionRef, revealEmailChars]);
 
   useEffect(() => {
     if (sessionState === SessionState.INACTIVE) {
@@ -7368,8 +7615,10 @@ const LiveAvatarSessionComponent: React.FC<{
               pillbox, centered, bottom-anchored so it scales with the viewport.
               Shows the address the user is SPELLING, live. 6 never reads it back
               by voice — this box is the source of truth the user checks.
-              Lowered into the chest per G (2026-06-01): bottom multiplier 0.34
-              (mobile) / 0.45 (md) so it sits just above the top pillbox button.
+              Lowered to the CENTER of 6's chest per G (2026-06-01): bottom
+              multiplier 0.28 (mobile) / 0.38 (md). The 4 pillboxes drop away
+              (hidden via !showChestEmail) and this box rises into the chest —
+              keep that motion.
               When chestEmailStatus is set (e.g. "Account Link Sent") it shows
               that status in place of the label + address, then fades. */}
           {!ACCOUNT_BETA_DISABLED &&
@@ -7381,7 +7630,7 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             !isShoppingMode && (
               <div
-                className="fixed left-1/2 z-[31] -translate-x-1/2 flex w-[90%] max-w-[min(26rem,calc(var(--stage-width)*0.88))] flex-col items-center gap-[calc(var(--stage-height)*0.004)] rounded-2xl border border-[#e0aa62]/55 bg-[#3a2108]/55 px-4 py-[calc(var(--stage-height)*0.012)] text-center shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur-[3px] pointer-events-none bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.34)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.45)]"
+                className="fixed left-1/2 z-[31] -translate-x-1/2 flex w-[90%] max-w-[min(26rem,calc(var(--stage-width)*0.88))] flex-col items-center gap-[calc(var(--stage-height)*0.004)] rounded-2xl border border-[#e0aa62]/55 bg-[#3a2108]/55 px-4 py-[calc(var(--stage-height)*0.012)] text-center shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur-[3px] pointer-events-none bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.28)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.38)]"
               >
                 {chestEmailStatus ? (
                   <span
