@@ -5392,8 +5392,17 @@ const LiveAvatarSessionComponent: React.FC<{
         (accountSetupAwaitingEmailRef.current ||
           accountSetupPendingEmailRef.current)
       ) {
+        // FIX (double-voice, 2026-06-01): the avatar's own LiveAvatar brain was
+        // reading the spelled email back aloud and chattering over the scripted
+        // flow (G's "you're really interrupting me"). The fix lives in the CW
+        // (6af8624c): 6 is now instructed to NEVER say the email aloud / never
+        // spell it back, just ask "Is the email on screen correct?". We do NOT
+        // stopListening() here on purpose — in FULL mode the spelled letters
+        // arrive via the server USER_TRANSCRIPTION stream, and muting listening
+        // risks starving that capture. We DO skip schedulePromptBrain so the
+        // pillbox labels hold steady (the chest box is the focus) instead of
+        // churning mid-spell.
         if (await handleAccountSetupSpeech(userText)) {
-          schedulePromptBrain(userText);
           return;
         }
       }
