@@ -27,6 +27,11 @@ export const LiveAvatarDemo = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isExited, setIsExited] = useState(false);
   const sessionBootstrapRef = useRef(false);
+  // Set true the moment the user explicitly closes/ends the session. Guards the
+  // bootstrap effect below so that onSessionStopped clearing the token can never
+  // race the auto-start back into a fresh session before isExited flips to true.
+  // Cleared only when the user taps Restart. Inactivity-stop never sets this.
+  const explicitExitRef = useRef(false);
 
   const startSession = useCallback(async () => {
     try {
@@ -55,6 +60,13 @@ export const LiveAvatarDemo = () => {
 
   useEffect(() => {
     if (isExited || sessionToken) {
+      return;
+    }
+    // Explicit close in flight: do NOT auto-start. onSessionStopped may have
+    // cleared the token a tick before isExited flips, and without this guard the
+    // app would immediately bootstrap a brand-new session ("reopen") instead of
+    // landing on the Restart screen.
+    if (explicitExitRef.current) {
       return;
     }
     if (sessionBootstrapRef.current) {
@@ -215,7 +227,9 @@ export const LiveAvatarDemo = () => {
       }
       return;
     }
-    // Regular exit - show "Session Ended" message
+    // Regular exit - show "Session Ended" message. Mark the explicit close so
+    // the bootstrap effect can't auto-restart in the gap before isExited applies.
+    explicitExitRef.current = true;
     setIsExited(true);
     setSessionToken("");
   };
@@ -230,6 +244,7 @@ export const LiveAvatarDemo = () => {
         <button
           type="button"
           onClick={() => {
+            explicitExitRef.current = false;
             setIsExited(false);
             sessionBootstrapRef.current = true;
             void startSession();

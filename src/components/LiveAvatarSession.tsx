@@ -557,6 +557,12 @@ const END_SESSION_CONFIRM_RE =
   /\b(?:yes|yeah|yep|yup|yea|sure|ok|okay|correct|right|do it|go ahead|close|stop|end|quit|exit|shut\s+(?:it\s+)?down|that'?s right|that is right|please)\b/i;
 const END_SESSION_CANCEL_RE =
   /\b(?:no|nope|nah|not now|later|never mind|nevermind|cancel|keep going|continue|stay|don'?t|do not)\b/i;
+// Tiny acknowledgement / filler sounds the listener emits WHILE 6 is talking
+// ("mm", "yeah", "okay", "uh huh", "right"). On their own these are backchannel,
+// not a real turn — 6 should NOT cut himself off for them. Whole-utterance match
+// only, so a real sentence that merely starts with "okay, ..." still interrupts.
+const BACKCHANNEL_ONLY_RE =
+  /^(?:(?:m+|mm+|mhm+|hm+|uh[\s-]?h?uh|uh[\s-]?huh|mm[\s-]?hmm?|yeah|yep|yup|yes|ok|okay|k|right|sure|aha|ah|oh|uh|um|er|hmm|cool|gotcha|got it|i see|nice)[\s.,!?-]*)+$/i;
 // --- Close-confirmation hardening (2026-06-01) ---------------------------------
 // A passing MENTION of closing must never end the session. While waiting on a
 // confirm we accept only three shapes, all unambiguous:
@@ -1676,9 +1682,169 @@ function isValidEmailCandidate(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
 }
 
+// Spoken words that map to a single email symbol when the user is SPELLING.
+const SPELL_SYMBOL_WORDS: Record<string, string> = {
+  at: "@",
+  "at sign": "@",
+  dot: ".",
+  period: ".",
+  point: ".",
+  underscore: "_",
+  "under score": "_",
+  dash: "-",
+  hyphen: "-",
+  minus: "-",
+  plus: "+",
+};
+// Spoken number words → digits (people spell digits in emails too).
+const SPELL_NUMBER_WORDS: Record<string, string> = {
+  zero: "0",
+  oh: "0",
+  one: "1",
+  two: "2",
+  three: "3",
+  four: "4",
+  five: "5",
+  six: "6",
+  seven: "7",
+  eight: "8",
+  nine: "9",
+};
+// Filler the listener throws in front of a spell ("okay", "it's", "my email is").
+// These are dropped so they don't pollute the captured address.
+const SPELL_FILLER_WORDS = new Set([
+  "okay",
+  "ok",
+  "its",
+  "it",
+  "is",
+  "my",
+  "the",
+  "email",
+  "e",
+  "mail",
+  "address",
+  "so",
+  "um",
+  "uh",
+  "and",
+  "then",
+  "letter",
+  "number",
+  "lowercase",
+  "uppercase",
+  "capital",
+]);
+
+/**
+ * Interpret ONE spoken utterance as spelled-out email characters and return the
+ * tight character run to append to the on-chest box (FIX 1, 2026-06-01).
+ *
+ * Handles letters said individually ("s g d i e t z"), runs glued by the ASR
+ * ("sgd ietz"), the words "at"/"dot"/etc. → symbols, number words → digits, and
+ * an already-inline address ("sgdietz@pm.me"). Leading conversational filler
+ * ("okay, it's ...") is stripped.
+ *
+ * `looksSpelled` is false when the utterance is mostly real words (multi-letter
+ * tokens that are not filler/symbols and not an inline address) — that is the
+ * signal for 6 to say "Please spell it slowly." instead of capturing garbage.
+ */
+function parseSpelledEmailChunk(text: string): {
+  chars: string;
+  looksSpelled: boolean;
+} {
+  const lowered = text.toLowerCase().replace(/[']/g, "");
+  // Collapse multi-word symbols first ("at sign", "under score").
+  const preSymboled = lowered
+    .replace(/\bat sign\b/g, " @ ")
+    .replace(/\bunder score\b/g, " _ ");
+  const tokens = preSymboled
+    .split(/[\s,]+/g)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  let chars = "";
+  let wordTokenCount = 0; // real-word tokens we could not interpret as a spell
+  let spellTokenCount = 0; // letters/digits/symbols/inline — evidence of spelling
+
+  for (const token of tokens) {
+    // An inline address fragment ("sgdietz@pm.me" or "@pm.me") — take its email
+    // characters verbatim.
+    if (/[@]/.test(token) || /^[a-z0-9._%+-]+\.[a-z]{2,}$/.test(token)) {
+      const cleaned = token.replace(/[^a-z0-9._%+@-]/g, "");
+      if (cleaned) {
+        chars += cleaned;
+        spellTokenCount += 1;
+        continue;
+      }
+    }
+    if (token in SPELL_SYMBOL_WORDS) {
+      chars += SPELL_SYMBOL_WORDS[token];
+      spellTokenCount += 1;
+      continue;
+    }
+    if (token in SPELL_NUMBER_WORDS) {
+      chars += SPELL_NUMBER_WORDS[token];
+      spellTokenCount += 1;
+      continue;
+    }
+    // A single letter or digit = one spelled character.
+    if (/^[a-z0-9]$/.test(token)) {
+      chars += token;
+      spellTokenCount += 1;
+      continue;
+    }
+    // Pure punctuation token (e.g. "." or "_").
+    if (/^[._%+@-]+$/.test(token)) {
+      chars += token;
+      spellTokenCount += 1;
+      continue;
+    }
+    // Drop known filler words silently.
+    if (SPELL_FILLER_WORDS.has(token)) {
+      continue;
+    }
+    // A leftover multi-character word. It MIGHT be a glued letter run the ASR
+    // merged ("sgd"), so we still take its alphanumerics — but we also count it
+    // as a "word token" so an utterance made mostly of real words trips the
+    // low-confidence flag and asks the user to spell more slowly.
+    const alnum = token.replace(/[^a-z0-9._%+-]/g, "");
+    if (alnum) {
+      chars += alnum;
+    }
+    wordTokenCount += 1;
+  }
+
+  // Confident it was a spell when we captured at least one real email character
+  // and the multi-letter "word" tokens did not dominate the utterance.
+  const looksSpelled =
+    spellTokenCount + chars.length > 0 && wordTokenCount <= spellTokenCount;
+
+  return { chars, looksSpelled };
+}
+
 function extractSpokenEmailCandidate(text: string): string | null {
-  const direct = text.match(EMAIL_RE)?.[0]?.trim().toLowerCase();
-  if (direct && isValidEmailCandidate(direct)) return direct;
+  const directMatch = text.match(EMAIL_RE);
+  const direct = directMatch?.[0]?.trim().toLowerCase();
+  if (direct && isValidEmailCandidate(direct)) {
+    // Guard against the dropped-local-part bug: speech like "Okay, it's SGD
+    // IETZ@pm.me" makes EMAIL_RE start at "IETZ" (the space before it ends the
+    // \b local part) and silently yield "ietz@pm.me", losing "sgd". If the
+    // matched address is immediately preceded by more local-part-looking
+    // characters (allowing a run of spaces, i.e. spoken letters), the inline
+    // match is NOT the whole intended local part. Rather than save a wrong,
+    // partial address — or greedily stitch conversational filler onto it — we
+    // bail to null so the caller asks the user to spell it slowly. NEVER save a
+    // guessed email. A clean inline address (no glued prefix) still returns
+    // immediately, the common typed/pasted case.
+    const matchStart = directMatch?.index ?? -1;
+    const preceding = matchStart > 0 ? text.slice(0, matchStart) : "";
+    const hasDroppedLocalPart = /[A-Za-z0-9._%+-]\s*$/.test(preceding);
+    if (!hasDroppedLocalPart) {
+      return direct;
+    }
+    return null;
+  }
 
   const normalized = text
     .toLowerCase()
@@ -1875,6 +2041,11 @@ const LiveAvatarSessionComponent: React.FC<{
   >(null);
   const [emailEntryOpen, setEmailEntryOpen] = useState(false);
   const [typedAccountEmail, setTypedAccountEmail] = useState("");
+  // FIX 1 (2026-06-01): the email the user is SPELLING, shown live on 6's chest
+  // (above the top pillbox). 6 never reads this back by voice — the box on
+  // screen is the source of truth. showChestEmail controls visibility.
+  const [chestEmailText, setChestEmailText] = useState("");
+  const [showChestEmail, setShowChestEmail] = useState(false);
   const [onlineLookupNotice, setOnlineLookupNotice] = useState<string | null>(
     null,
   );
@@ -2945,6 +3116,9 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupEmailMissCountRef.current = 0;
         setEmailEntryOpen(false);
         setTypedAccountEmail("");
+        // FIX 1: link is sent — clear the on-chest email box.
+        setChestEmailText("");
+        setShowChestEmail(false);
         return true;
       } catch (error) {
         console.error("Account setup failed:", error);
@@ -2972,7 +3146,7 @@ const LiveAvatarSessionComponent: React.FC<{
       setEmailEntryOpen(true);
       const message =
         spoken ||
-        "I opened the email box so you can type it. I will still read it back before I send anything.";
+        "I opened the email box so you can type it. Check that it looks right on screen before I send anything.";
       await repeat(message);
       lastAvatarResponseRef.current = message;
       lastVisionResponseTimeRef.current = Date.now();
@@ -2984,14 +3158,15 @@ const LiveAvatarSessionComponent: React.FC<{
   const handleEmailMiss = useCallback(
     async (spokenBeforeTypedFallback?: string) => {
       accountSetupEmailMissCountRef.current += 1;
-      if (accountSetupEmailMissCountRef.current >= 2) {
+      // Spell-on-chest is the primary path; only after several misses do we fall
+      // back to the typed box as a backup so the user is never stuck.
+      if (accountSetupEmailMissCountRef.current >= 3) {
         return openEmailEntry(
           spokenBeforeTypedFallback ||
-            "I'm still not catching it cleanly. Why don't you go ahead and type your email address in here?",
+            "I'm still not catching it. You can type your email address in here instead.",
         );
       }
-      const spoken =
-        "I did not catch a complete email address yet. No rush. Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
+      const spoken = "Please spell it slowly.";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
@@ -3004,9 +3179,16 @@ const LiveAvatarSessionComponent: React.FC<{
     async (email: string) => {
       const normalizedEmail = email.trim().toLowerCase();
       if (!isValidEmailCandidate(normalizedEmail)) {
-        return openEmailEntry(
-          "That does not look like a complete email address yet. Type it like name at domain dot com, or say it slowly.",
-        );
+        // Not a complete address yet — keep the user on the spell-on-chest path
+        // and never save a guess.
+        accountSetupAwaitingEmailRef.current = true;
+        setChestEmailText(normalizedEmail);
+        setShowChestEmail(true);
+        const spoken = "Please spell it slowly.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
       }
       accountSetupPendingEmailRef.current = normalizedEmail;
       accountSetupRejectedEmailRef.current = null;
@@ -3015,7 +3197,12 @@ const LiveAvatarSessionComponent: React.FC<{
       accountSetupEmailMissCountRef.current = 0;
       setEmailEntryOpen(false);
       setTypedAccountEmail(normalizedEmail);
-      const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
+      // FIX 1: show the captured address on 6's chest and ask for confirmation
+      // WITHOUT 6 ever speaking the address out loud. The box on screen is what
+      // the user checks — that sidesteps mis-heard / mangled spoken readbacks.
+      setChestEmailText(normalizedEmail);
+      setShowChestEmail(true);
+      const spoken = "Is the email on screen correct?";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
@@ -3040,12 +3227,62 @@ const LiveAvatarSessionComponent: React.FC<{
     accountSetupEmailMissCountRef.current = 0;
     setEmailEntryOpen(false);
     setTypedAccountEmail("");
+    setChestEmailText("");
+    setShowChestEmail(false);
   }, []);
 
   const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
     void customSpoken;
     return false;
   }, []);
+
+  // FIX 1 (2026-06-01): the user is SPELLING their email aloud. Interpret this
+  // utterance as spelled characters, build the address up letter-by-letter in
+  // the on-chest box, and confirm only when a full address is present — never
+  // reading it back by voice. If the utterance is mostly real words (not a
+  // spell), 6 asks the user to spell it slowly and keeps the current box.
+  const appendSpelledEmailFromSpeech = useCallback(
+    async (userText: string) => {
+      const { chars, looksSpelled } = parseSpelledEmailChunk(userText);
+
+      if (!looksSpelled || !chars) {
+        // Couldn't read it as a spelled address. Keep what we have, ask again.
+        accountSetupEmailMissCountRef.current += 1;
+        setShowChestEmail(true);
+        if (accountSetupEmailMissCountRef.current >= 3) {
+          return openEmailEntry(
+            "I'm still not catching it. You can type your email address in here instead.",
+          );
+        }
+        const spoken = "Please spell it slowly.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+
+      // Accumulate onto whatever is already on the chest, then normalize.
+      const nextRaw = `${chestEmailText}${chars}`.toLowerCase();
+      const nextEmail = nextRaw.replace(/[^a-z0-9._%+@-]/g, "");
+      setChestEmailText(nextEmail);
+      setShowChestEmail(true);
+      accountSetupEmailMissCountRef.current = 0;
+
+      if (isValidEmailCandidate(nextEmail)) {
+        // Full address captured — hand off to confirm (no voice readback).
+        return confirmAccountEmailCandidate(nextEmail);
+      }
+
+      // Still building. Stay in awaiting-email mode and let the user keep going.
+      accountSetupAwaitingEmailRef.current = true;
+      const spoken = "Got it. Keep going.";
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [chestEmailText, confirmAccountEmailCandidate, openEmailEntry, repeat],
+  );
 
   const handleAccountSetupSpeech = useCallback(
     async (userText: string) => {
@@ -3078,7 +3315,7 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupAwaitingReadyRef.current = false;
         accountSetupAwaitingEmailRef.current = true;
         return openEmailEntry(
-          "Yes. I opened the email box so you can type it. I will read it back before I send anything.",
+          "Yes. I opened the email box so you can type it. Check that it looks right on screen before I send anything.",
         );
       }
 
@@ -3103,9 +3340,16 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupPendingEmailRef.current = null;
           accountSetupAwaitingEmailRef.current = true;
           accountSetupAwaitingReadyRef.current = false;
-          return handleEmailMiss(
-            "Okay, I will not send it. I'm still not catching it cleanly. Why don't you go ahead and type your email address in here?",
-          );
+          accountSetupEmailMissCountRef.current = 0;
+          // FIX 1: clear the on-chest box and let the user spell it again from
+          // scratch. Never carry a rejected address forward.
+          setChestEmailText("");
+          setShowChestEmail(true);
+          const spoken = "Okay, let's try again. Please spell it slowly.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
         }
         const spoken =
           "Before I send the account email, I need a yes or no. Is that email address correct?";
@@ -3120,7 +3364,9 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (accountSetupAwaitingEmailRef.current) {
-        return handleEmailMiss();
+        // PRIMARY path: the user is spelling their email aloud. Build it up on
+        // 6's chest letter-by-letter; never guess a full address from words.
+        return appendSpelledEmailFromSpeech(userText);
       }
 
       if (accountSetupAwaitingReadyRef.current) {
@@ -3148,8 +3394,11 @@ const LiveAvatarSessionComponent: React.FC<{
           accountSetupEmailMissCountRef.current = 0;
           setEmailEntryOpen(false);
           setTypedAccountEmail("");
+          // FIX 1: prime the on-chest box for a fresh spell.
+          setChestEmailText("");
+          setShowChestEmail(true);
           const spoken =
-            "Great. What email address should I send the link to? Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
+            "Great. Spell your email slowly, one letter at a time. Say at for the at sign and dot for the dots. It will show on my chest as you go.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -3180,6 +3429,7 @@ const LiveAvatarSessionComponent: React.FC<{
       return false;
     },
     [
+      appendSpelledEmailFromSpeech,
       clearAccountEmailEntry,
       confirmAccountEmailCandidate,
       handleEmailMiss,
@@ -3463,7 +3713,11 @@ const LiveAvatarSessionComponent: React.FC<{
   // Wrapper for stopSession - on home screen stop session (parent shows start screen); otherwise reset to home screen
   const handleStopSession = useCallback(() => {
     if (isOnHomeScreen()) {
-      // On home screen: stop session so parent can show start screen.
+      // On home screen: this is an explicit user close, so end on the parent's
+      // Restart screen instead of letting onSessionStopped clear the token and
+      // auto-restart a fresh session. Marking explicitEndSessionRef routes the
+      // DISCONNECTED handler through onExit(false) (Restart) not onSessionStopped.
+      explicitEndSessionRef.current = true;
       greetingTriggeredRef.current = false; // Reset greeting trigger
       greetingInFlightRef.current = false;
       greetingInterruptedRef.current = false;
@@ -4858,7 +5112,13 @@ const LiveAvatarSessionComponent: React.FC<{
         }));
       }
 
-      if (isAvatarTalking) {
+      // Only cut 6 off when the user actually starts a real turn. A bare
+      // backchannel ("mm", "yeah", "okay", "uh huh") said while 6 is talking is
+      // not a turn — interrupting on it is what made 6 feel like he cut the user
+      // off constantly. Empty text already returned above. Real sentences (even
+      // ones that open with "okay, ...") are NOT whole-utterance matches, so they
+      // still interrupt normally.
+      if (isAvatarTalking && !BACKCHANNEL_ONLY_RE.test(userText)) {
         void interrupt();
       }
 
@@ -6811,6 +7071,36 @@ const LiveAvatarSessionComponent: React.FC<{
                     </p>
                   )}
                 </div>
+              </div>
+            )}
+
+          {/* FIX 1 (2026-06-01): on-chest email box. Sits directly above the top
+              pillbox, centered, bottom-anchored so it scales with the viewport.
+              Shows the address the user is SPELLING, live. 6 never reads it back
+              by voice — this box is the source of truth the user checks. */}
+          {!ACCOUNT_BETA_DISABLED &&
+            showChestEmail &&
+            !emailEntryOpen &&
+            visionMode !== "streaming" &&
+            !isCameraActive &&
+            sessionState !== SessionState.DISCONNECTED &&
+            isStreamReady &&
+            !isShoppingMode && (
+              <div
+                className="fixed left-1/2 z-[31] -translate-x-1/2 flex w-[90%] max-w-[min(26rem,calc(var(--stage-width)*0.88))] flex-col items-center gap-[calc(var(--stage-height)*0.004)] rounded-2xl border border-[#e0aa62]/55 bg-[#3a2108]/55 px-4 py-[calc(var(--stage-height)*0.012)] text-center shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur-[3px] pointer-events-none bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.42)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.52)]"
+              >
+                <span className="text-[calc(var(--stage-height)*0.015)] font-semibold uppercase tracking-[0.18em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                  Your Email
+                </span>
+                <span
+                  className="w-full break-all text-[calc(var(--stage-height)*0.024)] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+                  style={{
+                    fontFamily:
+                      '"Cascadia Code", "Consolas", "SFMono-Regular", ui-monospace, monospace',
+                  }}
+                >
+                  {chestEmailText || "spell your email…"}
+                </span>
               </div>
             )}
 
