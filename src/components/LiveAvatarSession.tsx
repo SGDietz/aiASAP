@@ -66,6 +66,11 @@ const LIST_CLOSE_EDUCATION =
 // readback UI / the /api/account/me resume path all go live.
 const ACCOUNT_BETA_DISABLED = false;
 
+// G (2026-06-01): keep the typed-email fallback box DORMANT until the email
+// work is done. While false, the typed box never renders and the email flow
+// stays on the spell-on-chest path only. Flip to true to restore the typed box.
+const EMAIL_TYPED_FALLBACK_ENABLED = false;
+
 const ACCOUNT_MEMORY_VALUE_LINES = [
   "With an account, your lists stay intact, I remember the last conversation, and we pick up where we left off every time.",
   "That account is how I remember your likes, dislikes, lists, and the thread of the conversation instead of acting like we just met.",
@@ -2046,6 +2051,9 @@ const LiveAvatarSessionComponent: React.FC<{
   // screen is the source of truth. showChestEmail controls visibility.
   const [chestEmailText, setChestEmailText] = useState("");
   const [showChestEmail, setShowChestEmail] = useState(false);
+  // FIX (2026-06-01): when set, the on-chest box shows this status text
+  // (e.g. "Account Link Sent") in place of the email label + address, then fades.
+  const [chestEmailStatus, setChestEmailStatus] = useState<string | null>(null);
   const [onlineLookupNotice, setOnlineLookupNotice] = useState<string | null>(
     null,
   );
@@ -2105,6 +2113,15 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountSetupOfferMadeRef = useRef(false);
   const accountSetupDeclinedAtRef = useRef(0);
   const accountSetupEmailMissCountRef = useRef(0);
+  // FIX (2026-06-01): letter-by-letter on-chest email reveal + typewriter click.
+  // chestRevealTimerRef holds the pending per-letter timer so a new spoken chunk
+  // can cancel/continue cleanly. tickAudioCtxRef lazily holds the AudioContext
+  // for the synthesized typewriter click. chestStatusTimerRef fades the box after
+  // the "Account Link Sent" status shows.
+  const chestRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chestRevealActiveRef = useRef(false);
+  const tickAudioCtxRef = useRef<AudioContext | null>(null);
+  const chestStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accountPendingStateTokenRef = useRef<string | null>(null);
   const endSessionConfirmationPendingRef = useRef(false);
   const endSessionConfirmationAskedAtRef = useRef(0);
@@ -3100,8 +3117,10 @@ const LiveAvatarSessionComponent: React.FC<{
             ? "I saved your email, but the email did not send. I put the account link on your screen for this test."
             : "I saved your email, but the email sender is not fully connected yet. I made a note for G to finish account email before this goes live.";
         setAccountNotice(
+          // G (2026-06-01): success confirmation moves INTO the chest box, so the
+          // top banner is suppressed for the emailSent case. Other cases keep it.
           data?.emailSent
-            ? "Account Link Sent"
+            ? null
             : verificationUrl
               ? "Account Link Ready for This Test"
               : "Account Email Needs Setup",
@@ -3116,9 +3135,44 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupEmailMissCountRef.current = 0;
         setEmailEntryOpen(false);
         setTypedAccountEmail("");
-        // FIX 1: link is sent — clear the on-chest email box.
-        setChestEmailText("");
-        setShowChestEmail(false);
+        // Cancel any in-progress letter reveal before changing the box.
+        if (chestRevealTimerRef.current) {
+          clearTimeout(chestRevealTimerRef.current);
+          chestRevealTimerRef.current = null;
+        }
+        chestRevealActiveRef.current = false;
+        if (data?.emailSent) {
+          // FIX (2026-06-01): show the confirmation IN the chest box, not the top
+          // banner. 1) clear the address, 2) show "Account Link Sent", 3) fade.
+          setChestEmailText("");
+          setChestEmailStatus("Account Link Sent");
+          setShowChestEmail(true);
+          if (chestStatusTimerRef.current) {
+            clearTimeout(chestStatusTimerRef.current);
+          }
+          chestStatusTimerRef.current = setTimeout(() => {
+            setShowChestEmail(false);
+            setChestEmailStatus(null);
+            // FIX (Item B, 2026-06-01): when the "Account Link Sent" box fades,
+            // restore the FRESH default 4-pillbox slate (like first arrival on
+            // aiasap.ai) with no email text. The pills may have rotated during
+            // the session; this puts them back to default. Also clear the chest
+            // text and cancel any stray reveal timer so nothing re-appears.
+            setChestEmailText("");
+            if (chestRevealTimerRef.current) {
+              clearTimeout(chestRevealTimerRef.current);
+              chestRevealTimerRef.current = null;
+            }
+            chestRevealActiveRef.current = false;
+            setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
+            chestStatusTimerRef.current = null;
+          }, 2200);
+        } else {
+          // Non-success: the top banner carries the message; clear the box.
+          setChestEmailText("");
+          setChestEmailStatus(null);
+          setShowChestEmail(false);
+        }
         return true;
       } catch (error) {
         console.error("Account setup failed:", error);
@@ -3143,6 +3197,16 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const openEmailEntry = useCallback(
     async (spoken?: string) => {
+      // G (2026-06-01): the typed box is dormant (EMAIL_TYPED_FALLBACK_ENABLED).
+      // While false, never open it — keep the user on the spell-on-chest path.
+      if (!EMAIL_TYPED_FALLBACK_ENABLED) {
+        setShowChestEmail(true);
+        const message = "Please spell it slowly.";
+        await repeat(message);
+        lastAvatarResponseRef.current = message;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
       setEmailEntryOpen(true);
       const message =
         spoken ||
@@ -3158,14 +3222,19 @@ const LiveAvatarSessionComponent: React.FC<{
   const handleEmailMiss = useCallback(
     async (spokenBeforeTypedFallback?: string) => {
       accountSetupEmailMissCountRef.current += 1;
-      // Spell-on-chest is the primary path; only after several misses do we fall
-      // back to the typed box as a backup so the user is never stuck.
-      if (accountSetupEmailMissCountRef.current >= 3) {
+      // Spell-on-chest is the primary path. The typed box is dormant per G
+      // (EMAIL_TYPED_FALLBACK_ENABLED); while false, never fall back to it —
+      // keep the on-chest box up and keep asking the user to spell.
+      if (
+        EMAIL_TYPED_FALLBACK_ENABLED &&
+        accountSetupEmailMissCountRef.current >= 3
+      ) {
         return openEmailEntry(
           spokenBeforeTypedFallback ||
             "I'm still not catching it. You can type your email address in here instead.",
         );
       }
+      setShowChestEmail(true);
       const spoken = "Please spell it slowly.";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
@@ -3228,12 +3297,166 @@ const LiveAvatarSessionComponent: React.FC<{
     setEmailEntryOpen(false);
     setTypedAccountEmail("");
     setChestEmailText("");
+    setChestEmailStatus(null);
     setShowChestEmail(false);
+    // FIX (2026-06-01): cancel any in-progress letter reveal + success-fade timer.
+    if (chestRevealTimerRef.current) {
+      clearTimeout(chestRevealTimerRef.current);
+      chestRevealTimerRef.current = null;
+    }
+    chestRevealActiveRef.current = false;
+    if (chestStatusTimerRef.current) {
+      clearTimeout(chestStatusTimerRef.current);
+      chestStatusTimerRef.current = null;
+    }
   }, []);
 
   const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
     void customSpoken;
     return false;
+  }, []);
+
+  // FIX (2026-06-01): synthesized old-fashioned typewriter key click. This is an
+  // independent UI sound — it is NEVER routed through 6's TTS and must never
+  // block or break the reveal. `seed` (a char code + index) gives subtle
+  // per-letter variety so repeated letters don't sound identical.
+  const playTypewriterClick = useCallback((seed: number) => {
+    if (typeof window === "undefined") return;
+    try {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return;
+      if (!tickAudioCtxRef.current) {
+        tickAudioCtxRef.current = new Ctor();
+      }
+      const ctx = tickAudioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") {
+        // Autoplay policy may suspend the context; try to resume but never block.
+        void ctx.resume().catch(() => {});
+      }
+      const now = ctx.currentTime;
+      // Per-call jitter derived from the seed + clock (no Math.random at module
+      // scope; deriving from char/index/clock keeps it deterministic-ish).
+      const jitter = ((seed % 7) - 3) / 100 + ((now * 1000) % 9) / 1000;
+      const gainScale = 0.8 + ((seed % 5) / 12); // ~0.8..1.2
+
+      // 1) Short filtered white-noise burst = the key thunk (~22ms).
+      const noiseDur = 0.022;
+      const frameCount = Math.max(1, Math.floor(ctx.sampleRate * noiseDur));
+      const buffer = ctx.createBuffer(1, frameCount, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < frameCount; i += 1) {
+        // Cheap deterministic noise seeded by index + char seed.
+        const v = Math.sin((i + seed) * 12.9898) * 43758.5453;
+        data[i] = (v - Math.floor(v)) * 2 - 1;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = "bandpass";
+      noiseFilter.frequency.value = 2300 + (seed % 11) * 70;
+      noiseFilter.Q.value = 0.9;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.0001, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.5 * gainScale, now + 0.001);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + noiseDur);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noise.start(now);
+      noise.stop(now + noiseDur);
+
+      // 2) Very short high "ping" = the typebar snap (~10ms).
+      const osc = ctx.createOscillator();
+      osc.type = "square";
+      osc.frequency.value = 2600 + jitter * 1200 + (seed % 9) * 40;
+      const oscGain = ctx.createGain();
+      oscGain.gain.setValueAtTime(0.0001, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.12 * gainScale, now + 0.001);
+      oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.01);
+      osc.connect(oscGain);
+      oscGain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.012);
+    } catch {
+      // Audio must never break the reveal.
+    }
+  }, []);
+
+  // FIX (2026-06-01): reveal `addedChars` on the chest ONE character at a time,
+  // playing a typewriter click per letter. Resolves once the full accumulated
+  // value (fromText + addedChars) is shown, so the existing valid-email check
+  // and confirm logic still see the complete address.
+  const revealEmailChars = useCallback(
+    (fromText: string, addedChars: string): Promise<string> => {
+      const full = `${fromText}${addedChars}`;
+      // Cancel any prior pending reveal so chunks don't overlap.
+      if (chestRevealTimerRef.current) {
+        clearTimeout(chestRevealTimerRef.current);
+        chestRevealTimerRef.current = null;
+      }
+      const chars = addedChars.split("");
+      if (chars.length === 0) {
+        setChestEmailText(full);
+        chestRevealActiveRef.current = false;
+        return Promise.resolve(full);
+      }
+      return new Promise<string>((resolve) => {
+        chestRevealActiveRef.current = true;
+        let shown = fromText;
+        let i = 0;
+        const step = () => {
+          const ch = chars[i];
+          shown += ch;
+          i += 1;
+          setChestEmailText(shown);
+          playTypewriterClick(ch.charCodeAt(0) + i);
+          if (i < chars.length) {
+            // FIX (latency, 2026-06-01): snappy typing. Was ~70-95ms/char which
+            // read as a crawl. ~40ms/char with tiny charcode-derived jitter so it
+            // still feels alive, not robotic. One click per character, unchanged.
+            const delay = 36 + (ch.charCodeAt(0) % 9);
+            chestRevealTimerRef.current = setTimeout(step, delay);
+          } else {
+            chestRevealTimerRef.current = null;
+            chestRevealActiveRef.current = false;
+            // Ensure the final value is exactly the full accumulated address.
+            setChestEmailText(full);
+            resolve(full);
+          }
+        };
+        // FIX (latency): paint the first added character on the very next tick so
+        // letters start showing the instant the transcript lands (no 40ms gate).
+        chestRevealTimerRef.current = setTimeout(step, 0);
+      });
+    },
+    [playTypewriterClick],
+  );
+
+  // FIX (2026-06-01): on unmount, clear the on-chest email letter-reveal +
+  // status-fade timers and close the synthesized typewriter-click AudioContext.
+  useEffect(() => {
+    return () => {
+      if (chestRevealTimerRef.current) {
+        clearTimeout(chestRevealTimerRef.current);
+        chestRevealTimerRef.current = null;
+      }
+      if (chestStatusTimerRef.current) {
+        clearTimeout(chestStatusTimerRef.current);
+        chestStatusTimerRef.current = null;
+      }
+      if (tickAudioCtxRef.current) {
+        try {
+          void tickAudioCtxRef.current.close();
+        } catch {
+          // ignore audio teardown errors
+        }
+        tickAudioCtxRef.current = null;
+      }
+    };
   }, []);
 
   // FIX 1 (2026-06-01): the user is SPELLING their email aloud. Interpret this
@@ -3249,7 +3472,12 @@ const LiveAvatarSessionComponent: React.FC<{
         // Couldn't read it as a spelled address. Keep what we have, ask again.
         accountSetupEmailMissCountRef.current += 1;
         setShowChestEmail(true);
-        if (accountSetupEmailMissCountRef.current >= 3) {
+        // Typed-box fallback is dormant (EMAIL_TYPED_FALLBACK_ENABLED). While
+        // false, keep the on-chest box up and keep asking them to spell.
+        if (
+          EMAIL_TYPED_FALLBACK_ENABLED &&
+          accountSetupEmailMissCountRef.current >= 3
+        ) {
           return openEmailEntry(
             "I'm still not catching it. You can type your email address in here instead.",
           );
@@ -3262,18 +3490,38 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       // Accumulate onto whatever is already on the chest, then normalize.
-      const nextRaw = `${chestEmailText}${chars}`.toLowerCase();
+      const prev = chestEmailText;
+      const nextRaw = `${prev}${chars}`.toLowerCase();
       const nextEmail = nextRaw.replace(/[^a-z0-9._%+@-]/g, "");
-      setChestEmailText(nextEmail);
+      const addedChars = nextEmail.slice(prev.length);
       setShowChestEmail(true);
       accountSetupEmailMissCountRef.current = 0;
 
-      if (isValidEmailCandidate(nextEmail)) {
+      const completesAddress = isValidEmailCandidate(nextEmail);
+
+      // FIX (ordering bug, 2026-06-01): if this spoken chunk COMPLETES the full
+      // address, do NOT run the per-letter animation on it. The old code awaited
+      // the async reveal and then called confirm, but the confirm
+      // ("Is the email on screen correct?") could overlap the tail of the
+      // animation. For the completing chunk we show the whole address at once,
+      // cancel any pending reveal timer, THEN confirm — so the box is fully
+      // settled before 6 asks. Mid-address chunks still animate letter-by-letter.
+      if (completesAddress) {
+        if (chestRevealTimerRef.current) {
+          clearTimeout(chestRevealTimerRef.current);
+          chestRevealTimerRef.current = null;
+        }
+        chestRevealActiveRef.current = false;
+        setChestEmailText(nextEmail);
         // Full address captured — hand off to confirm (no voice readback).
         return confirmAccountEmailCandidate(nextEmail);
       }
 
-      // Still building. Stay in awaiting-email mode and let the user keep going.
+      // Still building: reveal the newly added characters one at a time
+      // (typewriter clicks), then let the user keep going.
+      await revealEmailChars(prev, addedChars);
+
+      // Stay in awaiting-email mode and let the user keep going.
       accountSetupAwaitingEmailRef.current = true;
       const spoken = "Got it. Keep going.";
       await repeat(spoken);
@@ -3281,7 +3529,13 @@ const LiveAvatarSessionComponent: React.FC<{
       lastVisionResponseTimeRef.current = Date.now();
       return true;
     },
-    [chestEmailText, confirmAccountEmailCandidate, openEmailEntry, repeat],
+    [
+      chestEmailText,
+      confirmAccountEmailCandidate,
+      openEmailEntry,
+      repeat,
+      revealEmailChars,
+    ],
   );
 
   const handleAccountSetupSpeech = useCallback(
@@ -5122,6 +5376,28 @@ const LiveAvatarSessionComponent: React.FC<{
         void interrupt();
       }
 
+      // FIX (latency, 2026-06-01): EMAIL-SPELLING FAST PATH.
+      // When 6 is actively collecting the account email — either waiting on
+      // spelled letters, or waiting on the yes/no after showing a candidate —
+      // route the transcript STRAIGHT to the account handler before any of the
+      // list / online-lookup / prompt-size / end-session checks + awaits below.
+      // That chain (several regex tests plus the awaited handlePromptSizeSpeech /
+      // hasEndSessionIntent yields) delayed when each spelled letter reached the
+      // chest, contributing to the "looks broken" lag the user saw.
+      // handleAccountSetupSpeech already shows the box (setShowChestEmail(true))
+      // and appends letters with minimal delay. Gated strictly on the
+      // awaiting-email refs, so normal conversation turns are unaffected.
+      if (
+        !ACCOUNT_BETA_DISABLED &&
+        (accountSetupAwaitingEmailRef.current ||
+          accountSetupPendingEmailRef.current)
+      ) {
+        if (await handleAccountSetupSpeech(userText)) {
+          schedulePromptBrain(userText);
+          return;
+        }
+      }
+
       if (pendingListDeleteRef.current) {
         const listIdToDelete = pendingListDeleteRef.current;
         if (END_SESSION_CONFIRM_RE.test(userText)) {
@@ -6447,7 +6723,12 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {!ACCOUNT_BETA_DISABLED && emailEntryOpen && !isShoppingMode && (
+      {/* Typed email fallback form (dormant per G — EMAIL_TYPED_FALLBACK_ENABLED).
+          Kept intact for future use; flip the flag true to restore it. */}
+      {EMAIL_TYPED_FALLBACK_ENABLED &&
+        !ACCOUNT_BETA_DISABLED &&
+        emailEntryOpen &&
+        !isShoppingMode && (
         <form
           onSubmit={(event) => void handleTypedAccountEmailSubmit(event)}
           className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+5.2rem)] z-[76] flex w-[min(92%,30rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-[#e0aa62]/28 bg-[#120b06]/90 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur"
@@ -7077,7 +7358,11 @@ const LiveAvatarSessionComponent: React.FC<{
           {/* FIX 1 (2026-06-01): on-chest email box. Sits directly above the top
               pillbox, centered, bottom-anchored so it scales with the viewport.
               Shows the address the user is SPELLING, live. 6 never reads it back
-              by voice — this box is the source of truth the user checks. */}
+              by voice — this box is the source of truth the user checks.
+              Lowered into the chest per G (2026-06-01): bottom multiplier 0.34
+              (mobile) / 0.45 (md) so it sits just above the top pillbox button.
+              When chestEmailStatus is set (e.g. "Account Link Sent") it shows
+              that status in place of the label + address, then fades. */}
           {!ACCOUNT_BETA_DISABLED &&
             showChestEmail &&
             !emailEntryOpen &&
@@ -7087,20 +7372,34 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             !isShoppingMode && (
               <div
-                className="fixed left-1/2 z-[31] -translate-x-1/2 flex w-[90%] max-w-[min(26rem,calc(var(--stage-width)*0.88))] flex-col items-center gap-[calc(var(--stage-height)*0.004)] rounded-2xl border border-[#e0aa62]/55 bg-[#3a2108]/55 px-4 py-[calc(var(--stage-height)*0.012)] text-center shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur-[3px] pointer-events-none bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.42)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.52)]"
+                className="fixed left-1/2 z-[31] -translate-x-1/2 flex w-[90%] max-w-[min(26rem,calc(var(--stage-width)*0.88))] flex-col items-center gap-[calc(var(--stage-height)*0.004)] rounded-2xl border border-[#e0aa62]/55 bg-[#3a2108]/55 px-4 py-[calc(var(--stage-height)*0.012)] text-center shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur-[3px] pointer-events-none bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.34)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.45)]"
               >
-                <span className="text-[calc(var(--stage-height)*0.015)] font-semibold uppercase tracking-[0.18em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-                  Your Email
-                </span>
-                <span
-                  className="w-full break-all text-[calc(var(--stage-height)*0.024)] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
-                  style={{
-                    fontFamily:
-                      '"Cascadia Code", "Consolas", "SFMono-Regular", ui-monospace, monospace',
-                  }}
-                >
-                  {chestEmailText || "spell your email…"}
-                </span>
+                {chestEmailStatus ? (
+                  <span
+                    className="w-full text-[calc(var(--stage-height)*0.024)] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+                    style={{
+                      fontFamily:
+                        '"Cascadia Code", "Consolas", "SFMono-Regular", ui-monospace, monospace',
+                    }}
+                  >
+                    {`${chestEmailStatus} ✓`}
+                  </span>
+                ) : (
+                  <>
+                    <span className="text-[calc(var(--stage-height)*0.015)] font-semibold uppercase tracking-[0.18em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                      Your Email
+                    </span>
+                    <span
+                      className="w-full break-all text-[calc(var(--stage-height)*0.024)] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+                      style={{
+                        fontFamily:
+                          '"Cascadia Code", "Consolas", "SFMono-Regular", ui-monospace, monospace',
+                      }}
+                    >
+                      {chestEmailText || "spell your email…"}
+                    </span>
+                  </>
+                )}
               </div>
             )}
 
@@ -7110,7 +7409,8 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             voiceIsActive &&
             !isShoppingMode &&
-            !emailEntryOpen && (
+            !emailEntryOpen &&
+            !showChestEmail && (
               <div
                 className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
                   showActiveList
