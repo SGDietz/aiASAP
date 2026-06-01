@@ -143,7 +143,14 @@ export async function POST(request: Request) {
       pendingStateToken = crypto.randomUUID();
       const tokenHash = await hashToken(pendingStateToken);
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const captured = { lists, resumeState };
+      // Also stash the spoken name here. Supabase only applies OTP
+      // options.data to user_metadata when the user is first CREATED, so on
+      // the magic-link turnaround full_name was ending up absent on the
+      // account. Persisting it in this jsonb lets link-session recover and
+      // write it to user_metadata.full_name regardless of which tab/browser
+      // the user returns in (2026-06-01 name-recall fix). Extra key is
+      // backward-compatible: account/me only reads lists + resumeState.
+      const captured = { lists, resumeState, fullName };
       const insertRes = await fetch(
         `${supaUrl}/rest/v1/account_email_links`,
         {

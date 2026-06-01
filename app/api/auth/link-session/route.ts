@@ -69,20 +69,76 @@ export async function POST(request: NextRequest) {
   // time, and union the two — so linking + retro fact extraction work regardless
   // of the browser handoff.
   const emailIds: string[] = [];
+  let recoveredName: string | null = null;
   if (userEmail) {
     try {
       const linkRes = await fetch(
-        `${url}/rest/v1/account_email_links?email=eq.${encodeURIComponent(userEmail)}&select=session_id&order=created_at.desc&limit=${MAX_IDS}`,
+        `${url}/rest/v1/account_email_links?email=eq.${encodeURIComponent(userEmail)}&select=session_id,captured_lists&order=created_at.desc&limit=${MAX_IDS}`,
         { method: "GET", headers },
       );
       if (linkRes.ok) {
-        const rows = (await linkRes.json()) as Array<{ session_id: unknown }>;
+        const rows = (await linkRes.json()) as Array<{
+          session_id: unknown;
+          captured_lists: unknown;
+        }>;
         for (const r of rows) {
           if (isSafeSessionId(r.session_id)) emailIds.push(r.session_id);
+          // Recover the spoken name from the most recent row that carried one
+          // (rows are ordered created_at.desc). account/start stashes it in
+          // captured_lists.fullName.
+          if (
+            !recoveredName &&
+            r.captured_lists &&
+            typeof r.captured_lists === "object" &&
+            !Array.isArray(r.captured_lists)
+          ) {
+            const fn = (r.captured_lists as Record<string, unknown>).fullName;
+            if (typeof fn === "string" && fn.trim().length > 0) {
+              recoveredName = fn.trim().slice(0, 200);
+            }
+          }
         }
       }
     } catch (e) {
       console.error("link-session: email-link lookup failed", e);
+    }
+  }
+
+  // Name recall (2026-06-01): Supabase only writes OTP options.data to
+  // user_metadata when the user is first CREATED, so the spoken full_name was
+  // ending up absent on the account after the magic-link turnaround — 6 then
+  // greeted a returning user like a stranger. If full_name is missing/empty,
+  // write the name we recovered from account_email_links to user_metadata via
+  // the service-role Admin API. account/me reads meta.full_name back.
+  const existingName = (() => {
+    const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+    if (typeof meta.full_name === "string" && meta.full_name.trim().length > 0) {
+      return meta.full_name.trim();
+    }
+    if (typeof meta.fullName === "string" && meta.fullName.trim().length > 0) {
+      return meta.fullName.trim();
+    }
+    return null;
+  })();
+  if (!existingName && recoveredName) {
+    try {
+      const updRes = await fetch(
+        `${url}/auth/v1/admin/users/${encodeURIComponent(userId)}`,
+        {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ user_metadata: { full_name: recoveredName } }),
+        },
+      );
+      if (!updRes.ok) {
+        console.error(
+          "link-session: full_name write failed",
+          updRes.status,
+          (await updRes.text()).slice(0, 200),
+        );
+      }
+    } catch (e) {
+      console.error("link-session: full_name write threw", e);
     }
   }
 

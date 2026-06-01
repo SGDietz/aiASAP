@@ -120,17 +120,29 @@ async function linkAnonymousSessions() {
     const raw = window.localStorage.getItem(KEY);
     if (raw) ids = JSON.parse(raw) as string[];
   } catch {
-    return;
+    // localStorage unreadable — still call the server below with no ids so
+    // the email-based fallback can link by the user's email.
+    ids = [];
   }
-  if (!Array.isArray(ids) || ids.length === 0) return;
+  if (!Array.isArray(ids)) ids = [];
 
+  // ALWAYS call link-session on sign-in, even when localStorage carries zero
+  // ids. The magic-link round-trip frequently lands in a fresh tab/browser
+  // that never saw the anonymous session_ids, so the browser list is often
+  // empty exactly when linking matters most. The server route unions these
+  // ids with every session_id recorded against the user's email at magic-
+  // link-send time and links + retro-extracts memory by email — but only if
+  // the client actually calls it. (Was early-returning on empty ids, so the
+  // server fallback never ran. 2026-06-01 turnaround-recall fix.)
   try {
     const res = await fetch("/api/auth/link-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_ids: ids }),
     });
-    if (res.ok) {
+    // Only drop the local ids once the server has accepted them, so a failed
+    // call doesn't lose un-linked ids. Idempotent on the server side.
+    if (res.ok && ids.length > 0) {
       window.localStorage.removeItem(KEY);
     }
   } catch (e) {
