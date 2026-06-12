@@ -46,7 +46,9 @@ function plainEnglishReport(args: {
     timeZone: "America/New_York",
   });
   const lines: string[] = [];
-  lines.push("A user hit a problem on aiASAP. 6 caught it and filed this.");
+  lines.push("6 here - caught a bug.");
+  lines.push("");
+  lines.push("A user hit a problem on aiASAP. I grabbed everything below so the team can fix it.");
   lines.push("");
   lines.push(`When: ${when} (Eastern)`);
   lines.push(`What they said: "${args.trigger}"`);
@@ -145,7 +147,7 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           from: FROM,
           to: [TO],
-          subject: `aiASAP bug: "${trigger.slice(0, 60)}"`,
+          subject: `6 here - caught a bug: "${trigger.slice(0, 50)}"`,
           text: report,
         }),
       });
