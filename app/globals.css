@@ -46,6 +46,21 @@
   }
 }
 
+/* Loading bar sweep — GLOBAL so the pre-session-token branded loader
+   (LiveAvatarDemo, rendered before LiveAvatarSession mounts) can use it too.
+   Mirrors the scoped copy inside LiveAvatarSession's <style> block. */
+@keyframes loading-sweep {
+  0% {
+    transform: translateX(-125%);
+  }
+  55% {
+    transform: translateX(160%);
+  }
+  100% {
+    transform: translateX(160%);
+  }
+}
+
 @layer components {
   /* Inset button: gray glass with aiASAP amber text. */
   .btn-inset {

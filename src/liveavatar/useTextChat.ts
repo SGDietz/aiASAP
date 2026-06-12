@@ -1,14 +1,22 @@
 import { useCallback } from "react";
 import { useLiveAvatarContext } from "./context";
+import {
+  deliverCustomTtsAudio,
+  registerSixSpokenLine,
+} from "./customVoiceDelivery";
 
-function decodePcmAudioBase64(audioBase64: string): string {
-  if (typeof window === "undefined") {
-    return audioBase64;
-  }
-  return window.atob(audioBase64);
-}
-
-export const useTextChat = (mode: "FULL" | "CUSTOM") => {
+export const useTextChat = (
+  mode: "FULL" | "CUSTOM",
+  // r25 (2026-06-12, live co-pilot: avatar-mode CUSTOM turns never reached
+  // conversation_messages — the official transcript sync only covers FULL
+  // sessions): the component passes a logger so 6's brain replies land in the
+  // transcript table.
+  onAssistantText?: (text: string) => void,
+  // r26: the brain was stateless — every call looked like first contact, so
+  // 6 re-introduced himself on every turn. The component supplies the running
+  // conversation; we send it with each call.
+  getHistory?: () => Array<{ role: "user" | "assistant"; content: string }>,
+) => {
   const { sessionRef, reportActivity } = useLiveAvatarContext();
 
   const sendMessage = useCallback(
@@ -23,20 +31,35 @@ export const useTextChat = (mode: "FULL" | "CUSTOM") => {
           body: JSON.stringify({
             message,
             image_analysis: imageAnalysis || undefined,
+            history: getHistory?.() ?? [],
           }),
         });
         const { response: chatResponseText } = await response.json();
-        const res = await fetch("/api/elevenlabs-text-to-speech", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: chatResponseText }),
-        });
-        const { audio } = await res.json();
-        // Have the avatar repeat the audio
-        return sessionRef.current.repeatAudio(decodePcmAudioBase64(audio));
+        if (typeof chatResponseText === "string" && chatResponseText) {
+          onAssistantText?.(chatResponseText);
+          registerSixSpokenLine(chatResponseText); // echo firewall registry
+        }
+        try {
+          const res = await fetch("/api/elevenlabs-text-to-speech", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: chatResponseText }),
+          });
+          if (!res.ok) throw new Error(`tts ${res.status}`);
+          const { audio } = (await res.json()) as { audio?: string };
+          if (typeof audio !== "string" || audio.length < 50) {
+            throw new Error("tts returned no audio");
+          }
+          // Have the avatar repeat the audio — delivery wrapper adds
+          // server-visible diag + WebAudio fallback (copilot 2026-06-11).
+          return deliverCustomTtsAudio(sessionRef.current, audio, "textchat.reply");
+        } catch (e) {
+          console.error("[textchat] ElevenLabs failed, falling back:", e);
+          return sessionRef.current.repeat(chatResponseText);
+        }
       }
     },
-    [sessionRef, mode, reportActivity],
+    [sessionRef, mode, reportActivity, onAssistantText, getHistory],
   );
 
   return {

@@ -59,6 +59,16 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify({
           text,
+          // r19 (G live 21:04: "the voice sounds a little different. Is it
+          // definitely the same voice?"): the endpoint used ElevenLabs'
+          // legacy default model with no settings while the avatar's
+          // connector runs a tuned profile. Pin a modern model + standard
+          // settings so voice-mode 6 sounds like avatar-mode 6.
+          model_id: "eleven_turbo_v2_5",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          },
         }),
       },
     );

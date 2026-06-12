@@ -1,10 +1,16 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { getUser } from "../../../../src/lib/auth/getUser";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
 import {
   extractFactsFromTurn,
   storeFacts,
 } from "../../../../src/lib/memory";
+
+// Retro fact-extraction runs in after() once the response is flushed; Vercel
+// keeps the lambda alive until the after() promise resolves. Give it room for
+// the sequential OpenAI extract+embed calls (a bare fire-and-forget was being
+// frozen the instant the response returned — see the after() block below).
+export const maxDuration = 60;
 
 /**
  * Re-key anonymous rows to the authenticated user.
@@ -183,20 +189,31 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Retro fact extraction: fetch the just-re-keyed conversation rows and
-  // run extractFactsFromTurn on each user/assistant pair. Fire-and-forget
-  // so the link response returns immediately. Per G 2026-05-21 spec:
-  // "persistent memory should start the moment the first session is
-  // started" — i.e. when an anonymous user signs up, the pre-sign-in
-  // transcripts should retroactively produce memory facts so 6 can pick
-  // up where they left off.
-  void (async () => {
+  // Retro fact extraction: fetch the just-re-keyed conversation rows and run
+  // extractFactsFromTurn on each user/assistant pair. Runs in after() so it
+  // executes AFTER the response is flushed but is still awaited by Vercel to
+  // completion. This WAS a bare `void (async () => {})()` — which Vercel froze
+  // the instant the response returned, so the signup conversation never
+  // produced any user_memory_facts on sign-in (2026-06-07: confirmed in the DB
+  // — only the warm-session sync path ever wrote facts; this path wrote 0).
+  // Per G 2026-05-21 spec: persistent memory should start the moment the first
+  // session is started — the pre-sign-in transcripts should retroactively
+  // produce facts so 6 picks up exactly where the user left off.
+  after(async () => {
+    let turnsFound = 0;
+    let factsExtracted = 0;
+    let factsStored = 0;
     try {
       const messagesRes = await fetch(
         `${url}/rest/v1/conversation_messages?session_id=${inFilter}&user_id=eq.${userId}&order=la_absolute_timestamp.asc&select=session_id,role,message,la_absolute_timestamp&limit=500`,
         { method: "GET", headers },
       );
-      if (!messagesRes.ok) return;
+      if (!messagesRes.ok) {
+        console.error(
+          `[link-session:retro-facts] messages fetch failed ${messagesRes.status}`,
+        );
+        return;
+      }
       const messages = (await messagesRes.json()) as Array<{
         session_id: string;
         role: "user" | "assistant";
@@ -216,12 +233,18 @@ export async function POST(request: NextRequest) {
           assistantReply: next.message.trim(),
         });
       }
+      // Most-recent turns carry the freshest topic; cap to bound the OpenAI
+      // cost and keep the after() work comfortably inside maxDuration.
+      const recentTurns = turns.slice(-40);
+      turnsFound = recentTurns.length;
 
-      for (const turn of turns) {
+      for (const turn of recentTurns) {
         try {
           const facts = await extractFactsFromTurn(turn);
+          factsExtracted += facts.length;
           if (facts.length > 0) {
-            await storeFacts({ userId, facts });
+            const { inserted } = await storeFacts({ userId, facts });
+            factsStored += inserted;
           }
         } catch (err) {
           console.error("[link-session:retro-facts] turn failed", err);
@@ -229,8 +252,12 @@ export async function POST(request: NextRequest) {
       }
     } catch (e) {
       console.error("[link-session:retro-facts] outer failed", e);
+    } finally {
+      console.log(
+        `[link-session DIAG] user=${userId} ids=${ids.length} turns=${turnsFound} factsExtracted=${factsExtracted} factsStored=${factsStored}`,
+      );
     }
-  })();
+  });
 
   return NextResponse.json({ ok: true, linked: total, tables: perTable });
 }

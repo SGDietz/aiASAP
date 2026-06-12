@@ -20,8 +20,12 @@ function currentRoute(): string {
 /** Best-effort POST; never throws. Uses keepalive so flushes survive unload. */
 async function flush(payload: ClientLogPayload) {
   if (typeof window === "undefined") return;
+  // warn-level reports use console.warn so the Next.js dev overlay's red
+  // error badge only counts REAL errors (G saw diag lines as "errors").
   // eslint-disable-next-line no-console
-  console.error(`[obs:${payload.level ?? "error"}] ${payload.message}`);
+  (payload.level === "warn" ? console.warn : console.error)(
+    `[obs:${payload.level ?? "error"}] ${payload.message}`,
+  );
   try {
     await fetch(INGEST_URL, {
       method: "POST",

@@ -29,6 +29,7 @@ Rules:
 - If no durable facts are present, return {"facts": []}.
 - Do NOT invent or guess. If unsure, omit.
 - Do NOT include facts about the assistant or the conversation itself.
+- The account-signup process is NOT a topic or goal. Do NOT record the user spelling/giving their email, the magic link, confirming an address, or "email setup" as a fact or activity (recording their actual email address as a contact detail is fine).
 - Keep each "content" terse and self-contained — it must make sense weeks later without the surrounding turn.
 - Max ${MAX_FACTS_PER_TURN} facts.`;
 

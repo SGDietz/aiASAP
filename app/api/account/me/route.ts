@@ -33,13 +33,24 @@ export async function GET(request: Request) {
   const rateLimitErr = await checkRateLimit(request);
   if (rateLimitErr) return rateLimitErr;
 
-  // Race the Supabase auth check against a 1500ms timeout. If Supabase
-  // is slow or hangs, we fall back to anonymous so 6 can still fire.
-  const TIMEOUT_MS = 1500;
+  // DIAG (2026-06-02 recall): did an auth cookie actually reach the server?
+  // authCookies>0 + anonymous result = token present but getUser timed out/failed
+  // (timing bug). authCookies=0 = no cookie reached us (cross-browser / setSession
+  // didn't persist). Read via `vercel logs` after a test to settle which.
+  const cookieHeader = request.headers.get("cookie") || "";
+  const authCookieCount = (cookieHeader.match(/sb-[A-Za-z0-9_-]+-auth-token/g) || []).length;
+
+  // Race the Supabase auth check against a timeout. If Supabase is slow or hangs,
+  // we fall back to anonymous so 6 can still fire. Bumped 1500→2500ms (2026-06-02):
+  // the magic-link return's first getUser() on a cold function was timing out at
+  // 1500ms → returning user read as anonymous → 6 greeted them as brand-new.
+  const TIMEOUT_MS = 2500;
   let userEmail: string | null = null;
   let userFullName: string | null = null;
   let visitCount = 1;
   let longGap = false;
+  let uiSizeLevel: number | null = null;
+  let timezone: string | null = null;
 
   try {
     const authResult = await Promise.race([
@@ -67,6 +78,20 @@ export async function GET(request: Request) {
             : typeof meta.fullName === "string"
               ? (meta.fullName as string)
               : null;
+        // Voice sizing follows the ACCOUNT for returning users (G 2026-06-10:
+        // "the pill boxes stay the size of when last used... if they have an
+        // account and are returning").
+        if (
+          typeof meta.ui_size_level === "number" &&
+          meta.ui_size_level >= 0 &&
+          meta.ui_size_level <= 4
+        ) {
+          uiSizeLevel = meta.ui_size_level;
+        }
+        // Voice-set timezone (2026-06-11) — follows the account everywhere.
+        if (typeof meta.timezone === "string" && meta.timezone) {
+          timezone = meta.timezone;
+        }
         // Per-account visit counter (drives 6's tiered returning intros).
         // De-duped by a 30-min window so page refreshes don't inflate the count.
         const prevVisits =
@@ -104,6 +129,10 @@ export async function GET(request: Request) {
     console.error("/api/account/me auth check threw:", error);
   }
 
+  console.log(
+    `[account/me DIAG] authCookies=${authCookieCount} result=${userEmail ? "AUTH:" + userEmail : "anonymous"}`,
+  );
+
   if (!userEmail) {
     return new Response(
       JSON.stringify({ authenticated: false, beta: true }),
@@ -118,6 +147,11 @@ export async function GET(request: Request) {
   }
 
   // Fetch saved lists + resume state. Also timeout-bounded to prevent hang.
+  // Bumped 1000→2500ms (2026-06-03): on a cold magic-link RETURN this second
+  // Supabase call timed out at 1000ms → resumeState=null → the client built an
+  // EMPTY memory snapshot → 6 had nothing to recall ("I can't recall the exact
+  // details", "pleasure to meet you"). The auth call above hit the same cold-
+  // start wall and was already bumped to 2500ms; match it here.
   let lists: unknown[] = [];
   let resumeState: unknown = null;
 
@@ -138,7 +172,7 @@ export async function GET(request: Request) {
           },
         }),
         new Promise<Response>((_, reject) =>
-          setTimeout(() => reject(new Error("timeout")), 1000),
+          setTimeout(() => reject(new Error("timeout")), 2500),
         ),
       ]);
       if (fetchResult.ok) {
@@ -149,6 +183,18 @@ export async function GET(request: Request) {
           if (Array.isArray(obj.lists)) lists = obj.lists;
           if (obj.resumeState && typeof obj.resumeState === "object") {
             resumeState = obj.resumeState;
+          }
+          // Name fallback: signup writes the name to captured_lists.fullName,
+          // which is often set even when user_metadata.full_name isn't. Without
+          // this the returning user's name never reached 6, so he asked for it
+          // again and ran the first-meet greeting (G 2026-06-03). The client
+          // still runs cleanDeviceName on this, so a junk value is dropped.
+          if (
+            !userFullName &&
+            typeof obj.fullName === "string" &&
+            obj.fullName.trim()
+          ) {
+            userFullName = obj.fullName.trim();
           }
         } else if (Array.isArray(captured)) {
           lists = captured;
@@ -167,6 +213,8 @@ export async function GET(request: Request) {
       resumeState,
       visitCount,
       longGap,
+      uiSizeLevel,
+      timezone,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );

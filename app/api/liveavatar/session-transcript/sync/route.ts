@@ -5,6 +5,7 @@ import {
   truncateUtf8String,
 } from "../../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../../src/lib/rateLimit";
+import { buildMagicLinkEmailHtml } from "../../../../../src/lib/magicLinkEmail";
 import { persistUserUtteranceLeadCapture } from "../../../../../src/lib/leadCaptureFromUserText";
 import { getSupabaseAdminConfig } from "../../../../../src/lib/supabaseAdmin";
 import { normalizeTesterLabel } from "../../../../../src/lib/testerAttribution";
@@ -122,6 +123,54 @@ function detectSessionCloseIntent(transcripts: TranscriptRow[]): boolean {
   return false;
 }
 
+// CONSENT BACKSTOP (2026-06-07): the magic-link auto-send fires when 6 SAYS he's
+// sending the link. If 6's brain says that prematurely — while the user is
+// actually deferring or refusing — we must NOT send. G hit this hard: 6 sent the
+// link right after he said "I did not give you permission to send my email."
+// Scan the user's lines in this batch for a clear defer/decline; if found,
+// suppress the auto-send (a later clear "yes" re-enables it). Erring toward NOT
+// sending is the safe call for consent.
+const USER_SEND_DECLINE_RE =
+  /\b(?:think about it|let me think|talk about (?:other|something) (?:things|else|stuff)|other things first|not yet|not now|hold (?:on|off)|maybe later|didn'?t give (?:you )?permission|did not give (?:you )?permission|no permission|don'?t send|do not send|don'?t want (?:you )?to send)\b/i;
+
+function userRecentlyDeclinedSend(transcripts: TranscriptRow[]): boolean {
+  for (const row of transcripts) {
+    if (row.role === "user" && USER_SEND_DECLINE_RE.test(row.transcript)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// POSITIVE CONSENT (2026-06-07): the decline check alone wasn't enough — 6 asked
+// "want me to send?" and said "Done, I sent" in the SAME breath, before the user
+// could answer (the decline landed a beat later). So ALSO require a clear user
+// "yes / go ahead / send it" that comes AFTER 6 offers to send. No yes after the
+// offer => no auto-send. (The client send-gate, the primary sender, already
+// enforces this two-step; this stops the server fallback from bypassing it.)
+const AVATAR_SEND_OFFER_RE =
+  /\b(?:want me to send|should i send|ready to send|send (?:the )?(?:sign-?in )?link|send it (?:now|over))\b/i;
+const USER_SEND_AFFIRM_RE =
+  /\b(?:yes|yep|yeah|yup|sure|please|go ahead|do it|send it|send the link|send away|sounds good|go for it|ok(?:ay)? send)\b/i;
+
+function hasUserSendConsent(transcripts: TranscriptRow[]): boolean {
+  let offered = false;
+  for (const row of transcripts) {
+    if (row.role === "avatar" && AVATAR_SEND_OFFER_RE.test(row.transcript)) {
+      offered = true;
+      continue;
+    }
+    if (
+      offered &&
+      row.role === "user" &&
+      USER_SEND_AFFIRM_RE.test(row.transcript)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function stopLiveAvatarSession(
   sessionId: string,
   apiKey: string,
@@ -146,34 +195,115 @@ async function stopLiveAvatarSession(
   }
 }
 
+// RECALL FIX (2026-06-03 — token_hash flow): THIS is the path that actually sends
+// the voice-flow magic link (fired on 6's "sending the link" trigger). It used to
+// send the IMPLICIT OTP link, whose session never reached the page on return
+// (authCookies=0 → 6 greeted returning users as strangers). Now it generates a
+// token_hash link pointing at OUR /auth/callback, which verifies it and writes the
+// SERVER auth cookie deterministically (same proven path as ?code=). Email sent via
+// Resend so the link format is fully ours. Mirrors /api/account/start.
 async function sendMagicLinkServerSide(
   email: string,
   redirectTo: string,
+  sessionId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const supaUrl =
     process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey =
-    process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supaUrl || !anonKey) {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!supaUrl || !serviceRoleKey) {
     return { ok: false, error: "supabase not configured" };
   }
+  if (!resendKey) {
+    return { ok: false, error: "resend not configured" };
+  }
+  const adminHeaders = {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    "Content-Type": "application/json",
+  };
+  // DEDUP BEFORE generate_link (2026-06-03): /api/account/start (client-driven,
+  // fires first on email confirm) already generate_links + sends + writes an
+  // account_email_links row. A SECOND generate_link here INVALIDATES the token
+  // account/start already emailed -> the user's link verify-fails (the
+  // click-through 404). So if a row for this email exists from the last 3 min,
+  // account/start handled it — skip entirely (no generate_link, no send).
   try {
-    const res = await fetch(`${supaUrl}/auth/v1/otp`, {
+    const since = new Date(Date.now() - 180000).toISOString();
+    const recentRes = await fetch(
+      `${supaUrl}/rest/v1/account_email_links?email=eq.${encodeURIComponent(email)}&created_at=gte.${encodeURIComponent(since)}&select=id&limit=1`,
+      { headers: adminHeaders },
+    );
+    if (recentRes.ok) {
+      const recentRows = (await recentRes.json()) as unknown[];
+      if (Array.isArray(recentRows) && recentRows.length > 0) {
+        return { ok: true };
+      }
+    }
+  } catch {
+    // Non-fatal: if the dedup check errors, fall through and send.
+  }
+  try {
+    // 1) Ensure the user exists (passwordless, pre-confirmed). Idempotent.
+    await fetch(`${supaUrl}/auth/v1/admin/users`, {
       method: "POST",
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${anonKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: adminHeaders,
+      body: JSON.stringify({ email, email_confirm: true }),
+    });
+    // 2) Generate a magic-link token_hash.
+    const genRes = await fetch(`${supaUrl}/auth/v1/admin/generate_link`, {
+      method: "POST",
+      headers: adminHeaders,
       body: JSON.stringify({
+        type: "magiclink",
         email,
-        create_user: true,
-        options: { emailRedirectTo: redirectTo },
+        options: { redirect_to: redirectTo },
       }),
     });
-    if (!res.ok) {
-      const detail = await res.text();
-      return { ok: false, error: `supabase ${res.status}: ${detail.slice(0, 200)}` };
+    if (!genRes.ok) {
+      const detail = await genRes.text();
+      return {
+        ok: false,
+        error: `generate_link ${genRes.status}: ${detail.slice(0, 150)}`,
+      };
+    }
+    const gen = await genRes.json();
+    const hashedToken =
+      (gen && (gen.hashed_token || (gen.properties && gen.properties.hashed_token))) ||
+      null;
+    if (!hashedToken) {
+      return { ok: false, error: "generate_link returned no token_hash" };
+    }
+    // 3) Build OUR token_hash link → /auth/callback writes the server cookie.
+    const sep = redirectTo.includes("?") ? "&" : "?";
+    const magicLink = `${redirectTo}${sep}token_hash=${encodeURIComponent(hashedToken)}&type=magiclink`;
+    const fromEmail =
+      process.env.ACCOUNT_LINK_FROM_EMAIL || "aiASAP <accounts@aiasap.ai>";
+    const html = buildMagicLinkEmailHtml(magicLink);
+    const sendRes = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        "Content-Type": "application/json",
+        // DEDUP (2026-06-03): /api/account/start sends for the SAME signup too.
+        // Same key (session+email) => Resend sends ONCE; the 2nd request conflicts.
+        "Idempotency-Key": `magiclink:${sessionId.trim()}:${email.trim().toLowerCase()}`,
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [email],
+        subject: "Your aiASAP magic link",
+        html,
+      }),
+    });
+    // 409/422 = idempotency conflict: the other sender already sent this signup's
+    // link. That's the dedup working — treat as success, not a failure.
+    if (sendRes.status === 409 || sendRes.status === 422) {
+      return { ok: true };
+    }
+    if (!sendRes.ok) {
+      const detail = await sendRes.text();
+      return { ok: false, error: `resend ${sendRes.status}: ${detail.slice(0, 150)}` };
     }
     return { ok: true };
   } catch (e) {
@@ -380,7 +510,12 @@ export async function POST(request: Request) {
     // link/magic/email" somewhere in this batch, AND the user's email
     // appears anywhere in the session history (current batch OR prior
     // batches). Only runs for anonymous users — signed-in don't need it.
-    if (!userId && hasMagicLinkTrigger(parsed.transcriptData)) {
+    if (
+      !userId &&
+      hasMagicLinkTrigger(parsed.transcriptData) &&
+      hasUserSendConsent(parsed.transcriptData) &&
+      !userRecentlyDeclinedSend(parsed.transcriptData)
+    ) {
       const triggerEmail = await findEmailInSession(
         liveAvatarSessionId,
         parsed.transcriptData,
@@ -403,7 +538,7 @@ export async function POST(request: Request) {
           // resume path. Was `next=/` (no signal), which is why returning
           // users looked brand-new.
           const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent("/?account=verified")}`;
-          void sendMagicLinkServerSide(triggerEmail, redirectTo).then(
+          void sendMagicLinkServerSide(triggerEmail, redirectTo, liveAvatarSessionId).then(
             (result) => {
               if (!result.ok) {
                 console.error(
@@ -472,16 +607,21 @@ export async function POST(request: Request) {
       }
       if (turns.length > 0) {
         void (async () => {
+          let stored = 0;
           for (const turn of turns) {
             try {
               const facts = await extractFactsFromTurn(turn);
               if (facts.length > 0) {
-                await storeFacts({ userId, facts });
+                const { inserted } = await storeFacts({ userId, facts });
+                stored += inserted;
               }
             } catch (err) {
               console.error("[memory:writer] transcript-sync failed", err);
             }
           }
+          console.log(
+            `[memory:writer sync DIAG] user=${userId} turns=${turns.length} factsStored=${stored}`,
+          );
         })();
       }
     }

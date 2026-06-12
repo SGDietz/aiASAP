@@ -8,8 +8,15 @@ import Link from "next/link";
 type LiveAvatarMode = "FULL" | "CUSTOM";
 
 function getRequestedLiveAvatarMode(): LiveAvatarMode {
+  // THE BIG MOVE (2026-06-11, G: "when the avatar is showing... voice is
+  // still straight from 11, not liveavatar. Constant stream 100% of the time
+  // from eleven labs"): CUSTOM is now the DEFAULT. LiveAvatar only renders
+  // the face (half the credits); 6's voice is ElevenLabs everywhere and his
+  // brain (the full CW, now in our code) runs through our own endpoint —
+  // identical in avatar mode and list mode, no reset on avatar returns.
+  // ?mode=full is the escape hatch back to the old LiveAvatar-everything path.
   if (typeof window === "undefined") {
-    return "FULL";
+    return "CUSTOM";
   }
   const params = new URLSearchParams(window.location.search);
   const value =
@@ -17,12 +24,27 @@ function getRequestedLiveAvatarMode(): LiveAvatarMode {
     params.get("avatarMode") ??
     params.get("liveavatarMode") ??
     "";
-  return value.toLowerCase() === "custom" ? "CUSTOM" : "FULL";
+  return value.toLowerCase() === "full" ? "FULL" : "CUSTOM";
+}
+
+// Post-click magic-link return arrives at "/?account=verified". Detect it
+// synchronously (before first render) so the auto-start bootstrap never fires —
+// we want the user to TAP before session 2 spins up. (G 2026-06-03)
+function isPostClickReturn(): boolean {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("account") === "verified";
 }
 
 export const LiveAvatarDemo = () => {
   const [sessionToken, setSessionToken] = useState("");
   const [mode] = useState<LiveAvatarMode>(getRequestedLiveAvatarMode);
+  // DISABLED (G 2026-06-03): the separate static tap-screen was redundant — the
+  // live view's own "Tap/Click ANYWHERE To Talk To 6" begin-surface IS the tap-
+  // gate AND is identical (it's the real view) AND unlocks audio so the greeting
+  // is heard. So the click-through now auto-starts straight into the live view,
+  // exactly like a first session. (isPostClickReturn kept dormant for reference.)
+  void isPostClickReturn;
+  const [awaitReturnTap, setAwaitReturnTap] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExited, setIsExited] = useState(false);
@@ -37,10 +59,27 @@ export const LiveAvatarDemo = () => {
     try {
       setIsLoading(true);
       setError(null);
+      // Languages switchboard (2026-06-10): carry ?lang=es (etc.) from the URL
+      // into session start so 6 speaks it from the first word. Read at call
+      // time so a restart keeps the same language.
+      const requestedLang =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("lang")
+          : null;
+      // Device timezone (2026-06-11): rung 1 of the timezone ladder — sent
+      // automatically so 6 always knows the user's local clock, nobody asked.
+      let deviceTz: string | null = null;
+      try {
+        deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+      } catch {
+        // Very old browsers — 6 just won't know the local time.
+      }
       const res = await fetch(
         mode === "CUSTOM" ? "/api/start-custom-session" : "/api/start-session",
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lang: requestedLang, tz: deviceTz }),
         },
       );
       if (!res.ok) {
@@ -69,20 +108,29 @@ export const LiveAvatarDemo = () => {
     if (explicitExitRef.current) {
       return;
     }
+    // Post-click magic-link return: wait for the user to tap-to-start before
+    // spinning up session 2. Credits + the welcome-back greeting fire on tap.
+    if (awaitReturnTap) {
+      return;
+    }
     if (sessionBootstrapRef.current) {
       return;
     }
     sessionBootstrapRef.current = true;
     void startSession();
-  }, [isExited, sessionToken, startSession]);
+  }, [isExited, sessionToken, startSession, awaitReturnTap]);
 
   const onSessionStopped = (opts?: { reason?: "inactivity" }) => {
+    void opts;
     sessionBootstrapRef.current = false;
-    if (opts?.reason === "inactivity") {
-      setIsExited(true);
-      setSessionToken("");
-      return;
-    }
+    // G 2026-06-01 (FIRST ORDER — CREDITS / MONEY): NEVER auto-restart on a
+    // session stop. The old non-inactivity branch cleared the token WITHOUT
+    // setting isExited, so the bootstrap effect immediately started a BRAND-NEW
+    // LiveAvatar session (= burning credits) every time a session dropped or 6
+    // closed it ("took a long time to close and it restarted"). Now ANY stop —
+    // inactivity, brain-driven close, or a drop — lands on the "Session Ended" /
+    // Restart screen, so a new session only ever starts on an explicit user tap.
+    setIsExited(true);
     setSessionToken("");
   };
 
@@ -234,9 +282,66 @@ export const LiveAvatarDemo = () => {
     setSessionToken("");
   };
 
+  if (awaitReturnTap && !sessionToken) {
+    // Post-click return: mirror the NORMAL entry look (static 6 + wordmark), with
+    // a tap-to-start. No email box, no auto-session. On tap, session 2 starts and
+    // 6 opens with the hard-coded welcome-back greeting. (G 2026-06-03)
+    return (
+      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
+        {/* Wordmark — VERBATIM from the live LiveAvatarSession view so it's identical */}
+        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
+          <div className="text-center px-4">
+            <div className="flex items-start justify-center">
+              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                aiASAP
+              </h1>
+            </div>
+            <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-semibold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+              Take the Leap
+            </p>
+          </div>
+        </div>
+        {/* Static 6 framed EXACTLY like the live avatar <video> (9:16 portrait
+            centered + gold border on desktop, full-cover on mobile). */}
+        <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/startscreen.png"
+            alt=""
+            className="h-full w-full object-cover md:object-contain md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+          />
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-[14svh] md:bottom-[16%] z-20 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setAwaitReturnTap(false);
+                sessionBootstrapRef.current = true;
+                void startSession();
+              }}
+              disabled={isLoading}
+              aria-label="Tap to talk to 6"
+              aria-busy={isLoading}
+              className="btn-inset rounded-2xl px-10 py-4 text-xl font-black"
+            >
+              {isLoading ? "Starting…" : "Tap to talk to 6"}
+            </button>
+          </div>
+        </div>
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
+          <Link
+            href="/terms"
+            className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+          >
+            © 2026 aiASAP All Rights Reserved · Terms
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (isExited) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-[#090604] text-[#f1c477]">
+      <div className="w-full h-full min-h-screen flex flex-col items-center justify-center gap-4 bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] text-[#f1c477]">
         <div className="text-2xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">Session Ended</div>
         <div className="text-center text-lg bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
           Thank you for using <span style={{ display: 'inline-block', transform: 'skewX(-10deg)', background: 'linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>aiASAP</span>
@@ -325,7 +430,13 @@ export const LiveAvatarDemo = () => {
 
   if (!sessionToken) {
     return (
-      <div className="w-full min-h-screen flex flex-col items-center justify-center gap-4 bg-black px-4">
+      <div
+        className="w-full min-h-screen flex flex-col items-center justify-center gap-4 px-4"
+        style={{
+          background:
+            "radial-gradient(135% 110% at 50% 32%, #5a360f 0%, #3a220c 38%, #241608 70%, #190f05 100%)",
+        }}
+      >
         {error && (
           <div className="max-w-xl rounded-xl bg-black/55 px-5 py-4 backdrop-blur-sm border border-white/10">
             <p className="text-center text-white text-lg font-semibold leading-snug">
@@ -343,7 +454,49 @@ export const LiveAvatarDemo = () => {
           </div>
         )}
         {!error && (
-          <div className="text-inset text-xl">Loading...</div>
+          // G 2026-06-01: the early (pre-session-token) loader must be the EXACT
+          // avatar-stage visual with 6 simply not there yet — not a separate
+          // card. So render an empty copy of the avatar's 9:16 stage frame plus
+          // the SAME wordmark overlay + LOADING surface the live stage uses, all
+          // anchored to the global --stage-* CSS vars. The wordmark keeps
+          // overflow-visible + px-5 so the skewed "P" never clips.
+          <div
+            className="fixed inset-0 z-0 flex items-center justify-center overflow-hidden"
+            style={{
+              // G 2026-06-09: loading screen was raw black on open - brand it.
+              // Warm gold-amber-into-deep-brown glow so the gold wordmark +
+              // LOADING still pop. "Nice brand colors all the way through."
+              background:
+                "radial-gradient(135% 110% at 50% 32%, #5a360f 0%, #3a220c 38%, #241608 70%, #190f05 100%)",
+            }}
+          >
+            {/* Empty avatar stage frame — identical styling to the <video>, no avatar yet */}
+            <div className="h-full w-full md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45)]" />
+            {/* Wordmark + tagline — verbatim from the live stage */}
+            <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
+              <div className="text-center px-4">
+                <div className="flex items-start justify-center">
+                  <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                    aiASAP
+                  </h1>
+                </div>
+                <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-semibold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                  Take the Leap
+                </p>
+              </div>
+            </div>
+            {/* LOADING surface — verbatim from the live stage, anchored to --stage 55% */}
+            <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none top-[calc(var(--stage-top)+var(--stage-height)*0.55)]">
+              <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
+                <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                  Loading
+                </p>
+                <div className="mx-auto mt-3 h-1.5 w-36 overflow-hidden rounded-full bg-white/10">
+                  <span className="block h-full w-1/2 animate-[loading-sweep_2.15s_ease-in-out_infinite] rounded-full bg-[#e0aa62]" />
+                </div>
+              </div>
+            </div>
+          </div>
         )}
         <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
           <Link

@@ -14,17 +14,15 @@ import {
   storeFacts,
 } from "../../../src/lib/memory";
 
-const SYSTEM_PROMPT = [
-  "You are 6, the aiASAP personal assistant and buddy.",
-  "You are warm, direct, practical, and concise. You have the user's back.",
-  "Every time you speak the brand name aiASAP, say it exactly as a-i-ASAP. Never say aisap, ai-sap, a-a-six, or A.I. ASAP.",
-  "Help people with lists, weekend plans, practical life tasks, and ways to improve their life or make money honestly.",
-  "Do not ramble. Keep most spoken replies to one or two short sentences unless the user asks for detail.",
-  "Never claim you can do integrations or actions that the app has not connected yet. Offer the next practical step instead.",
-  "Branding phrase when appropriate: Creator/Builder/Founder/Financier/CEO aiASAP.",
-].join(" ");
+// THE BIG MOVE (2026-06-11, G's order): 6's FULL brain — the entire 2.1
+// context window — now lives in our code and powers every reply in CUSTOM
+// mode. The old 8-line mini-prompt is gone; 6 is 6 everywhere, and his
+// personality survives avatar stops and returns because WE hold the brain.
+import { SIX_SYSTEM_PROMPT } from "../../../src/lib/brain/sixSystemPrompt";
 
-const OPENAI_MODEL = "gpt-4o-mini";
+const SYSTEM_PROMPT = SIX_SYSTEM_PROMPT;
+
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 export async function POST(request: Request) {
   const originErr = assertAllowedOrigin(request);
@@ -34,7 +32,12 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { message: rawMessage, image_analysis: rawImageAnalysis } = body;
+    const {
+      message: rawMessage,
+      image_analysis: rawImageAnalysis,
+      listMode,
+      history: rawHistory,
+    } = body;
 
     if (typeof rawMessage !== "string" || !rawMessage.trim()) {
       return new Response(JSON.stringify({ error: "message is required" }), {
@@ -76,8 +79,25 @@ export async function POST(request: Request) {
       userId !== null ? await recallFacts({ userId, query: message }) : [];
     const memoryBlock = formatRecalledFactsForPrompt(recalled);
 
-    // Assemble system prompt: aiASAP base + (optional image context) + (optional memory).
+    // Assemble system prompt: 6's full brain + live session context +
+    // (optional image context) + (optional memory).
     const systemSections: string[] = [SYSTEM_PROMPT];
+    // The platform used to inject SESSION CONTEXT dynamic vars; now we do.
+    try {
+      const nowLine = new Date().toLocaleString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/New_York",
+      });
+      systemSections.push(
+        `SESSION CONTEXT (live, from the app): Server time (US Eastern): ${nowLine}. Internal signals from the app may carry a fresher "Local time now" stamp in the user's own zone - the freshest stamp is the truth.`,
+      );
+    } catch {
+      // no clock, no stamp
+    }
     if (image_analysis) {
       systemSections.push(
         `IMPORTANT CONTEXT: The user has shared an image with you. You can see this image clearly, and here's what you observe: ${image_analysis}\n\nWhen the user asks questions about what they're seeing or asks questions about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility of the image. Never say you can't see the image or that you're relying on someone else's analysis. You are directly viewing this image.`,
@@ -86,9 +106,48 @@ export async function POST(request: Request) {
     if (memoryBlock) {
       systemSections.push(memoryBlock);
     }
+    if (listMode === true) {
+      // Voice-list mode (2026-06-11): the user is looking at a full-screen
+      // list and 6 is voice-only. First live session lesson — the brain read
+      // a numbered food list ALOUD and gave window-resizing advice for a
+      // screen the app owns.
+      systemSections.push(
+        "RIGHT NOW: a full-screen list is on the user's screen and you are voice-only (your face is hidden). HARD RULES: answer in ONE short sentence - it's a quick back-and-forth, never a lecture. NEVER read out a numbered or multi-item set of suggestions; if you have ideas, name at most two and ask if they want them ON the list. The app owns the screen layout - never claim to move or resize anything yourself. But you CAN open lists, close lists, and add or remove items when the user asks - the app does it the moment you're asked. If the user asks why a list opened or closed on its own, apologize briefly and offer to put it back the way they want - NEVER say you have no control over lists.",
+      );
+    }
+
+    // r26 (copilot 2026-06-12, G live: 6 re-introduced himself on EVERY turn
+    // — "three different voices repeated the intro"): the brain was stateless,
+    // so each call looked like first contact and the CW's greeting script
+    // fired again. The client now sends the running conversation; with it in
+    // place the brain continues instead of restarting.
+    const history: Array<{ role: "user" | "assistant"; content: string }> = [];
+    if (Array.isArray(rawHistory)) {
+      for (const turn of rawHistory.slice(-24)) {
+        if (
+          !turn ||
+          (turn.role !== "user" && turn.role !== "assistant") ||
+          typeof turn.content !== "string"
+        ) {
+          continue;
+        }
+        const content = truncateUtf8String(turn.content.trim(), 500);
+        if (content) history.push({ role: turn.role, content });
+      }
+    }
+    if (history.length > 0) {
+      systemSections.push(
+        "CONVERSATION SO FAR: the turns below already happened in THIS session. Do NOT introduce yourself again - you already did. Continue the conversation naturally.",
+      );
+    }
+
+    // Tracer: history=0 on a turn that should have context means the PAGE is
+    // stale (old bundle not sending history) — check before debugging deeper.
+    console.log(`[chat-complete] history=${history.length} listMode=${listMode === true}`);
 
     const messages: Array<{ role: string; content: string }> = [
       { role: "system", content: systemSections.join("\n\n") },
+      ...history,
       { role: "user", content: message },
     ];
 

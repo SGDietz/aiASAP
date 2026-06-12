@@ -35,6 +35,27 @@ export async function GET(request: NextRequest) {
   const rawNext = url.searchParams.get("next");
   const next = rawNext && rawNext.startsWith("/") ? rawNext : "/";
 
+  // RECALL FIX v3 (2026-06-01): IMPLICIT magic-link flow — no server-readable
+  // ?code= or ?token_hash=. The session token rides in the URL #hash, which a
+  // server route can't read AND a server 3xx redirect would DROP. So instead of
+  // redirecting server-side (which silently lost #access_token across 3 failed
+  // turnarounds), serve a tiny page that CLIENT-redirects to `next` carrying the
+  // hash forward. The landing page then setSession()s from the preserved hash.
+  if (!code && !tokenHash) {
+    // `next` is validated to start with "/"; JSON-encode + escape "<" so it can't
+    // break out of the inline <script>.
+    const safeNext = JSON.stringify(next).replace(/</g, "\\u003c");
+    const html =
+      `<!doctype html><html><head><meta charset="utf-8">` +
+      `<meta name="robots" content="noindex"></head><body>` +
+      `<script>location.replace(${safeNext} + (window.location.hash || ""));</script>` +
+      `</body></html>`;
+    return new Response(html, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+
   // Build the redirect response up front so the Supabase server client can write
   // session cookies directly onto it (belt-and-suspenders: no middleware exists).
   const response = NextResponse.redirect(new URL(next, request.url));
@@ -79,9 +100,12 @@ export async function GET(request: NextRequest) {
             });
 
         if (error) {
+          // There is NO /auth/sign-in page (voice-only app) — redirecting there
+          // 404'd the click-through. Land on HOME with an error flag so the user
+          // can just keep talking to 6 / retry, never a dead 404. (2026-06-03)
           return NextResponse.redirect(
             new URL(
-              `/auth/sign-in?error=${encodeURIComponent(error.message)}`,
+              `/?auth_error=${encodeURIComponent(error.message.slice(0, 80))}`,
               request.url,
             ),
           );
@@ -89,7 +113,7 @@ export async function GET(request: NextRequest) {
       } catch (e) {
         console.error("auth/callback exchange failed", e);
         return NextResponse.redirect(
-          new URL("/auth/sign-in?error=callback_failed", request.url),
+          new URL("/?auth_error=callback_failed", request.url),
         );
       }
     }

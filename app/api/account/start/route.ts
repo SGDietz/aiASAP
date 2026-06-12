@@ -1,5 +1,6 @@
 import { assertAllowedOrigin, truncateUtf8String } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
+import { buildMagicLinkEmailHtml } from "../../../../src/lib/magicLinkEmail";
 
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
@@ -91,43 +92,108 @@ export async function POST(request: Request) {
     );
   }
 
-  // v2.1 resume-bug fix (part c): carry ?account=verified through the magic
-  // link so the post-sign-in return fires 6's welcome-back + resume path.
-  // Was `next=/` (no signal) — that's why returning users looked brand-new.
-  const redirectTo = `${siteUrl.replace(/\/$/, "")}/auth/callback?next=${encodeURIComponent("/?account=verified")}`;
+  // RECALL FIX (2026-06-03 — token_hash flow): the implicit OTP magic link never
+  // delivered a usable session to the page on return (DB-confirmed: authCookies=0,
+  // NO tokens in the return URL — the link verified server-side but the session
+  // never reached the browser, so 6 greeted returning users as strangers). Switch
+  // to token_hash: generate the link server-side and point it at OUR /auth/callback
+  // with ?token_hash=...&type=magiclink, so the callback verifies it and writes the
+  // SERVER auth cookie deterministically (the same proven path as ?code= OAuth).
+  // We send the email ourselves via Resend so the link format is fully ours.
+  // Detail: reference_aiasap_recall_and_session_2026-06-01.
+  const origin = (() => {
+    try { return new URL(request.url).origin; } catch { return siteUrl.replace(/\/$/, ""); }
+  })();
+  const callbackBase = `${origin}/auth/callback`;
+  const nextParam = encodeURIComponent("/?account=verified");
+  const redirectTo = `${callbackBase}?next=${nextParam}`;
 
-  // Fire Supabase OTP magic-link send.
   let emailSent = false;
   let supabaseError: string | null = null;
+  const resendKey = process.env.RESEND_API_KEY;
 
-  try {
-    const otpRes = await fetch(`${supaUrl}/auth/v1/otp`, {
-      method: "POST",
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${anonKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        email,
-        create_user: true,
-        options: {
-          emailRedirectTo: redirectTo,
-          data: { full_name: fullName, session_id: sessionId },
-        },
-      }),
-    });
+  if (!serviceRoleKey) {
+    supabaseError = "service role key required";
+  } else if (!resendKey) {
+    supabaseError = "RESEND_API_KEY not configured";
+  } else {
+    const adminHeaders = {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+    };
+    try {
+      // 1) Ensure the user exists (passwordless, pre-confirmed so the magic-link
+      //    verify reliably signs them in). Idempotent: 422 = already registered.
+      await fetch(`${supaUrl}/auth/v1/admin/users`, {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify({
+          email,
+          email_confirm: true,
+          user_metadata: { full_name: fullName, session_id: sessionId },
+        }),
+      });
 
-    if (otpRes.ok) {
-      emailSent = true;
-    } else {
-      const detail = await otpRes.text();
-      supabaseError = `Magic link send failed (${otpRes.status})`;
-      console.error("Supabase OTP failed:", otpRes.status, detail.slice(0, 200));
+      // 2) Generate a magic-link token_hash for this user.
+      const genRes = await fetch(`${supaUrl}/auth/v1/admin/generate_link`, {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify({
+          type: "magiclink",
+          email,
+          options: { redirect_to: redirectTo },
+        }),
+      });
+      if (!genRes.ok) {
+        const detail = await genRes.text();
+        supabaseError = `generate_link failed (${genRes.status})`;
+        console.error("generate_link failed:", genRes.status, detail.slice(0, 200));
+      } else {
+        const gen = await genRes.json();
+        const hashedToken =
+          (gen && (gen.hashed_token || (gen.properties && gen.properties.hashed_token))) ||
+          null;
+        if (!hashedToken) {
+          supabaseError = "generate_link returned no token_hash";
+        } else {
+          // 3) Build OUR token_hash link → /auth/callback writes the server cookie.
+          const magicLink = `${callbackBase}?token_hash=${encodeURIComponent(hashedToken)}&type=magiclink&next=${nextParam}`;
+          const fromEmail =
+            process.env.ACCOUNT_LINK_FROM_EMAIL || "aiASAP <accounts@aiasap.ai>";
+          const html = buildMagicLinkEmailHtml(magicLink);
+          const sendRes = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${resendKey}`,
+              "Content-Type": "application/json",
+              // DEDUP (2026-06-03): the sync auto-trigger sends for the SAME
+              // signup too. Same key (session+email) => Resend sends ONCE; the
+              // 2nd request conflicts.
+              "Idempotency-Key": `magiclink:${(sessionId ?? "").trim()}:${email.trim().toLowerCase()}`,
+            },
+            body: JSON.stringify({
+              from: fromEmail,
+              to: [email],
+              subject: "Your aiASAP magic link",
+              html,
+            }),
+          });
+          if (sendRes.ok || sendRes.status === 409 || sendRes.status === 422) {
+            // 409/422 = idempotency conflict: the sync trigger already sent this
+            // signup's link. Dedup working — count it as sent.
+            emailSent = true;
+          } else {
+            const detail = await sendRes.text();
+            supabaseError = `Resend send failed (${sendRes.status})`;
+            console.error("Resend send failed:", sendRes.status, detail.slice(0, 200));
+          }
+        }
+      }
+    } catch (error) {
+      supabaseError = "token_hash send threw";
+      console.error("/api/account/start token_hash threw:", error);
     }
-  } catch (error) {
-    supabaseError = "Magic link send threw";
-    console.error("/api/account/start OTP threw:", error);
   }
 
   // Save lists + resumeState to account_email_links for post-tap recovery.
