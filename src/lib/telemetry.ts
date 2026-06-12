@@ -129,6 +129,50 @@ export function maybeSubmitBugReport(args: {
   return true;
 }
 
+// ── User feedback catcher ───────────────────────────────────────────────────
+
+/**
+ * Praise and ideas — the other half of listening. "I love this", "you should
+ * add X", "I wish you could Y" → user_feedback row + email from UserFeedback@.
+ */
+export const FEEDBACK_PHRASE_RE =
+  /\bi (?:love|really like) (?:this|it|you|him)\b|\b(?:this|that) is (?:so |really )?(?:awesome|amazing|incredible|fantastic|wonderful|cool)\b|\bgreat idea\b|\byou should (?:add|make|let|have)\b|\bi wish (?:you|it|he) (?:could|would|had)\b|\bit would be (?:great|nice|cool|awesome) if\b|\bcan you guys add\b|\bfeature request\b/i;
+
+let lastFeedbackAt = 0;
+
+/** Same contract as maybeSubmitBugReport: true = matched (already filed). */
+export function maybeSubmitUserFeedback(args: {
+  triggerText: string;
+  transcript: Array<{ role: string; text: string }>;
+  mode?: string | null;
+}): boolean {
+  if (!FEEDBACK_PHRASE_RE.test(args.triggerText)) return false;
+  const now = Date.now();
+  if (now - lastFeedbackAt < 120_000) return true;
+  lastFeedbackAt = now;
+  try {
+    void fetch("/api/user-feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        trigger_text: args.triggerText.slice(0, 1000),
+        session_id: telemetrySessionId,
+        transcript: args.transcript.slice(-16),
+        device: { ...collectClientDevice(), mode: args.mode ?? null },
+      }),
+      keepalive: true,
+    }).catch(() => {});
+    logAppEvent(
+      "feedback_captured",
+      { trigger: args.triggerText.slice(0, 300) },
+      "medium",
+    );
+  } catch {
+    // Never break the conversation.
+  }
+  return true;
+}
+
 // ── Frustration counter ─────────────────────────────────────────────────────
 
 const CORRECTION_RE =

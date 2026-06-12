@@ -31,9 +31,18 @@ import { captureClientError } from "../lib/observability/clientLogger";
 import {
   logAppEvent,
   maybeSubmitBugReport,
+  maybeSubmitUserFeedback,
   noteUserTurnForFrustration,
   setTelemetrySessionId,
 } from "../lib/telemetry";
+
+// r30 (G 2026-06-12: "how do we know when I am on my account... Can I log
+// out, and then log in from another account? Let's set up that system"):
+// voice sign-out commands + the spoken confirm line.
+const LOGOUT_COMMAND_RE =
+  /\b(?:log|sign)\s*(?:me\s*)?(?:out|off)\b|\bswitch\s+(?:my\s+|the\s+)?accounts?\b/i;
+const ACCOUNT_SIGNOUT_LINE =
+  "You got it - signing you out now. The page will start fresh in a few seconds, and you can sign in as anyone.";
 import {
   fmtReminderDue,
   parseReminder,
@@ -2037,6 +2046,22 @@ const LiveAvatarSessionComponent: React.FC<{
           listSnapshot: activeListSnapshotRef.current,
           mode,
         });
+        maybeSubmitUserFeedback({
+          triggerText: heard,
+          transcript: getBrainHistory().map((l) => ({
+            role: l.role,
+            text: l.content,
+          })),
+          mode,
+        });
+        // r30: voice sign-out works from list mode too.
+        if (LOGOUT_COMMAND_RE.test(heard)) {
+          rememberLineRef.current("assistant", ACCOUNT_SIGNOUT_LINE);
+          voiceLogTurn("assistant", ACCOUNT_SIGNOUT_LINE);
+          void voiceSay(ACCOUNT_SIGNOUT_LINE);
+          performSignOut();
+          return;
+        }
         if (wantsAvatarBack(heard)) {
           // r29 (G 2026-06-12 09:01: "let's go back to six" brought the
           // grocery list BACK with him): face-back = clean stage. The list
@@ -2643,6 +2668,26 @@ const LiveAvatarSessionComponent: React.FC<{
   useEffect(() => {
     activeListSnapshotRef.current = activeList ? [...activeList.items] : null;
   }, [activeList]);
+
+  // r30: full voice sign-out — Supabase browser session + legacy account
+  // cookie both cleared, then a clean reload to anonymous so no
+  // half-signed-in state lingers. The delay lets 6 finish his confirm line.
+  const performSignOut = useCallback(() => {
+    logAppEvent("voice_logout", {});
+    void (async () => {
+      try {
+        await getSupabaseBrowserOrNull()?.auth.signOut();
+      } catch {
+        // server cookie clear + the reload below are the backstops
+      }
+      try {
+        await fetch("/api/account/logout", { redirect: "manual" });
+      } catch {
+        // reload anyway
+      }
+    })();
+    window.setTimeout(() => window.location.replace("/"), 4500);
+  }, []);
   const visibleThoughtPrompts = useMemo(() => {
     const listIsVisible = Boolean(activeList || isShoppingMode);
     return normalizeThoughtPrompts(
@@ -6967,6 +7012,14 @@ const LiveAvatarSessionComponent: React.FC<{
         listSnapshot: activeListSnapshotRef.current,
         mode,
       });
+      maybeSubmitUserFeedback({
+        triggerText: userText,
+        transcript: recentConversationRef.current.map((l) => ({
+          role: l.role,
+          text: l.text,
+        })),
+        mode,
+      });
       if (accountPendingStateTokenRef.current) {
         savePendingAccountState();
       }
@@ -7021,6 +7074,16 @@ const LiveAvatarSessionComponent: React.FC<{
       // transcription arrives while 6 is mid-speech, 6 stops.
       if (isAvatarTalking) {
         void interrupt();
+      }
+
+      // r30 (G 2026-06-12): voice sign-out — checked before every other
+      // handler so nothing can eat "log me out" / "switch accounts".
+      if (LOGOUT_COMMAND_RE.test(userText)) {
+        await repeat(ACCOUNT_SIGNOUT_LINE);
+        lastAvatarResponseRef.current = ACCOUNT_SIGNOUT_LINE;
+        rememberConversationLine("assistant", ACCOUNT_SIGNOUT_LINE);
+        performSignOut();
+        return;
       }
 
       // FIX (latency, 2026-06-01): EMAIL-SPELLING FAST PATH.
@@ -9407,6 +9470,17 @@ const LiveAvatarSessionComponent: React.FC<{
                 )}
               </div>
             )}
+
+          {/* r30 (G 2026-06-12): always know WHICH account this is — tiny
+              signed-in badge, brand gold, bottom-left, never interactive.
+              Shows in avatar AND list modes; absent = anonymous/guest. */}
+          {accountEmail && sessionState !== SessionState.DISCONNECTED && (
+            <div className="fixed bottom-2 left-3 z-40 pointer-events-none rounded-full border border-[#e0aa62]/40 bg-[#241608]/70 px-3 py-1 backdrop-blur-[2px]">
+              <span className="text-[11px] font-semibold tracking-wide bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#b97f3e] bg-clip-text text-transparent">
+                Signed in: {accountEmail}
+              </span>
+            </div>
+          )}
 
           {visionMode !== "streaming" &&
             !isCameraActive &&

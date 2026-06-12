@@ -1,5 +1,45 @@
 import { getSupabaseAdminConfig } from "../supabaseAdmin";
+import { sendPurposeEmail } from "../emailSenders";
 import type { ErrorLogRow, LogLevel, LogRuntime } from "./types";
+
+// r30 (G 2026-06-12, email system): real errors also email G from
+// CrashReport@ — but hard-capped at ONE email per 10 minutes so an error
+// storm can never flood his inbox. Off unless CRASH_EMAILS_ENABLED=true.
+let lastCrashEmailAt = 0;
+const CRASH_EMAIL_MIN_GAP_MS = 10 * 60 * 1000;
+
+// Diagnostic breadcrumbs logged AT error level (voice-mode lifecycle tracers,
+// signup tracers) are not crashes — never email those.
+const TRACER_MESSAGE_RE = /^(?:voice-mode$|signup-tracer)/;
+
+function maybeSendCrashEmail(payload: ErrorLogRow): void {
+  if (process.env.CRASH_EMAILS_ENABLED !== "true") return;
+  if (payload.level !== "error") return;
+  if (TRACER_MESSAGE_RE.test(payload.message)) return;
+  const to = process.env.AIASAP_FOUNDER_REPORT_EMAIL;
+  if (!to) return;
+  const now = Date.now();
+  if (now - lastCrashEmailAt < CRASH_EMAIL_MIN_GAP_MS) return;
+  lastCrashEmailAt = now;
+  const text = [
+    "aiASAP Watchdog here - the system hit an error.",
+    "",
+    `When: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} (Eastern)`,
+    `Where: ${payload.route ?? "unknown route"} (${payload.runtime})`,
+    `What: ${payload.message}`,
+    `Session: ${payload.session_id ?? "unknown"}`,
+    "",
+    "Full row (with stack) is in Supabase table error_logs.",
+    "Note: crash emails are capped at one per 10 minutes - check error_logs",
+    "for anything that happened since this one.",
+  ].join("\n");
+  void sendPurposeEmail({
+    purpose: "crash",
+    to,
+    subject: `Watchdog: error in ${payload.route ?? payload.runtime}`,
+    text,
+  });
+}
 
 const MAX_MESSAGE_LEN = 4000;
 const MAX_STACK_LEN = 16000;
@@ -89,6 +129,8 @@ export async function captureServerError(row: {
     session_id: payload.session_id,
     route: payload.route,
   });
+
+  maybeSendCrashEmail(payload);
 
   let url: string;
   let serviceRoleKey: string;

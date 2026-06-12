@@ -6,14 +6,12 @@ import { getSupabaseAdminConfig } from "../../../src/lib/supabaseAdmin";
 import { captureServerError } from "../../../src/lib/observability/serverLogger";
 import { sendPurposeEmail } from "../../../src/lib/emailSenders";
 
-// r29 (2026-06-12, G's order): "when a user says, that doesn't work right...
-// that should key 6 in and then he should auto launch a bug report that gets
-// emailed to me automatically with a plain english full report." Re-enabled
-// from the 410 beta stub. Row lands in public.bug_reports either way; the
-// email is best-effort on top.
+// r30 (G 2026-06-12, email system round): when a user tells 6 something nice
+// or pitches an idea ("you should add...", "I wish you could..."), that's
+// gold — save it to public.user_feedback and email G from UserFeedback@.
+// Same shape as /api/bug-report on purpose: one pattern, two tables.
 
 const TO = process.env.AIASAP_FOUNDER_REPORT_EMAIL || "";
-
 const MAX_TRIGGER = 1000;
 const MAX_TRANSCRIPT_LINES = 16;
 const MAX_LINE = 400;
@@ -36,7 +34,6 @@ function cleanTranscript(
 function plainEnglishReport(args: {
   trigger: string;
   transcript: Array<{ role: string; text: string }>;
-  listSnapshot: unknown;
   device: Record<string, unknown> | null;
   sessionId: string | null;
   userId: string | null;
@@ -45,9 +42,7 @@ function plainEnglishReport(args: {
     timeZone: "America/New_York",
   });
   const lines: string[] = [];
-  lines.push("6 here - caught a bug.");
-  lines.push("");
-  lines.push("A user hit a problem on aiASAP. I grabbed everything below so the team can fix it.");
+  lines.push("6 here - a user just gave us feedback worth reading.");
   lines.push("");
   lines.push(`When: ${when} (Eastern)`);
   lines.push(`What they said: "${args.trigger}"`);
@@ -56,28 +51,18 @@ function plainEnglishReport(args: {
   if (args.device) {
     const d = args.device;
     lines.push(
-      `Device: ${String(d.deviceKind ?? "?")}, screen ${String(d.screen ?? "?")}, viewport ${String(d.viewport ?? "?")}, mode ${String(d.mode ?? "?")}`,
+      `Device: ${String(d.deviceKind ?? "?")}, mode ${String(d.mode ?? "?")}`,
     );
-    lines.push(`Browser: ${String(d.userAgent ?? "?")}`);
-  }
-  if (Array.isArray(args.listSnapshot) && args.listSnapshot.length > 0) {
-    lines.push("");
-    lines.push("What was on the screen list:");
-    for (const item of args.listSnapshot.slice(0, 30)) {
-      lines.push(`  - ${String(item).slice(0, 200)}`);
-    }
   }
   if (args.transcript.length > 0) {
     lines.push("");
-    lines.push("The talk right before the problem (oldest first):");
+    lines.push("The talk around it (oldest first):");
     for (const l of args.transcript) {
       lines.push(`  ${l.role === "user" ? "User" : "6"}: ${l.text}`);
     }
   }
   lines.push("");
-  lines.push(
-    "Full row saved in Supabase table bug_reports with the same session id.",
-  );
+  lines.push("Full row saved in Supabase table user_feedback.");
   return lines.join("\n");
 }
 
@@ -91,7 +76,6 @@ export async function POST(request: Request) {
     trigger_text?: unknown;
     session_id?: unknown;
     transcript?: unknown;
-    list_snapshot?: unknown;
     device?: unknown;
   };
   try {
@@ -118,28 +102,23 @@ export async function POST(request: Request) {
     body.device && typeof body.device === "object"
       ? (body.device as Record<string, unknown>)
       : null;
-  const listSnapshot = Array.isArray(body.list_snapshot)
-    ? body.list_snapshot
-    : null;
   const userId = await getUserId();
 
   const report = plainEnglishReport({
     trigger,
     transcript,
-    listSnapshot,
     device,
     sessionId,
     userId,
   });
 
-  // 1) Email G (best-effort, via the purpose-routed sender catalog).
   let emailed = false;
   let emailError: string | null = null;
   if (TO) {
     const sent = await sendPurposeEmail({
-      purpose: "bug",
+      purpose: "feedback",
       to: TO,
-      subject: `6 here - caught a bug: "${trigger.slice(0, 50)}"`,
+      subject: `6 here - user feedback: "${trigger.slice(0, 50)}"`,
       text: report,
     });
     emailed = sent.ok;
@@ -148,10 +127,9 @@ export async function POST(request: Request) {
     emailError = "founder email not configured";
   }
 
-  // 2) Persist the row (also best-effort, but logged loudly on failure).
   try {
     const { url, serviceRoleKey } = getSupabaseAdminConfig();
-    await fetch(`${url}/rest/v1/bug_reports`, {
+    await fetch(`${url}/rest/v1/user_feedback`, {
       method: "POST",
       headers: {
         apikey: serviceRoleKey,
@@ -165,7 +143,6 @@ export async function POST(request: Request) {
         trigger_text: trigger,
         report,
         transcript,
-        list_snapshot: listSnapshot,
         device,
         emailed,
         email_error: emailError,
@@ -173,9 +150,9 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     await captureServerError({
-      message: "bug_reports insert failed",
+      message: "user_feedback insert failed",
       error: e,
-      route: "/api/bug-report",
+      route: "/api/user-feedback",
       session_id: sessionId,
     });
   }
