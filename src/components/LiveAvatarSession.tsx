@@ -43,6 +43,14 @@ const LOGOUT_COMMAND_RE =
   /\b(?:log|sign)\s*(?:me\s*)?(?:out|off)\b|\bswitch\s+(?:my\s+|the\s+)?accounts?\b/i;
 const ACCOUNT_SIGNOUT_LINE =
   "You got it - signing you out now. The page will start fresh in a few seconds, and you can sign in as anyone.";
+
+// r29/r31 (G live 2026-06-12: "The ad is not something that you buy at a
+// grocery store" → "Added a store"; "I didn't say to do that" → spawned a
+// "That To Do List"): talking ABOUT the system is never an order. Negation
+// or reported speech anywhere in a sentence blocks BOTH item adds AND
+// new-list creation from it.
+const META_TALK_RE =
+  /\b(?:not|don'?t|doesn'?t|didn'?t|isn'?t|wasn'?t|can'?t|never|you (?:just )?sa(?:y|id)|he said|she said|it says?|says|said|saying|talking to|i had|reality|issue|problem|wrong|mistake|supposed)\b/i;
 import {
   fmtReminderDue,
   parseReminder,
@@ -2285,8 +2293,11 @@ const LiveAvatarSessionComponent: React.FC<{
       voiceReturnKeepsListRef.current = keepList;
       // Never replay the full scripted intro on a comeback.
       greetingTriggeredRef.current = true;
+      // r31 (G's explicit script order, 2026-06-12 09:02: "Don't have six
+      // say, bring my face back, say, I'm bringing myself back"): SACRED
+      // wording — never say "face back".
       if (attempt === 1) {
-        void voiceSay("You got it - one sec, bringing my face back.");
+        void voiceSay("You got it - one sec, bringing myself back.");
       }
       void captureClientError(new Error("voice-mode"), {
         where: "voice-mode",
@@ -2335,7 +2346,7 @@ const LiveAvatarSessionComponent: React.FC<{
         setPresence("voice");
         if (attempt <= 2) {
           void voiceSay(
-            "Hmm - I couldn't get my face back just now. We can keep talking, or tap my photo to try again.",
+            "Hmm - I couldn't bring myself back just now. We can keep talking, or tap my photo to try again.",
           );
         }
       }
@@ -7401,10 +7412,13 @@ const LiveAvatarSessionComponent: React.FC<{
       // about THIS list, never an order for a fresh one.
       const inferredListIntent =
         inferredListIntentRaw &&
-        activeListId &&
-        /^(?:blank|empty|new|the|this|that|same|whole|my)\b\s*(?:list)?$/i.test(
-          inferredListIntentRaw.title.trim(),
-        )
+        // r31 (G 09:03: "I didn't say to do that" spawned a "That To Do
+        // List"): meta/negation sentences never create or open lists.
+        (META_TALK_RE.test(userText) ||
+          (activeListId &&
+            /^(?:blank|empty|new|the|this|that|same|whole|my)\b\s*(?:list)?$/i.test(
+              inferredListIntentRaw.title.trim(),
+            )))
           ? null
           : inferredListIntentRaw;
 
@@ -7468,11 +7482,9 @@ const LiveAvatarSessionComponent: React.FC<{
         // r29 (G live 2026-06-12 09:01: "The ad is not something that you buy
         // at a grocery store" → "Added a store"; "I had blackberries" → added
         // verbatim; his complaint ABOUT the list became more list): talking
-        // ABOUT items is never an order. Negation or reported speech anywhere
-        // in the sentence = zero adds from it.
-        const _META_TALK_RE =
-          /\b(?:not|don'?t|doesn'?t|isn'?t|wasn'?t|can'?t|never|you (?:just )?sa(?:y|id)|he said|she said|it says?|says|said|saying|talking to|i had|reality|issue|problem|wrong|mistake|supposed)\b/i;
-        const _addsBlocked = _META_TALK_RE.test(userText);
+        // ABOUT items is never an order — META_TALK_RE is module-level now
+        // (r31) because list CREATION needs the same guard.
+        const _addsBlocked = META_TALK_RE.test(userText);
         // r29: bare dictation is pure nouns ("toothpaste, shampoo") — any
         // pronoun or speech word means it's a sentence, not a grocery run.
         const _BARE_SPEECH_RE =
@@ -7511,7 +7523,7 @@ const LiveAvatarSessionComponent: React.FC<{
           .filter(Boolean)
           .filter(
             (it) =>
-              !/\b(?:could|should|would|say|says|saying|instead|okay|so|number|gonna|you|your|i'?m|the x|al?l\s?right|alright|tell|here'?s|list|me)\b/i.test(
+              !/\b(?:could|should|would|say|says|saying|instead|okay|so|number|gonna|you|your|i'?m|the x|al?l\s?right|alright|tell|here'?s|list|me|bring|yourself|back)\b/i.test(
                 it,
               ),
           )

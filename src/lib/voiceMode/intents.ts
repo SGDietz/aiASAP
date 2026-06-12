@@ -7,9 +7,11 @@
 
 /** The user asks for 6 himself to come back.
  * r19 additions from G's FIRST live voice-mode session (2026-06-11 21:06):
- * "See 6 again" and "are you there, six?" both missed the old pattern. */
+ * "See 6 again" and "are you there, six?" both missed the old pattern.
+ * r31 (G live 2026-06-12 09:02: "Okay, so six, bring yourself back" missed
+ * this and became a GROCERY ITEM): "yourself" counts now. */
 export const AVATAR_RETURN_RE =
-  /\b(?:bring (?:him|6|six|you|the avatar|your face) back|come back|come on back|show (?:me )?(?:your face|yourself|6|six|the avatar)|i (?:want|wanna|need) to see you|where(?:'d| did) (?:he|you|6|six) go|where(?:'s| is) (?:6|six)\b|go back to (?:6|six|you|the avatar)|back to (?:the )?(?:avatar|video|face)|talk to (?:6|six) again|let me see you|see (?:you|6|six) again|miss your face)\b/i;
+  /\b(?:bring (?:him|6|six|you|yourself|the avatar|your face) back|come back|come on back|show (?:me )?(?:your face|yourself|6|six|the avatar)|i (?:want|wanna|need) to see you|where(?:'d| did) (?:he|you|6|six) go|where(?:'s| is) (?:6|six)\b|go back to (?:6|six|you|the avatar)|back to (?:the )?(?:avatar|video|face)|talk to (?:6|six) again|let me see you|see (?:you|6|six) again|miss your face)\b/i;
 
 /** The user is finished with the list / the screen that's up.
  * r19: G's verbatim "Take the list off." closed the list through the OLD
