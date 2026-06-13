@@ -30,7 +30,13 @@ function cleanTranscript(
       role: typeof l?.role === "string" ? l.role.slice(0, 20) : "?",
       text: typeof l?.text === "string" ? l.text.slice(0, MAX_LINE) : "",
     }))
-    .filter((l) => l.text);
+    .filter((l) => l.text)
+    // r33 (G: "why is so much written twice?"): consecutive identical lines
+    // are double-writer artifacts — the email shows each line once.
+    .filter(
+      (l, i, arr) =>
+        i === 0 || l.text !== arr[i - 1].text || l.role !== arr[i - 1].role,
+    );
 }
 
 function plainEnglishReport(args: {

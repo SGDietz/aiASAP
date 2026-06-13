@@ -2031,7 +2031,7 @@ const LiveAvatarSessionComponent: React.FC<{
     setVoiceUserTalking(false);
   }, []);
 
-  const handleVoiceUtterance = useCallback(
+  const processVoiceUtterance = useCallback(
     async (blob: Blob) => {
       if (voicePresenceRef.current === "avatar") return;
       try {
@@ -2045,6 +2045,20 @@ const LiveAvatarSessionComponent: React.FC<{
         const { text } = (await res.json()) as { text?: string };
         const heard = (text ?? "").trim();
         if (!heard) return;
+        // r33: STT sometimes ships the same utterance twice back-to-back —
+        // one turn, one response (the avatar path has had this guard since
+        // 2026-06-11; the list ears were open).
+        if (
+          isDuplicateUtterance(
+            lastListHeardRef.current?.text ?? null,
+            lastListHeardRef.current?.at ?? 0,
+            heard,
+            Date.now(),
+          )
+        ) {
+          return;
+        }
+        lastListHeardRef.current = { text: heard, at: Date.now() };
         // r28: echo firewall for the voice-mode ears too (avatar-mode got it
         // in r26; this path was open and 6 answered his own speaker audio).
         if (wasRecentlySpokenBySix(heard)) {
@@ -2142,6 +2156,18 @@ const LiveAvatarSessionComponent: React.FC<{
       }
     },
     [voiceSay, voiceLogTurn, getBrainHistory],
+  );
+
+  // r33: list-ears turns join the SAME one-at-a-time chain as avatar turns —
+  // two quick utterances answer in order, never on top of each other.
+  const handleVoiceUtterance = useCallback(
+    (blob: Blob): Promise<void> => {
+      turnChainRef.current = turnChainRef.current
+        .then(() => processVoiceUtterance(blob))
+        .catch(() => {});
+      return turnChainRef.current;
+    },
+    [processVoiceUtterance],
   );
 
   // Ears: RMS voice-activity detection over the raw mic; records one
@@ -2460,6 +2486,16 @@ const LiveAvatarSessionComponent: React.FC<{
     at: 0,
   });
   const recentConversationRef = useRef<MemoryConversationLine[]>([]);
+  // r33: one turn = one memory line (kills the doubled bug-report transcripts).
+  const lastRememberedLineRef = useRef<{ key: string; at: number } | null>(
+    null,
+  );
+  // r33 (G 2026-06-12 21:15, "two voices" + doubled lines): ALL user turns —
+  // avatar ears and list ears — run through ONE chain, one at a time, in
+  // arrival order. Racing handlers were answering two quick utterances on
+  // top of each other through two different voice pipes.
+  const turnChainRef = useRef<Promise<void>>(Promise.resolve());
+  const lastListHeardRef = useRef<{ text: string; at: number } | null>(null);
   const lastFullModeMessageRef = useRef<{ text: string; at: number } | null>(
     null,
   );
@@ -2823,6 +2859,18 @@ const LiveAvatarSessionComponent: React.FC<{
       // signup mechanics, not what they came to build (G 2026-06-03: came in
       // about isolveyourproblems.ai, 6 only remembered "you were giving me your
       // email"). 30 lines keeps the real subject in the resume snapshot.
+      // r33 (G 2026-06-12 21:15, the doubled bug-report transcript — "why is
+      // so much written twice?"): same role + same text inside 5s is a
+      // double-writer artifact, never a real repeat. One turn, one line.
+      const dupKey = `${role}:${cleaned.toLowerCase()}`;
+      if (
+        lastRememberedLineRef.current &&
+        lastRememberedLineRef.current.key === dupKey &&
+        Date.now() - lastRememberedLineRef.current.at < 5000
+      ) {
+        return;
+      }
+      lastRememberedLineRef.current = { key: dupKey, at: Date.now() };
       recentConversationRef.current = [
         ...recentConversationRef.current,
         { role, text: cleaned },
@@ -7014,7 +7062,18 @@ const LiveAvatarSessionComponent: React.FC<{
       return;
     }
 
-    const handleUserTranscription = async (event: { text: string }) => {
+    // r33 (G 2026-06-12 21:15: "two voices" twice in one ride + every line
+    // written twice): turns process ONE AT A TIME in arrival order. STT
+    // delivering two utterances a beat apart used to race both through the
+    // handler stack — two responders, overlapping audio through two
+    // different voice pipes, double memory writes.
+    const handleUserTranscription = (event: { text: string }) => {
+      turnChainRef.current = turnChainRef.current
+        .then(() => processUserTurn(event))
+        .catch(() => {});
+      return turnChainRef.current;
+    };
+    const processUserTurn = async (event: { text: string }) => {
       const userText = event.text.trim();
       if (isInternalSignal(userText)) {
         return;
