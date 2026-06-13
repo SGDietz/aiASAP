@@ -1533,7 +1533,10 @@ function formatOnlineLookupSpeech(lines: string[], query: string): string {
   if (/\b(?:weather|forecast)\b/i.test(query)) {
     return "Here is the weekend weather. Want me to use that to pick the best day?";
   }
-  return `I have got ${lines.length} ideas for you. Want me to walk through them?`;
+  // G 2026-06-13 critic: these are PLACES, not "ideas" — say "spots" so 6 never
+  // sounds like the coaching idea-cards (and "3 ideas for you" stops reading as
+  // a non-sequitur when a lookup resolves).
+  return `I found ${lines.length} spots near you. Want me to run through them?`;
 }
 
 // G 2026-06-13 dogfood (21:51:16 "watermelon and half and half" -> lost "half
@@ -6291,6 +6294,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const performOnlineLookup = useCallback(
     async (query: string, location: string) => {
       if (isOnlineLookupLoading) return true;
+      // G 2026-06-13 critic #3 (a late waterfall search said "3 ideas" OVER his
+      // next, unrelated turn): remember which user turn asked for this search.
+      const lookupTurnAt = prevUserSpeechRef.current?.at ?? 0;
       const topic = summarizeOnlineLookupTopic(query);
       const lookupLocation = normalizeLookupLocation(location);
       setIsOnlineLookupLoading(true);
@@ -6320,11 +6326,18 @@ const LiveAvatarSessionComponent: React.FC<{
         setOnlineLookupResultLines(resultLines);
         setOnlineLookupNotice(null);
         const spoken = formatOnlineLookupSpeech(resultLines, query);
-        await repeat(spoken);
+        // G 2026-06-13 critic #3: if a NEW user turn arrived while the search ran,
+        // speaking the result would talk OVER him (this is how "3 ideas" landed on
+        // unrelated talk). The results already show on his chest — stay silent and
+        // let his new turn lead. Only speak when he's still waiting on this lookup.
+        const userMovedOn = (prevUserSpeechRef.current?.at ?? 0) > lookupTurnAt;
+        if (!userMovedOn) {
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+        }
         if (mode === "FULL") {
           window.setTimeout(() => startListening(), 900);
         }
-        lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
         schedulePromptBrain(query);
         return true;
@@ -8325,7 +8338,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // do you see on the list" must RELIABLY read it back (it only worked once,
         // by accident, when the brain happened to know). Dedicated handler now.
         const _wantsReadback =
-          /\bread\s+(?:me\s+|back\s+|out\s+|it\s+|the\s+|my\s+|them\s+)*(?:list|back|it|them)\b|\bwhat(?:'?s| is| do you see| do you have| have you got)?\s+(?:on|in)\s+(?:the|my|this)\s+list\b|\bwhat do you see on (?:the|my)\b|\bgo (?:through|over) (?:the|my)\s+list\b/i.test(
+          /\bread\s+(?:me\s+|back\s+|out\s+|it\s+|the\s+|my\s+|them\s+)*(?:list|back|it|them)\b|\bwhat(?:'?s| is| do you see| do you have| have you got)?\s+(?:on|in)\s+(?:the|my|this)\s+list\b|\bwhat do you see on (?:the|my)\b|\bwhat did (?:you|i) (?:say (?:you )?)?add(?:ed)?\b|\bgo (?:through|over) (?:the|my)\s+list\b/i.test(
             userText,
           );
         if (_wantsReadback && targetListId) {
