@@ -1783,6 +1783,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceReturnKeepsListRef = useRef(false);
   const voiceSpokenCounterRef = useRef(0);
   const voiceAudioCtxRef = useRef<AudioContext | null>(null);
+  // r35: sup must never go blind — when no avatar session was ever minted,
+  // voice turns log under a per-page local id instead of being dropped.
+  const localSessionIdRef = useRef<string | null>(null);
   const voiceTtsBusyRef = useRef(false);
   const voiceTtsQueueRef = useRef<string[]>([]);
   // r24 (G live: "tap to mute 6"): silences 6's VOICE in list mode — his ears
@@ -1813,8 +1816,16 @@ const LiveAvatarSessionComponent: React.FC<{
   // id as the avatar leg) so sup pulls show the WHOLE conversation. Fire and
   // forget — logging never blocks the conversation.
   const voiceLogTurn = useCallback((role: "user" | "assistant", text: string) => {
-    const sid = dbSessionIdRef.current;
-    if (!sid) return;
+    let sid = dbSessionIdRef.current;
+    if (!sid) {
+      // r35 (G 2026-06-12 21:55: "is anything coming into sup from me
+      // currently?" — NO, every turn was silently dropped because no avatar
+      // session id existed after a mid-list reload): never drop transcript.
+      if (!localSessionIdRef.current) {
+        localSessionIdRef.current = `local-${Math.random().toString(36).slice(2, 10)}`;
+      }
+      sid = localSessionIdRef.current;
+    }
     void fetch("/api/voice-mode/log-turn", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1862,7 +1873,23 @@ const LiveAvatarSessionComponent: React.FC<{
             voiceAudioCtxRef.current = new AudioContext();
           }
           const ctx = voiceAudioCtxRef.current;
-          if (ctx.state === "suspended") await ctx.resume();
+          // r35 (G mid-list after a reload: 6 "thinking" but mute — the
+          // browser keeps audio locked until the page is touched, and a
+          // gesture-less resume() can hang): try once, then SKIP the line
+          // instead of damming the whole turn chain behind a locked player.
+          if (ctx.state === "suspended") {
+            try {
+              await Promise.race([
+                ctx.resume(),
+                new Promise((resolve) => setTimeout(resolve, 1500)),
+              ]);
+            } catch {
+              // needs a user gesture — the pointerdown unlock will catch it
+            }
+            if ((ctx.state as string) !== "running") {
+              throw new Error("audio locked until the page is tapped");
+            }
+          }
           const buffer = pcm16Base64ToAudioBuffer(ctx, audio);
           await new Promise<void>((resolve) => {
             const src = ctx.createBufferSource();
@@ -2166,10 +2193,17 @@ const LiveAvatarSessionComponent: React.FC<{
 
   // r33: list-ears turns join the SAME one-at-a-time chain as avatar turns —
   // two quick utterances answer in order, never on top of each other.
+  // r35: each link races a 25s timeout so one hung turn (dead session, locked
+  // audio) can never dam every turn behind it.
   const handleVoiceUtterance = useCallback(
     (blob: Blob): Promise<void> => {
       turnChainRef.current = turnChainRef.current
-        .then(() => processVoiceUtterance(blob))
+        .then(() =>
+          Promise.race([
+            processVoiceUtterance(blob),
+            new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
+          ]),
+        )
         .catch(() => {});
       return turnChainRef.current;
     },
@@ -2501,6 +2535,18 @@ const LiveAvatarSessionComponent: React.FC<{
   // arrival order. Racing handlers were answering two quick utterances on
   // top of each other through two different voice pipes.
   const turnChainRef = useRef<Promise<void>>(Promise.resolve());
+  // r35: any first touch unlocks the voice player (browsers keep audio
+  // suspended until a gesture — 6 looked alive but mute after a reload).
+  useEffect(() => {
+    const unlock = () => {
+      const ctx = voiceAudioCtxRef.current;
+      if (ctx && ctx.state === "suspended") {
+        void ctx.resume().catch(() => {});
+      }
+    };
+    document.addEventListener("pointerdown", unlock);
+    return () => document.removeEventListener("pointerdown", unlock);
+  }, []);
   const lastListHeardRef = useRef<{ text: string; at: number } | null>(null);
   const lastFullModeMessageRef = useRef<{ text: string; at: number } | null>(
     null,
@@ -7106,7 +7152,13 @@ const LiveAvatarSessionComponent: React.FC<{
     // different voice pipes, double memory writes.
     const handleUserTranscription = (event: { text: string }) => {
       turnChainRef.current = turnChainRef.current
-        .then(() => processUserTurn(event))
+        .then(() =>
+          // r35: 25s race — one hung turn can't dam the chain.
+          Promise.race([
+            processUserTurn(event),
+            new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
+          ]),
+        )
         .catch(() => {});
       return turnChainRef.current;
     };
@@ -9468,7 +9520,11 @@ const LiveAvatarSessionComponent: React.FC<{
                 width: "var(--stage-width)",
                 background: activeListUsesBlackTheme
                   ? "linear-gradient(145deg, #f7f2e8 0%, #d7ccba 48%, #a7977f 100%)"
-                  : `radial-gradient(circle at 18% 8%, ${activeListTheme.soft}, transparent 34%), linear-gradient(145deg, #120b08 0%, #24150d 52%, #050302 100%)`,
+                  // r35 (G's screenshot ask 2026-06-12 21:55: "the colors
+                  // should be nicer and more brown in the center, not this
+                  // hard color. that is not a brand color"): warm brand
+                  // browns — center rides #3a2108, no near-black.
+                  : `radial-gradient(circle at 18% 8%, ${activeListTheme.soft}, transparent 34%), linear-gradient(145deg, #34200d 0%, #3a2108 50%, #241406 100%)`,
                 color: activeListTheme.foreground,
                 colorScheme: activeListUsesBlackTheme ? "light" : "dark",
               }}
