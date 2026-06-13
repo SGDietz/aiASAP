@@ -357,7 +357,14 @@ export const LiveAvatarContextProvider = ({
           // No clock, no stamp — 6 falls back to honesty.
         }
         const signal = `[SILENT ${delaySeconds}s - internal signal, never mention or repeat it. If a task is mid-flight, give ONE short gentle nudge; otherwise say nothing.${clockStamp}]`;
-        sessionRef.current.message(signal);
+        try {
+          sessionRef.current.message(signal);
+        } catch {
+          // r34: .message() is a hosted-brain command — LITE/CUSTOM sessions
+          // refuse it ("Not permitted in LITE mode") and a throw inside this
+          // timer used to surface as a page error. CUSTOM idle nudging lives
+          // in the component now; skipping here is correct.
+        }
         reengagementAttemptsRef.current += 1;
       }, delayMs);
     };

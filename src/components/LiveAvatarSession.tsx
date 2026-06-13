@@ -2740,6 +2740,24 @@ const LiveAvatarSessionComponent: React.FC<{
     activeListSnapshotRef.current = activeList ? [...activeList.items] : null;
   }, [activeList]);
 
+  // r34 (G's page-load crash 2026-06-12 21:44: "Not permitted in LITE mode"
+  // — a direct .message() resume-inject fired for the first signed-in return
+  // on localhost): context/signal injections via .message() are hosted-brain
+  // commands. FULL mode only, and armored so a refusal can never crash a
+  // render effect. CUSTOM brains already get this context through
+  // buildMemoryAugmentedMessage + history.
+  const injectFullModeContext = useCallback(
+    (text: string) => {
+      if (mode !== "FULL") return;
+      try {
+        sessionRef.current?.message(text);
+      } catch (e) {
+        void captureClientWarn(e, { where: "context-inject" });
+      }
+    },
+    [mode, sessionRef],
+  );
+
   // r30: full voice sign-out — Supabase browser session + legacy account
   // cookie both cleared, then a clean reload to anonymous so no
   // half-signed-in state lingers. The delay lets 6 finish his confirm line.
@@ -3565,10 +3583,9 @@ const LiveAvatarSessionComponent: React.FC<{
     accountMemoryContextInjectedRef.current = true;
 
     // No hard-coded greeting (e.g. device-memory resume): inject the resume
-    // context and speak a returning greeting.
-    if (sessionRef.current) {
-      sessionRef.current.message(contextText);
-    }
+    // context and speak a returning greeting. (r34: FULL-mode-only + armored
+    // — this exact line crashed G's first signed-in localhost return.)
+    injectFullModeContext(contextText);
     const greeting = buildReturningGreeting(deviceProfileRef.current, snapshot);
     void Promise.resolve(repeat(greeting))
       .then(() => {
@@ -6746,7 +6763,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // Store analysis as context for future questions (no scripted repeat prompt)
       if (mode === "FULL" && sessionRef.current) {
         const contextMessage = `You are directly viewing an image. Here's what you see: ${analysis}. When the user asks about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the image, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this image. When user asks about the image, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this image.`;
-        sessionRef.current.message(contextMessage);
+        injectFullModeContext(contextMessage);
       }
 
       setIsAnalyzingImage(false);
@@ -7972,7 +7989,7 @@ const LiveAvatarSessionComponent: React.FC<{
       ) {
         console.log("User asked about video, re-sending video context");
         const contextMessage = `You are directly viewing a video. Here's what you see: ${videoAnalysis}. When the user asks about the video, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the video, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this video. When user asks about the video, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this footage.`;
-        sessionRef.current.message(contextMessage);
+        injectFullModeContext(contextMessage);
       }
 
       // Process the question using the reusable function (only in streaming mode)
@@ -8518,7 +8535,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
         if (mode === "FULL" && sessionRef.current) {
           const contextMessage = `You are directly viewing a video. Here's what you see: ${data.analysis}. When the user asks about the video, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the video, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this video. When user asks about the video, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this footage.`;
-          sessionRef.current.message(contextMessage);
+          injectFullModeContext(contextMessage);
         }
 
         setIsAnalyzingVideo(false);
@@ -8740,7 +8757,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // For FULL mode, send the analysis as context to the AI (no scripted repeat prompt)
         if (mode === "FULL" && sessionRef.current) {
           const contextMessage = `You are directly viewing an image. Here's what you see: ${data.analysis}. When the user asks about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the image, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this image. When user asks about the image, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this image.`;
-          sessionRef.current.message(contextMessage);
+          injectFullModeContext(contextMessage);
         }
       } catch (error) {
         console.error("Error analyzing image:", error);
@@ -8791,7 +8808,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // For FULL mode, send the analysis as context to the AI (no scripted repeat prompt)
         if (mode === "FULL" && sessionRef.current) {
           const contextMessage = `You are directly viewing a video. Here's what you see: ${data.analysis}. When the user asks about the video, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the video, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this video. When user asks about the video, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this footage.`;
-          sessionRef.current.message(contextMessage);
+          injectFullModeContext(contextMessage);
         }
       } catch (error) {
         console.error("Error analyzing video:", error);
