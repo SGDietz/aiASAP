@@ -266,6 +266,18 @@ export function cutCustomVoiceFallback(): void {
   }
 }
 
+/**
+ * True while a fallback utterance is queued or playing. (G 2026-06-13 INTERRUPT
+ * FIX: list-mode 6 speaks through THIS WebAudio fallback, which never sets the
+ * component's voiceTtsBusyRef — so the mic barge-in detector thought 6 was
+ * silent and never let G talk over him. The barge-in gate now ORs this in so
+ * 6 can be cut off in list mode too. cutCustomVoiceFallback() is already wired
+ * into voiceCutSpeech, so detection was the only missing half.)
+ */
+export function isCustomVoiceFallbackBusy(): boolean {
+  return pendingCount > 0;
+}
+
 /** WebSocket.readyState as a string ("1" = OPEN), "null" if the SDK never made one. */
 function audioSocketState(session: LiveAvatarSession): string {
   try {

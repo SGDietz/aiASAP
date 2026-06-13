@@ -13,6 +13,7 @@ import { SessionState, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
 import {
   cutCustomVoiceFallback,
+  isCustomVoiceFallbackBusy,
   primeCustomVoiceFallback,
   registerSixSpokenLine,
   reportCustomVoiceDiag,
@@ -88,7 +89,6 @@ import {
   AVATAR_RETURN_RE,
   LIST_DONE_RE as VOICE_LIST_DONE_RE,
   wantsAvatarBack,
-  voiceListEnterLine,
   AVATAR_BACK_LINES,
 } from "../lib/voiceMode/intents";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
@@ -194,26 +194,55 @@ const EMAIL_TYPED_FALLBACK_ENABLED = false;
 // (G 2026-05-31 "keep all + rotate"): random pick within the tier each return.
 // {name} renders as ", Scott" when known and "" when not, so every line reads
 // cleanly with or without a name.
+// G 2026-06-13: "we're going to be friends for life — if we're talking hundreds
+// of times I don't want you to say the same thing every time you come in." Big
+// pools per tier so a line rarely repeats. (pickReturningGreeting also avoids the
+// immediately-previous line — see below.)
 const RETURNING_GREETING_TIERS: Record<string, string[]> = {
   second: [
     "Hey{name} — you came back! I was hoping you would. So what are we getting after today?",
     "Well, look who's back{name}! Good to see you again — still got your back. What's on your mind?",
     "Round two{name}! I remember you now — that's the whole point. What can I do for you today?",
+    "Back so soon{name}? I'll take it. What are we building today?",
+    "There's the face I remember{name}. What's first?",
+    "Twice in a row{name} — you're stuck with me now. What do you need?",
+    "Good — you're back{name}. I held your spot. What's the plan?",
+    "Hey{name}, round two already? Let's get after it.",
   ],
   third: [
     "Three times now{name} — I'd say we're officially a team. What's the mission today?",
     "You're turning into a regular{name}, and I love it. Where do we start?",
     "Hey{name} — every time you swing by, I get a little more useful. What are we tackling?",
+    "Look at us{name} — three deep. What are we knocking out today?",
+    "You keep coming back{name}, and I keep getting sharper. What's the job?",
+    "Third time's a habit now{name}. Where do we point it?",
+    "We're a real team now{name}. Hit me — what do you need?",
   ],
   regular: [
     "There you are{name}. Feels like old times. What's the move today?",
     "Back again{name}! You know the deal — I've got your back. What's up?",
     "Good to have you back{name}. We've got a rhythm now — what can I take off your plate?",
+    "Hey{name}. What are we getting into today?",
+    "You're back{name} — let's make it count. What's up?",
+    "Right where we left off{name}. What's on deck?",
+    "There's my guy{name}. What do you need today?",
+    "Good to see you{name}. Where do we start?",
+    "Welcome back{name}. What's first today?",
+    "Alright{name}, I'm warmed up. What are we doing?",
+    "Let's roll{name}. What's the first thing?",
+    "Ready when you are{name} — what's the move?",
   ],
   longGap: [
     "Long time{name}! Missed you, honestly — catch me up, what's new?",
+    "Been a minute{name}! Good to have you back. What's new?",
+    "There you are{name} — it's been a while. Catch me up?",
+    "Long time no talk{name}! I kept your stuff safe. What's going on?",
+    "Welcome back{name} — felt like forever. What do you need?",
   ],
 };
+// Avoid repeating the line 6 used last time (per tier-pool) — the single biggest
+// "you keep saying the same thing" trigger. Persists across sessions in storage.
+const LAST_GREETING_STORAGE_KEY = "asap.lastReturningGreeting";
 
 function pickReturningGreeting(
   name: string | null,
@@ -228,7 +257,21 @@ function pickReturningGreeting(
         ? "third"
         : "regular";
   const pool = RETURNING_GREETING_TIERS[tier];
-  const template = pool[Math.floor(Math.random() * pool.length)];
+  // Never repeat the line he heard last time — the exact "you keep saying the
+  // same thing" complaint (G 2026-06-13).
+  let last: string | null = null;
+  try {
+    last = window.localStorage.getItem(LAST_GREETING_STORAGE_KEY);
+  } catch {
+    // storage blocked — fall back to plain random
+  }
+  const choices = pool.length > 1 ? pool.filter((t) => t !== last) : pool;
+  const template = choices[Math.floor(Math.random() * choices.length)];
+  try {
+    window.localStorage.setItem(LAST_GREETING_STORAGE_KEY, template);
+  } catch {
+    // best-effort
+  }
   const namePart = name ? `, ${name}` : "";
   return template.replace("{name}", namePart);
 }
@@ -724,11 +767,11 @@ const LOCATION_SHARE_CHOICE_RE =
 const SHOPPING_MODE_OPEN_RE =
   /\b(?:shopping mode|store mode|in the store|at the store|in the grocery store|at the grocery store|at walmart|in walmart|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
 const LIST_MUTATION_SIGNAL_RE =
-  /\b(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up|also|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|tambien|tambi\u00e9n|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|aussi|ich brauche|ich will|fuege|f\u00fcge|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen|auch)\b/i;
+  /\b(?:need|want|have to get|gotta get|should get|i have|i'?ve got|i got|add|put|grab|buy|pick up|also|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|tambien|tambi\u00e9n|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|aussi|ich brauche|ich will|fuege|f\u00fcge|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen|auch)\b/i;
 const LIST_START_WITH_REFERENCED_ITEMS_RE =
   /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
-  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's|so close|close to be|close to being|for the record|for the records|made it|he just|she just|they just|it just|we just|it ought|it should|it would|the system|the system automatically)\b/i;
+  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|that'?s what|you mean|what are you|what is|what's|so close|close to be|close to being|for the record|for the records|made it|he just|she just|they just|it just|we just|it ought|it should|it would|the system|the system automatically)\b/i;
 const LIST_NAME_CAPTURE_INTENT_RE =
   /\b(?:my name (?:is|'?s)|(?:i'?m|i am) called|you can call me)\b/i;
 const LIST_MID_SENTENCE_DASH_RE = /[–—]/;
@@ -736,6 +779,12 @@ const LIST_FILLER_ITEM_RE =
   /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|you know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|a couple more|couple more|a couple more things|couple more things|a few more|few more|more things|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery|a dad|that to)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
+// G 2026-06-13 dogfood: greetings, address terms, and banter are NEVER grocery
+// items. "Hey there, buddy" got added as items "Hey there"+"Buddy"; "Let's see,
+// I want bananas..." added "See". Exact-match (^...$) so it only blocks a WHOLE
+// item that is pure banter — real groceries are untouched.
+const LIST_BANTER_ITEM_RE =
+  /^(?:hey|hi|hiya|yo|hey there|hi there|hello|hello there|howdy|hey buddy|hey bud|sup|what'?s up|buddy|bud|pal|friend|dude|man|bro|sir|ma'?am|six|you there|are you there|you still there|still there|you're there|see|let'?s see|lets see|wait|hold on|hang on|one sec|huh|what|hmm|uh huh|right|yeah|yep|yup|nah|nope|cool|nice|sweet|awesome|wonderful|great|perfect|exactly|correct|good|gotcha|got it|never mind|nevermind|question|idea|problem|thought|point|go|to go|something|anything|everything|minute|second|sec|moment)$/i;
 
 const LIST_ACCENT_COLORS: Record<
   ListAccentColor,
@@ -1139,6 +1188,10 @@ function cleanListItem(
 
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
+    // G 2026-06-13: strip natural lead-ins so "Yeah, I'll put toothbrush" cleans
+    // to "toothbrush" instead of garbage like "Yeah I'll toothbrush".
+    .replace(/^(?:yeah|yep|yup|okay|ok|so|well|alright|all right|sure|now|and|but|um|uh)[\s,]+/i, "")
+    .replace(/\b(?:i'?ll|i will|i'?m gonna|i'?m going to|let me|gonna|wanna)\s+/gi, " ")
     .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
     .replace(/\b(?:just\s+)?put\s+some\s+on\s+there\b/gi, " ")
@@ -1181,6 +1234,7 @@ function cleanListItem(
     return null;
   }
   if (LIST_FILLER_ITEM_RE.test(item)) return null;
+  if (LIST_BANTER_ITEM_RE.test(item)) return null; // greetings/banter are never items
   if (!options.fromExplicitCommand && LIST_VAGUE_BARE_ITEM_RE.test(item)) {
     return null;
   }
@@ -1591,6 +1645,18 @@ function findMentionedListItem(
   text: string,
 ): string | null {
   if (!list) return null;
+  // G 2026-06-13 dogfood: questions and banter are NOT item references. "What do
+  // you see?" matched the item "See"; "...right, buddy?" matched "Buddy". Never
+  // mine an item out of a question or a conversational turn — let those go to the
+  // brain for a real answer instead of "I found X on the list."
+  if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return null;
+  if (
+    /^\s*(?:what|where|when|why|who|how|are|is|do|does|did|can|could|would|should|tell me)\b/i.test(
+      text.trim(),
+    )
+  ) {
+    return null;
+  }
   const value = text.toLowerCase();
   return (
     list.items.find((item) => {
@@ -1792,6 +1858,29 @@ const LiveAvatarSessionComponent: React.FC<{
   const localSessionIdRef = useRef<string | null>(null);
   const voiceTtsBusyRef = useRef(false);
   const voiceTtsQueueRef = useRef<string[]>([]);
+  // G 2026-06-13 (HARD RULE: 6 must NEVER say the same line twice): a single
+  // output chokepoint that drops any line identical to the one just spoken
+  // within a short window. This is the last line of defense BEHIND the
+  // per-source one-shots (one greeting per session, one list-open line) — if any
+  // path ever double-fires the SAME sentence, the user still hears it once.
+  const lastSpokenLineRef = useRef<{ text: string; at: number }>({
+    text: "",
+    at: 0,
+  });
+  const shouldSkipDuplicateSpeech = useCallback((text: string): boolean => {
+    const norm = (text ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!norm) return false;
+    const now = Date.now();
+    const last = lastSpokenLineRef.current;
+    if (norm === last.text && now - last.at < 3500) {
+      reportCustomVoiceDiag(
+        `[dedup] blocked repeat line within 3.5s: "${norm.slice(0, 70)}"`,
+      );
+      return true;
+    }
+    lastSpokenLineRef.current = { text: norm, at: now };
+    return false;
+  }, []);
   // r24 (G live: "tap to mute 6"): silences 6's VOICE in list mode — his ears
   // stay on, the conversation keeps logging, he just stops talking out loud.
   const [voiceMuted, setVoiceMuted] = useState(false);
@@ -1945,6 +2034,7 @@ const LiveAvatarSessionComponent: React.FC<{
     async (text: string) => {
       const t = (text ?? "").trim();
       if (!t) return;
+      if (shouldSkipDuplicateSpeech(t)) return; // never voice the same line twice
       voiceSpokenCounterRef.current += 1;
       // r28: voice-mode lines must enter the echo-firewall registry too — an
       // unregistered voiceSay line echoed into the mic, dispatched as the
@@ -1955,7 +2045,7 @@ const LiveAvatarSessionComponent: React.FC<{
       voiceTtsQueueRef.current.push(t);
       void voicePlayNext();
     },
-    [voicePlayNext, voiceLogTurn],
+    [voicePlayNext, voiceLogTurn, shouldSkipDuplicateSpeech],
   );
 
   // r19 barge-in support: cut 6 off mid-sentence — drop the queue AND the
@@ -1979,12 +2069,26 @@ const LiveAvatarSessionComponent: React.FC<{
   const repeat = useCallback(
     async (text: string) => {
       if (voicePresenceRef.current !== "avatar") return voiceSay(text);
+      if (shouldSkipDuplicateSpeech(text)) return; // never voice the same line twice
       // r25: CUSTOM avatar-mode machine lines also land in the transcript
       // (no official LiveAvatar transcript exists for these sessions).
       if (mode === "CUSTOM") voiceLogTurn("assistant", text);
-      return sessionRepeat(text);
+      // G 2026-06-13 SILENT-IN-LIST ROOT CAUSE: when a list opens, the dispatcher
+      // speaks "I started the X..." via sessionRepeat WHILE enterVoiceListMode is
+      // concurrently stopping the avatar session. sessionRepeat then awaits a
+      // completion event the dying session never fires -> it HANGS FOREVER. Every
+      // turn shares one single-file chain, so that one stuck turn dammed the whole
+      // queue and every later list turn ("add blueberries", "you there?") waited
+      // behind it -> 6 permanently mute the moment a list appeared. The line still
+      // plays; we just never await it past 4s so a tearing-down session can't jam
+      // the queue. (Tracers proved it: ht_list_enter fired for the open turn, then
+      // never again, while vu_post_dispatch timed out at 7s.)
+      await Promise.race([
+        Promise.resolve(sessionRepeat(text)),
+        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+      ]);
     },
-    [sessionRepeat, voiceSay, mode, voiceLogTurn],
+    [sessionRepeat, voiceSay, mode, voiceLogTurn, shouldSkipDuplicateSpeech],
   );
   const interrupt = useCallback(async () => {
     if (voicePresenceRef.current !== "avatar") {
@@ -2106,6 +2210,7 @@ const LiveAvatarSessionComponent: React.FC<{
         }
         voiceLogTurn("user", heard);
         rememberLineRef.current("user", heard);
+        logAppEvent("t6", { p: "vu_start", pres: voicePresenceRef.current, shop: isShoppingMode, heard: heard.slice(0, 50) });
         // r29 telemetry (G 2026-06-12): complaints ARE bug reports — file
         // silently, never hijack the conversation. Frustration counter too.
         noteUserTurnForFrustration(heard);
@@ -2154,43 +2259,58 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
         const before = voiceSpokenCounterRef.current;
-        await voiceDispatchRef.current?.(heard);
+        logAppEvent("t6", { p: "vu_pre_dispatch" });
+        // G 2026-06-13 ("make ElevenLabs speak when a list comes up"): a slow or
+        // STUCK dispatcher would leave 6 mute in a list. Cap the wait SHORT (4s)
+        // so the GUARANTEED reply below fires before the user gives up. The gate
+        // (`counter === before`) blocks double-speak — if the dispatcher already
+        // spoke, the counter moved and we stay quiet.
+        await Promise.race([
+          Promise.resolve(voiceDispatchRef.current?.(heard)),
+          new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+        ]);
         // The ref can flip to "avatar" DURING the await (a handler may have
         // triggered the return) — widen past TS's narrowing before comparing.
         const presenceNow = voicePresenceRef.current as unknown as string;
+        logAppEvent("t6", { p: "vu_post_dispatch", pres: presenceNow, spoke: voiceSpokenCounterRef.current !== before });
         if (presenceNow !== "avatar" && voiceSpokenCounterRef.current === before) {
-          // No handler spoke — same 6 brain the custom mode uses (memory
-          // recall + fact writer included server-side). listMode keeps him to
-          // ONE short sentence (G live 21:06: "you're not stopping talking" —
-          // the brain read a whole numbered food list aloud).
+          // No handler spoke. BULLETPROOF: whatever happens to the fetch, 6 says
+          // SOMETHING — a silent list is the worst outcome. (Blueberries proved
+          // the old code got a 200 then went silent: the fetch/json could throw
+          // or the brain could return empty for a command, and either way 6 stayed
+          // mute. Now an empty/failed brain still gets a spoken fallback line.)
           const brainT0 = Date.now();
-          const r = await fetch("/api/openai-chat-complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message: heard,
-              listMode: true,
-              history: getBrainHistory(),
-              // r32 (G 20:43: "I don't have a name from you yet this
-              // session" minutes after he gave it): the brain always knows
-              // the captured name.
-              userName: deviceProfileRef.current?.name ?? null,
-              // r34: and whether they're signed in — so it never re-asks
-              // first-time-or-returning at a signed-in user.
-              signedInEmail: accountEmailRef.current,
-            }),
-          });
-          if (r.ok) {
-            const data = (await r.json()) as { response?: string };
-            logAppEvent("brain_latency", {
-              ms: Date.now() - brainT0,
-              listMode: true,
+          logAppEvent("t6", { p: "vu_brain_call" });
+          let replyText = "";
+          try {
+            const r = await fetch("/api/openai-chat-complete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: heard,
+                listMode: true,
+                history: getBrainHistory(),
+                userName: deviceProfileRef.current?.name ?? null,
+                signedInEmail: accountEmailRef.current,
+              }),
             });
-            if (data.response) {
-              rememberLineRef.current("assistant", data.response);
-              void voiceSay(data.response);
+            if (r.ok) {
+              const data = (await r.json()) as { response?: string };
+              replyText = (data.response ?? "").trim();
             }
+          } catch {
+            // network/parse hiccup — fall through to the default line
           }
+          logAppEvent("t6", {
+            p: "vu_brain_reply",
+            ms: Date.now() - brainT0,
+            len: replyText.length,
+          });
+          if (!replyText) {
+            replyText = "I'm right here. Tell me what to add, or say close the list.";
+          }
+          rememberLineRef.current("assistant", replyText);
+          void voiceSay(replyText);
         }
       } catch (e) {
         void captureClientError(e, { where: "voice-mode", what: "utterance" });
@@ -2302,7 +2422,14 @@ const LiveAvatarSessionComponent: React.FC<{
             circle.style.transform = "scale(1.7)";
           }
         }
-        if (voiceTtsBusyRef.current && !ears.speaking) {
+        // G 2026-06-13 INTERRUPT FIX: barge-in must also trigger while 6 speaks
+        // through the WebAudio fallback (list mode), which doesn't flip
+        // voiceTtsBusyRef. Without isCustomVoiceFallbackBusy() here, 6 "would
+        // not stop" when talked over in a list.
+        if (
+          (voiceTtsBusyRef.current || isCustomVoiceFallbackBusy()) &&
+          !ears.speaking
+        ) {
           if (rms > BARGE_RMS) {
             ears.bargeMs += POLL_MS;
             if (ears.bargeMs < BARGE_HOLD_MS) return;
@@ -2402,8 +2529,17 @@ const LiveAvatarSessionComponent: React.FC<{
           msg: e instanceof Error ? e.message : String(e),
         });
       }
-      void voiceSay(voiceListEnterLine(listTitle, wasNew));
-      logAppEvent("list_enter_step", { step: "intro_sent", list: listTitle });
+      // G 2026-06-13: the list-open announcement now comes SOLELY from the
+      // dispatcher's "I started the {title}..." line. enterVoiceListMode used to
+      // ALSO speak "Here's your {title}. Just tell me what to add." — so every
+      // list open said the same thing twice ("a bunch of extra stuff... he does
+      // not need to say all that"). One clean announcement now. (The dispatcher
+      // line rides the same voiceSay path as every add/remove confirmation, so
+      // it's proven reliable in list mode.)
+      logAppEvent("list_enter_step", {
+        step: "announce_deferred_to_dispatcher",
+        list: listTitle,
+      });
       try {
         await stopSession();
         logAppEvent("list_enter_step", { step: "session_stopped", list: listTitle });
@@ -2847,6 +2983,17 @@ const LiveAvatarSessionComponent: React.FC<{
   const activeListSnapshotRef = useRef<string[] | null>(null);
   useEffect(() => {
     activeListSnapshotRef.current = activeList ? [...activeList.items] : null;
+    // G 2026-06-13 ("can you see all that are written on the lists, not just what
+    // I describe?"): log the FULL list so telemetry always shows the exact items,
+    // not just the spoken add/remove deltas.
+    if (activeList) {
+      logAppEvent("list_snapshot", {
+        listId: activeList.id,
+        title: activeList.title,
+        items: activeList.items.slice(0, 60),
+        count: activeList.items.length,
+      });
+    }
   }, [activeList]);
 
   // r34 (G's page-load crash 2026-06-12 21:44: "Not permitted in LITE mode"
@@ -3691,28 +3838,21 @@ const LiveAvatarSessionComponent: React.FC<{
 
     accountMemoryContextInjectedRef.current = true;
 
-    // No hard-coded greeting (e.g. device-memory resume): inject the resume
-    // context and speak a returning greeting. (r34: FULL-mode-only + armored
-    // — this exact line crashed G's first signed-in localhost return.)
+    // Inject the resume context so 6's brain knows who's back — but do NOT speak
+    // a greeting here. (G 2026-06-13 DOUBLE-GREET ROOT CAUSE: audioUnlocked flips
+    // true INSIDE ensureAudioOutputReady(), which the tap handler calls BEFORE it
+    // reaches its own greeting block — so this effect raced ahead and spoke a
+    // SECOND returning greeting from the SAME random pool as handleVoiceStartStop.
+    // Two independent picks = "you said that twice." The tap path is now the SOLE
+    // owner of the returning greeting: it's user-gesture gated, claims
+    // postVerifyGreetingSpokenRef, and clears postVerifyGreeting. r34:
+    // FULL-mode-only + armored — this inject line once crashed G's first
+    // signed-in localhost return.)
     injectFullModeContext(contextText);
-    const greeting = buildReturningGreeting(deviceProfileRef.current, snapshot);
-    void Promise.resolve(repeat(greeting))
-      .then(() => {
-        lastAvatarResponseRef.current = greeting;
-        rememberConversationLine("assistant", greeting);
-        lastVisionResponseTimeRef.current = Date.now();
-      })
-      .catch((err) => {
-        console.warn("Returning greeting injection failed:", err);
-      });
-  }, [
-    isStreamReady,
-    postVerifyGreeting,
-    rememberConversationLine,
-    repeat,
-    sessionState,
-    audioUnlocked,
-  ]);
+    console.warn(
+      "[greeting DIAG] resume context injected; greeting deferred to tap path (single greet)",
+    );
+  }, [isStreamReady, postVerifyGreeting, sessionState, audioUnlocked]);
 
   useEffect(() => {
     if (!accountEmail || !accountListsLoadedRef.current) return;
@@ -6356,6 +6496,21 @@ const LiveAvatarSessionComponent: React.FC<{
     // context NOW so list-mode replies (which use WebAudio after the avatar
     // session stops) are never silent no-ops on a suspended context.
     primeCustomVoiceFallback();
+    // G 2026-06-13 ("we lost six when we went to the list"): the HARDCODED list
+    // lines (list-open, add/remove confirms) play through voiceAudioCtxRef — a
+    // SEPARATE context that's created lazily and starts SUSPENDED. The fallback
+    // prime above does NOT unlock it, so the first list line was a silent
+    // no-op. Create + resume it now while we still hold the user gesture.
+    if (!voiceAudioCtxRef.current) {
+      try {
+        voiceAudioCtxRef.current = new AudioContext();
+      } catch {
+        // AudioContext unavailable here — voicePlayNext will retry on first use
+      }
+    }
+    if (voiceAudioCtxRef.current?.state === "suspended") {
+      void voiceAudioCtxRef.current.resume().catch(() => {});
+    }
     if (voiceIsActive && hasUserPressedVoiceStart) {
       void interrupt();
       // r21 (G's phone, CUSTOM maiden flight: "He did not know I was there"):
@@ -7243,6 +7398,7 @@ const LiveAvatarSessionComponent: React.FC<{
     };
     const processUserTurn = async (event: { text: string }) => {
       const userText = event.text.trim();
+      logAppEvent("t6", { p: "ht_pu_start", pres: voicePresenceRef.current, len: userText.length });
       if (isInternalSignal(userText)) {
         return;
       }
@@ -7697,6 +7853,7 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       }
 
+      logAppEvent("t6", { p: "ht_past_handlers" }); // reached here = early awaited guards all returned
       const referencedAssistantItems =
         LIST_START_WITH_REFERENCED_ITEMS_RE.test(userText)
           ? extractReferencedAssistantListItems(rawLastAssistantText)
@@ -7732,6 +7889,7 @@ const LiveAvatarSessionComponent: React.FC<{
       const enteringShoppingMode = SHOPPING_MODE_OPEN_RE.test(userText);
 
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
+        logAppEvent("t6", { p: "ht_list_enter", pres: voicePresenceRef.current, shop: isShoppingMode });
         // VOICE/AVATAR SEPARATION (2026-06-11, G: "when the lists come up the
         // avatar disappears, voice stays a constant"): the moment a list owns
         // the screen, the avatar steps off (credits stop) and the ElevenLabs
@@ -7778,7 +7936,7 @@ const LiveAvatarSessionComponent: React.FC<{
         const _LIST_REMOVE_VERB_RE = /\b(?:take|remove|delete|cross|scratch|clear)\b/i;
         // r32 (G 20:46: "List toothbrush and toothpaste and a blow dryer"
         // missed every verb and the brain faked the add): "list" is a verb.
-        const _LIST_ADD_VERB_RE = /\b(?:add|put|list|i (?:want|need)|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
+        const _LIST_ADD_VERB_RE = /\b(?:add|put|list|i (?:want|need|have)|i'?ve got|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
         const _clauses = userText.split(/(?<=[.!?])\s+/).filter(Boolean);
         const _removeSource = _clauses.find((c) => _LIST_REMOVE_VERB_RE.test(c)) ?? "";
         const _addSource =
@@ -7791,8 +7949,10 @@ const LiveAvatarSessionComponent: React.FC<{
         const _addsBlocked = META_TALK_RE.test(userText);
         // r29: bare dictation is pure nouns ("toothpaste, shampoo") — any
         // pronoun or speech word means it's a sentence, not a grocery run.
+        // G 2026-06-13: greetings/address/banter words also mark a SENTENCE, never
+        // bare dictation — "Hey there, buddy" was being read as items.
         const _BARE_SPEECH_RE =
-          /\b(?:i|you|me|my|your|he|she|it|we|they|tell|say|says|said|just|um|uh|okay|so)\b/i;
+          /\b(?:i|you|me|my|your|he|she|it|we|they|tell|say|says|said|just|um|uh|okay|so|hey|hi|hello|yo|buddy|bud|pal|friend|dude|man|bro|there|right|see|wait|huh|what|yeah|yep|nope|cool|nice|great|wonderful|perfect)\b/i;
         const _shortBare =
           userText.trim().split(/\s+/).length <= 6 &&
           !_BARE_SPEECH_RE.test(userText);
@@ -7845,16 +8005,55 @@ const LiveAvatarSessionComponent: React.FC<{
           /\bcapitaliz|\bcapital\s+letter|\bcapital\s+[A-Za-z]\b|\bupper\s?case\b/i.test(
             userText,
           );
+        const _ORDINALS: Record<string, number> = {
+          one: 1, two: 2, three: 3, four: 4, five: 5,
+          six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+        };
         // r32: "make number four say yogurt" / "number 4 should say X" /
         // "change item two to read X" — rename by number, checked first.
         const _renameMatch = userText.match(
           /\b(?:make|change|fix)?\s*(?:number|item)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:should\s+)?(?:to\s+)?(?:just\s+)?(?:say|read|be)\s+(?:just\s+)?([^.!?,]{1,40})/i,
         );
-        if (_renameMatch && targetListId) {
-          const _ORDINALS: Record<string, number> = {
-            one: 1, two: 2, three: 3, four: 4, five: 5,
-            six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-          };
+        // G 2026-06-13 dogfood: REMOVE by position — "take off number one",
+        // "remove number 2", "take number 3 off". (He said it 4+ times and 6 kept
+        // hunting for an item literally NAMED "Number one.") Checked before the
+        // literal-text remove so the number is treated as a position, not a name.
+        const _removeNumberMatch = userText.match(
+          /\b(?:take|remove|delete|cross|scratch)\s+(?:off\s+|out\s+)?(?:the\s+)?(?:number|item|#)\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|\btake\s+(?:the\s+)?(?:number|item)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:off|out)\b/i,
+        );
+        // G 2026-06-13 dogfood: "read me the list" / "what's on the list" / "what
+        // do you see on the list" must RELIABLY read it back (it only worked once,
+        // by accident, when the brain happened to know). Dedicated handler now.
+        const _wantsReadback =
+          /\bread\s+(?:me\s+|back\s+|out\s+|it\s+|the\s+|my\s+|them\s+)*(?:list|back|it|them)\b|\bwhat(?:'?s| is| do you see| do you have| have you got)?\s+(?:on|in)\s+(?:the|my|this)\s+list\b|\bwhat do you see on (?:the|my)\b|\bgo (?:through|over) (?:the|my)\s+list\b/i.test(
+            userText,
+          );
+        if (_wantsReadback && targetListId) {
+          const _rbList = assistantLists.find((l) => l.id === targetListId);
+          const _rbItems = _rbList?.items ?? [];
+          listActionSpoken = _rbItems.length
+            ? `Your ${_rbList?.title ?? "list"} has ${formatListItemsForSpeech(_rbItems)}.`
+            : `Your ${_rbList?.title ?? "list"} is empty so far — tell me what to add.`;
+        } else if (_removeNumberMatch && targetListId) {
+          const numRaw = (
+            _removeNumberMatch[1] ??
+            _removeNumberMatch[2] ??
+            ""
+          ).toLowerCase();
+          const pos = /^\d+$/.test(numRaw)
+            ? parseInt(numRaw, 10)
+            : _ORDINALS[numRaw] ?? 0;
+          const _posList = assistantLists.find((l) => l.id === targetListId);
+          const _posItem = pos >= 1 ? _posList?.items?.[pos - 1] : undefined;
+          if (_posItem) {
+            const removed = removeItemsFromList(targetListId, [_posItem]);
+            listActionSpoken = removed
+              ? `Done - took ${_posItem} off the list.`
+              : `Hmm - I couldn't remove number ${pos}. Tell me again?`;
+          } else {
+            listActionSpoken = `There's no number ${pos} on the list yet.`;
+          }
+        } else if (_renameMatch && targetListId) {
           const idxRaw = _renameMatch[1].toLowerCase();
           const idx =
             (/^\d+$/.test(idxRaw)
@@ -7879,9 +8078,11 @@ const LiveAvatarSessionComponent: React.FC<{
             : `I do not see ${formatListItemsForSpeech(removeItems)} on this list.`;
         } else if (addItems.length > 0) {
           const added = addItemsToList(targetListId, addItems);
+          // G 2026-06-13 dogfood: name what was added (vague "Added those" — he
+          // couldn't tell what landed). Name up to 4; beyond that it's a mouthful.
           listActionSpoken = added
-            ? addItems.length === 1
-              ? `Added ${addItems[0]}.`
+            ? addItems.length <= 4
+              ? `Added ${formatListItemsForSpeech(addItems)}.`
               : "Added those."
             : `${formatListItemsForSpeech(addItems)} is already on the list.`;
         } else {
@@ -7953,8 +8154,18 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
 
+        logAppEvent("t6", { p: "ht_pre_catchall", shop: isShoppingMode, hadAction: !!listActionSpoken, mode, vision: visionMode });
         if (isShoppingMode) {
+          // G 2026-06-13 SILENT-6-ON-LIST ROOT CAUSE: in list mode, an utterance
+          // that is NOT a list command ("Be there six?", "you there?") reached
+          // here and only called schedulePromptBrain (which updates UI pills and
+          // NEVER speaks) → 6 logged the user turn but never replied. No throw,
+          // no timeout → tripped zero recovery nets, survived two prior patches.
+          // Mirror the CUSTOM handler below so 6 actually answers: in voice
+          // presence sendMessage routes to /api/openai-chat-complete (listMode:
+          // true = one short sentence) and speaks via voiceSay (dedup-guarded).
           schedulePromptBrain(userText);
+          await sendMessage(buildMemoryAugmentedMessage(userText));
           return;
         }
       }
@@ -8156,7 +8367,19 @@ const LiveAvatarSessionComponent: React.FC<{
     // (lists, reminders, sizing, signup, time) keeps working with the
     // avatar stopped; only the transport changed.
     voiceDispatchRef.current = async (text: string) => {
-      await handleUserTranscription({ text } as never);
+      // G 2026-06-13 LIST-MODE DEADLOCK FIX (the wedge that beat a dozen patches):
+      // processVoiceUtterance (the list-mode turn) is ALREADY a link on
+      // turnChainRef. Routing through handleUserTranscription chained
+      // processUserTurn onto that SAME queue BEHIND the still-running
+      // processVoiceUtterance, then awaited it — so processVoiceUtterance waited
+      // for processUserTurn while processUserTurn waited for processVoiceUtterance.
+      // They deadlocked the instant a list opened, and every turn after went
+      // silent (ht_pu_start never fired; only the watchdog timeout half-rescued
+      // it). Call processUserTurn DIRECTLY: it runs inside the slot
+      // processVoiceUtterance already holds — still serialized, no second queue
+      // entry, no deadlock. (Avatar-mode turns still use handleUserTranscription
+      // via the USER_TRANSCRIPTION event — single link, never deadlocked.)
+      await processUserTurn({ text });
     };
     sessionRef.current.on(
       AgentEventsEnum.USER_TRANSCRIPTION,
@@ -9092,6 +9315,19 @@ const LiveAvatarSessionComponent: React.FC<{
   }, [isAvatarTalking, rememberConversationLine, repeat]);
   // v1 dormant: LIST_UI_DORMANT hides the list panels. activeList state still tracked.
   const showActiveList = !LIST_UI_DORMANT && activeList;
+  // G 2026-06-13: lookup/planning RESULTS get the same chest treatment as a list
+  // — a card on 6's CHEST + the 4 pillboxes flipped into a 2x2 grid on his HANDS.
+  // (His spec: "list on six's chest and then a 2x2 pillboxes up on his hands.")
+  // Reuses the existing results panel (un-hidden + chest-anchored below) and the
+  // existing showActiveList pillbox-grid layout — no new list, so it never
+  // pollutes the grocery-list logic.
+  const lookupResultsOnChest =
+    !LIST_UI_DORMANT &&
+    onlineLookupResultLines.length > 0 &&
+    voiceIsActive &&
+    !isShoppingMode;
+  // Pillboxes go 2x2 (on the hands) for EITHER an active list or lookup results.
+  const chestGrid = Boolean(showActiveList) || lookupResultsOnChest;
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] flex flex-col">
@@ -9172,8 +9408,14 @@ const LiveAvatarSessionComponent: React.FC<{
         </form>
       )}
 
-      {lookupPanelVisible && !isShoppingMode && !emailEntryOpen && (
-        <div className="fixed left-1/2 top-[47vh] md:top-[52vh] z-[29] w-[min(88%,31rem)] max-h-[31vh] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-lg border border-[#e0aa62]/62 bg-[#221c17]/76 px-4 py-4 text-[#f1c477] shadow-[0_18px_52px_rgba(0,0,0,0.42)] backdrop-blur-md">
+      {lookupResultsOnChest && !emailEntryOpen && (
+        <div
+          className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border border-[#e0aa62]/62 bg-[#221c17]/82 px-4 py-4 text-[#f1c477] shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
+          style={{
+            top: "calc(var(--stage-top) + var(--stage-height) * 0.38)",
+            maxHeight: "calc(var(--stage-height) * 0.30)",
+          }}
+        >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
               {onlineLookupNotice?.trim() && (
@@ -9729,7 +9971,7 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             voiceIsActive &&
             !isShoppingMode &&
-            !lookupPanelVisible &&
+            !lookupResultsOnChest &&
             showActiveList && (
               <div
                 className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
@@ -9895,12 +10137,12 @@ const LiveAvatarSessionComponent: React.FC<{
             !showChestEmail && (
               <div
                 className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
-                  showActiveList
+                  chestGrid
                     ? "top-[calc(var(--stage-top)+var(--stage-height)*0.72)] grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
                     : "bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.12)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] flex w-[94%] flex-col items-center gap-[calc(var(--stage-height)*0.010)]"
                 }`}
                 style={
-                  showActiveList
+                  chestGrid
                     ? ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
                         height: "calc(var(--stage-height) * 0.20)",
@@ -9954,8 +10196,15 @@ const LiveAvatarSessionComponent: React.FC<{
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto overflow-hidden rounded-full border border-[#e0aa62]/55 bg-[#3a2108]/30 font-semibold leading-tight text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
-                        showActiveList
+                      className={`pointer-events-auto overflow-hidden rounded-full border font-semibold leading-tight text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                        // G 2026-06-13 (screenshot): in the 2x2-on-his-body layout the
+                        // pills were too faint against the denim. Richer gold gradient +
+                        // brighter border so the brand colors POP. Bottom stack untouched.
+                        chestGrid
+                          ? "border-[#e0aa62]/85 bg-gradient-to-b from-[#4a2a0c]/92 to-[#241406]/92"
+                          : "border-[#e0aa62]/55 bg-[#3a2108]/30"
+                      } ${
+                        chestGrid
                           ? "h-full w-full px-2 py-1.5 md:px-3 md:py-2 text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.05rem)] whitespace-normal break-words"
                           : "flex items-center justify-center w-full px-4 whitespace-nowrap"
                       } ${
@@ -9970,10 +10219,10 @@ const LiveAvatarSessionComponent: React.FC<{
                         // level never reached them. Both the text AND the box
                         // (minHeight) now ride UI_CARD_SCALE; level 2 is
                         // byte-identical to the old values.
-                        "--prompt-font-size": showActiveList
+                        "--prompt-font-size": chestGrid
                           ? `${(0.9 * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem`
                           : `${((_tierBase + 0.2) * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem`,
-                        ...(showActiveList
+                        ...(chestGrid
                           ? {}
                           : {
                               fontSize: _pillFont,

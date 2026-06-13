@@ -31,7 +31,13 @@ export async function POST(request: Request) {
   if (rateLimitErr) return rateLimitErr;
 
   try {
-    const body = await request.json();
+    // G 2026-06-13: an empty/garbled body crashed request.json() with
+    // "Unexpected end of JSON input" (route.ts:34) — harden so a bad request is
+    // a clean 400, never a 500 that looks like a brain failure.
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return Response.json({ error: "empty or invalid request body" }, { status: 400 });
+    }
     const {
       message: rawMessage,
       image_analysis: rawImageAnalysis,
@@ -120,7 +126,7 @@ export async function POST(request: Request) {
     // already have an account?"): signed-in users are DONE with signup.
     if (typeof rawSignedInEmail === "string" && rawSignedInEmail.trim()) {
       systemSections.push(
-        `THE USER IS SIGNED IN as ${rawSignedInEmail.trim().slice(0, 320)}. NEVER ask if they have an account, never ask first-time-or-returning, never ask them to spell an email, never offer account setup. If they ask about their account, that email is the answer. Switching accounts = tell them to say "log me out".`,
+        `THE USER IS SIGNED IN as ${rawSignedInEmail.trim().slice(0, 320)}. NEVER ask if they have an account, never ask first-time-or-returning, never ask them to spell an email, never offer account setup. If they ask about their account, that email is the answer. Switching accounts = tell them to say "log me out". They are a KNOWN returning user — NEVER ask "what should I call you" or for their name; if you don't have a name to use, just greet them warmly and move on. (G 2026-06-13: signed in, you'd just called him "G", then asked his name — jarring.)`,
       );
     }
     if (listMode === true) {
