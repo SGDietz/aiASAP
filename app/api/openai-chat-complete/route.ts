@@ -38,6 +38,7 @@ export async function POST(request: Request) {
       listMode,
       history: rawHistory,
       userName: rawUserName,
+      signedInEmail: rawSignedInEmail,
     } = body;
 
     if (typeof rawMessage !== "string" || !rawMessage.trim()) {
@@ -113,6 +114,13 @@ export async function POST(request: Request) {
     if (typeof rawUserName === "string" && rawUserName.trim()) {
       systemSections.push(
         `THE USER'S NAME IS: ${rawUserName.trim().slice(0, 40)}. Use it naturally. NEVER ask for their name and NEVER say you don't have a name from them.`,
+      );
+    }
+    // r34 (G signed in, the brain asked "first time signing up, or do you
+    // already have an account?"): signed-in users are DONE with signup.
+    if (typeof rawSignedInEmail === "string" && rawSignedInEmail.trim()) {
+      systemSections.push(
+        `THE USER IS SIGNED IN as ${rawSignedInEmail.trim().slice(0, 320)}. NEVER ask if they have an account, never ask first-time-or-returning, never ask them to spell an email, never offer account setup. If they ask about their account, that email is the answer. Switching accounts = tell them to say "log me out".`,
       );
     }
     if (listMode === true) {

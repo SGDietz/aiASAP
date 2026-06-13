@@ -1754,6 +1754,8 @@ const LiveAvatarSessionComponent: React.FC<{
     // r32: the brain always knows the captured name (ref-read at call time —
     // deviceProfileRef is declared later; closures only read when called).
     () => deviceProfileRef.current?.name ?? null,
+    // r34: and the signed-in state, for the same reason.
+    () => accountEmailRef.current,
   );
   const { sessionRef, sessionEpoch, renewSessionToken } = useLiveAvatarContext();
 
@@ -1982,6 +1984,7 @@ const LiveAvatarSessionComponent: React.FC<{
               listMode: true,
               history: getBrainHistory(),
               userName: deviceProfileRef.current?.name ?? null,
+              signedInEmail: accountEmailRef.current,
             }),
           });
           if (r.ok) {
@@ -2137,6 +2140,9 @@ const LiveAvatarSessionComponent: React.FC<{
               // session" minutes after he gave it): the brain always knows
               // the captured name.
               userName: deviceProfileRef.current?.name ?? null,
+              // r34: and whether they're signed in — so it never re-asks
+              // first-time-or-returning at a signed-in user.
+              signedInEmail: accountEmailRef.current,
             }),
           });
           if (r.ok) {
@@ -2547,6 +2553,12 @@ const LiveAvatarSessionComponent: React.FC<{
   const [deviceProfile, setDeviceProfile] =
     useState<DeviceProfile>(loadDeviceProfile);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  // r34: ref mirror — stale-closure callbacks (signup gate, brain calls)
+  // need the live signed-in state.
+  const accountEmailRef = useRef<string | null>(null);
+  useEffect(() => {
+    accountEmailRef.current = accountEmail;
+  }, [accountEmail]);
   const [accountAuthChecked, setAccountAuthChecked] = useState(true);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
@@ -4448,8 +4460,16 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const handleAccountSetupSpeech = useCallback(
-    (userText: string) =>
-      accountSetupSpeechFlow(signupPorts, signupFlags, userText),
+    (userText: string) => {
+      // r34 (G live 2026-06-12 21:45: signed in, said "okay", got "first
+      // time signing up, or do you already have an account?" — and earlier
+      // "you're going to remember everything here about me" tripped the
+      // setup trigger and 6 demanded his email AGAIN): a signed-in user
+      // NEVER re-enters signup. Switching accounts goes through "log me
+      // out" (r30).
+      if (accountEmailRef.current) return Promise.resolve(false);
+      return accountSetupSpeechFlow(signupPorts, signupFlags, userText);
+    },
     [signupPorts, signupFlags],
   );
 
