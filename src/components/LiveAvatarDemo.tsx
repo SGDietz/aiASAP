@@ -341,23 +341,55 @@ export const LiveAvatarDemo = () => {
 
   if (isExited) {
     return (
-      <div className="w-full h-full min-h-screen flex flex-col items-center justify-center gap-4 bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] text-[#f1c477]">
-        <div className="text-2xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">Session Ended</div>
-        <div className="text-center text-lg bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-          Thank you for using <span style={{ display: 'inline-block', transform: 'skewX(-10deg)', background: 'linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>aiASAP</span>
+      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
+        {/* Wordmark — VERBATIM from the start/live view so it's identical */}
+        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
+          <div className="text-center px-4">
+            <div className="flex items-start justify-center">
+              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                aiASAP
+              </h1>
+            </div>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            explicitExitRef.current = false;
-            setIsExited(false);
-            sessionBootstrapRef.current = true;
-            void startSession();
-          }}
-          className="btn-inset rounded-lg px-7 py-2.5 text-base font-black"
-        >
-          Restart
-        </button>
+        {/* Static 6 framed EXACTLY like the start screen + live avatar (9:16
+            portrait centered, gold border on desktop, full-cover on mobile). */}
+        <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/startscreen.png"
+            alt="6, your a-i-buddy"
+            className="h-full w-full object-cover md:object-contain md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+          />
+          {/* Session-ended message + Restart, overlaid where the tap button sits
+              on the start screen. Branded brown scrim (no raw black) for legibility. */}
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-[11svh] md:bottom-[14%] z-20 flex flex-col items-center gap-2.5 rounded-2xl border border-[#d7a05a]/35 bg-[#190f05]/60 px-8 py-5 backdrop-blur-sm shadow-[0_0_0_1px_rgba(215,160,90,0.3),0_18px_50px_rgba(0,0,0,0.6)]">
+            <div className="text-2xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">Session Ended</div>
+            <div className="text-center text-base bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+              Thank you for using <span style={{ display: 'inline-block', transform: 'skewX(-10deg)', background: 'linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>aiASAP</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                explicitExitRef.current = false;
+                setIsExited(false);
+                sessionBootstrapRef.current = true;
+                void startSession();
+              }}
+              className="btn-inset rounded-lg px-7 py-2.5 text-base font-black"
+            >
+              Restart
+            </button>
+          </div>
+        </div>
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
+          <Link
+            href="/terms"
+            className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+          >
+            © 2026 aiASAP All Rights Reserved · Terms
+          </Link>
+        </div>
       </div>
     );
   }
