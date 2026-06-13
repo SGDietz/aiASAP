@@ -208,6 +208,27 @@ async function playPcmBase64ViaWebAudio(audioBase64: string): Promise<void> {
   });
 }
 
+/**
+ * Unlock the WebAudio fallback context from a USER GESTURE (tap-to-start) so
+ * list-mode replies — which fall back to WebAudio after the avatar session
+ * stops — are never silent no-ops on a suspended context. (G 2026-06-13: 6
+ * went mute the moment a list opened.) Safe to call repeatedly.
+ */
+export function primeCustomVoiceFallback(): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (!fallbackCtx) fallbackCtx = new AudioContext();
+    if (fallbackCtx.state === "suspended") void fallbackCtx.resume();
+    const b = fallbackCtx.createBuffer(1, 1, 22050);
+    const s = fallbackCtx.createBufferSource();
+    s.buffer = b;
+    s.connect(fallbackCtx.destination);
+    s.start(0);
+  } catch {
+    // best-effort unlock
+  }
+}
+
 /** Queue one fallback utterance: deaf mic -> play -> (queue empty) -> mic back. */
 function enqueueFallback(session: LiveAvatarSession, audioBase64: string): void {
   const myEpoch = cutEpoch;

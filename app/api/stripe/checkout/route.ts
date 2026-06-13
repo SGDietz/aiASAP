@@ -44,7 +44,9 @@ export async function POST(request: Request) {
   const email = typeof body.email === "string" ? body.email.slice(0, 320) : "";
   const userId = await getUserId();
   const site =
-    process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
+    request.headers.get("origin") ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    new URL(request.url).origin;
   const successPath =
     typeof body.success_path === "string" ? body.success_path : "/?paid=1";
   const cancelPath =

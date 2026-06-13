@@ -12,6 +12,8 @@ import Link from "next/link";
 import { SessionState, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
 import {
+  cutCustomVoiceFallback,
+  primeCustomVoiceFallback,
   registerSixSpokenLine,
   reportCustomVoiceDiag,
   wasRecentlySpokenBySix,
@@ -53,7 +55,9 @@ const ACCOUNT_SIGNOUT_LINE =
 // or reported speech anywhere in a sentence blocks BOTH item adds AND
 // new-list creation from it.
 const META_TALK_RE =
-  /\b(?:not|don'?t|doesn'?t|didn'?t|isn'?t|wasn'?t|can'?t|never|you (?:just )?sa(?:y|id)|he said|she said|it says?|says|said|saying|talking to|i had|reality|issue|problem|wrong|mistake|supposed)\b/i;
+  // G 2026-06-13: also block UI/visual descriptions ("screenshot of my face",
+  // "a haze that pulses around 6's face") from becoming list items or lists.
+  /\b(?:not|don'?t|doesn'?t|didn'?t|isn'?t|wasn'?t|can'?t|never|you (?:just )?sa(?:y|id)|he said|she said|it says?|says|said|saying|talking to|i had|reality|issue|problem|wrong|mistake|supposed|screenshot|haze|puls(?:e|es|ed|ing)|zoom|glow|halo|avatar|(?:my|your|his|her|six'?s|6'?s) face|the (?:screen|thread))\b/i;
 import {
   fmtReminderDue,
   parseReminder,
@@ -1912,10 +1916,10 @@ const LiveAvatarSessionComponent: React.FC<{
                 sum += v * v;
               }
               const level = Math.min(1, Math.sqrt(sum / meterData.length) * 6);
-              circle.style.boxShadow = `0 0 0 ${(2 + level * 6).toFixed(1)}px rgba(215,160,90,${(0.25 + level * 0.45).toFixed(2)}), 0 0 ${(8 + level * 34).toFixed(0)}px ${(2 + level * 10).toFixed(0)}px rgba(244,208,134,${(0.2 + level * 0.55).toFixed(2)})`;
-              // r28 (G: "pulse in real time to the points of a voice"): the
-              // face itself swells with the level. 1.7 = the class base scale.
-              circle.style.transform = `scale(${(1.7 + level * 0.22).toFixed(3)})`;
+              circle.style.boxShadow = `0 0 0 ${(1.5 + level * 4).toFixed(1)}px rgba(244,208,134,${(0.45 + level * 0.5).toFixed(2)}), 0 0 ${(7 + level * 22).toFixed(0)}px ${(1 + level * 6).toFixed(0)}px rgba(255,233,194,${(0.2 + level * 0.5).toFixed(2)})`;
+              // G 2026-06-13: face HOLDS STILL — no zoom. Only the gold glow
+              // (boxShadow above) pulses. 1.7 = the class base scale, pinned.
+              circle.style.transform = "scale(1.7)";
             }, 60);
             src.onended = () => {
               clearInterval(meter);
@@ -1963,6 +1967,10 @@ const LiveAvatarSessionComponent: React.FC<{
     } catch {
       // already ended
     }
+    // G 2026-06-13: also cut the WebAudio FALLBACK path (what 6 uses in list
+    // mode after the avatar session stops) — without this, barge-in/interrupt
+    // can't stop 6 and he talks over you ("he would not stop").
+    cutCustomVoiceFallback();
   }, []);
 
   // ROUTED AVATAR ACTIONS: every one of the dispatcher's ~50 repeat()/
@@ -2198,16 +2206,39 @@ const LiveAvatarSessionComponent: React.FC<{
   const handleVoiceUtterance = useCallback(
     (blob: Blob): Promise<void> => {
       turnChainRef.current = turnChainRef.current
-        .then(() =>
-          Promise.race([
-            processVoiceUtterance(blob),
+        .then(() => {
+          // G 2026-06-13: on a 25s timeout 6 used to go SILENTLY dead. Now he
+          // recovers out loud + logs it (console.warn = no red dev badge).
+          let done = false;
+          return Promise.race([
+            processVoiceUtterance(blob).then(() => {
+              done = true;
+            }),
             new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
-          ]),
-        )
-        .catch(() => {});
+          ]).then(() => {
+            if (!done) {
+              console.warn("[turn-timeout] voice turn exceeded 25s — recovering");
+              try {
+                voiceSay("Hmm, I lost the thread there. Say that again?");
+              } catch {}
+            }
+          });
+        })
+        .catch((e) => {
+          // G 2026-06-13: a thrown turn used to be swallowed SILENTLY — 6 went
+          // mute with no trace. Now log it + recover out loud.
+          logAppEvent("turn_error", {
+            where: "avatar",
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          console.warn("[turn-error] voice turn threw — recovering", e);
+          try {
+            voiceSay("Hmm, I hit a snag there. Say that again?");
+          } catch {}
+        });
       return turnChainRef.current;
     },
-    [processVoiceUtterance],
+    [processVoiceUtterance, voiceSay],
   );
 
   // Ears: RMS voice-activity detection over the raw mic; records one
@@ -2265,9 +2296,10 @@ const LiveAvatarSessionComponent: React.FC<{
           const circle = document.getElementById("six-voice-circle");
           if (circle) {
             const level = Math.min(1, rms * 14);
-            circle.style.boxShadow = `0 0 0 ${(2 + level * 6).toFixed(1)}px rgba(215,160,90,${(0.25 + level * 0.45).toFixed(2)}), 0 0 ${(8 + level * 34).toFixed(0)}px ${(2 + level * 10).toFixed(0)}px rgba(244,208,134,${(0.2 + level * 0.55).toFixed(2)})`;
-            // r28: real-time pulse — the face swells with the user's voice too.
-            circle.style.transform = `scale(${(1.7 + level * 0.22).toFixed(3)})`;
+            circle.style.boxShadow = `0 0 0 ${(1.5 + level * 4).toFixed(1)}px rgba(244,208,134,${(0.45 + level * 0.5).toFixed(2)}), 0 0 ${(7 + level * 22).toFixed(0)}px ${(1 + level * 6).toFixed(0)}px rgba(255,233,194,${(0.2 + level * 0.5).toFixed(2)})`;
+            // G 2026-06-13: face HOLDS STILL — no zoom. Only the gold glow
+            // (boxShadow above) pulses with the voice level.
+            circle.style.transform = "scale(1.7)";
           }
         }
         if (voiceTtsBusyRef.current && !ears.speaking) {
@@ -2357,11 +2389,30 @@ const LiveAvatarSessionComponent: React.FC<{
       } catch {
         // avatar may already be silent
       }
-      void startVoiceEars();
+      // G 2026-06-13: 6 went MUTE/deaf right after the list intro with NO trace
+      // (no turn, no error fires). Await the ears so they're confirmed live, and
+      // log each step so the next list entry pinpoints exactly where it dies.
+      try {
+        await startVoiceEars();
+        logAppEvent("list_enter_step", { step: "ears_started", list: listTitle });
+      } catch (e) {
+        logAppEvent("list_enter_step", {
+          step: "ears_failed",
+          list: listTitle,
+          msg: e instanceof Error ? e.message : String(e),
+        });
+      }
       void voiceSay(voiceListEnterLine(listTitle, wasNew));
+      logAppEvent("list_enter_step", { step: "intro_sent", list: listTitle });
       try {
         await stopSession();
+        logAppEvent("list_enter_step", { step: "session_stopped", list: listTitle });
       } catch (e) {
+        logAppEvent("list_enter_step", {
+          step: "session_stop_failed",
+          list: listTitle,
+          msg: e instanceof Error ? e.message : String(e),
+        });
         void captureClientError(e, {
           where: "voice-mode",
           what: "stop-session",
@@ -6301,6 +6352,10 @@ const LiveAvatarSessionComponent: React.FC<{
   }, []);
 
   const handleVoiceStartStop = useCallback(async () => {
+    // G 2026-06-13: this tap is a user gesture — unlock the WebAudio fallback
+    // context NOW so list-mode replies (which use WebAudio after the avatar
+    // session stops) are never silent no-ops on a suspended context.
+    primeCustomVoiceFallback();
     if (voiceIsActive && hasUserPressedVoiceStart) {
       void interrupt();
       // r21 (G's phone, CUSTOM maiden flight: "He did not know I was there"):
@@ -7152,14 +7207,38 @@ const LiveAvatarSessionComponent: React.FC<{
     // different voice pipes, double memory writes.
     const handleUserTranscription = (event: { text: string }) => {
       turnChainRef.current = turnChainRef.current
-        .then(() =>
+        .then(() => {
           // r35: 25s race — one hung turn can't dam the chain.
-          Promise.race([
-            processUserTurn(event),
+          // G 2026-06-13: on timeout 6 recovers out loud instead of going dead.
+          let done = false;
+          return Promise.race([
+            processUserTurn(event).then(() => {
+              done = true;
+            }),
             new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
-          ]),
-        )
-        .catch(() => {});
+          ]).then(() => {
+            if (!done) {
+              console.warn("[turn-timeout] user turn exceeded 25s — recovering");
+              try {
+                voiceSay("Hmm, I lost you there. Say that again?");
+              } catch {}
+            }
+          });
+        })
+        .catch((e) => {
+          // G 2026-06-13: a thrown turn used to be swallowed SILENTLY here — 6
+          // went mute with ZERO trace and no recovery. Now: log it so the step
+          // is visible, and recover out loud so 6 never just dies.
+          logAppEvent("turn_error", {
+            where: "list",
+            text: String(event?.text ?? "").slice(0, 160),
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          console.warn("[turn-error] user turn threw — recovering", e);
+          try {
+            voiceSay("Hmm, I hit a snag there. Say that again?");
+          } catch {}
+        });
       return turnChainRef.current;
     };
     const processUserTurn = async (event: { text: string }) => {
@@ -8914,6 +8993,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const pillboxesVisible =
     visionMode !== "streaming" &&
     !isCameraActive &&
+    !shouldShowLoadingSurface &&
     sessionState !== SessionState.DISCONNECTED &&
     isStreamReady &&
     voiceIsActive &&
@@ -9413,7 +9493,7 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
-          {visionMode !== "streaming" && !isCameraActive && !hasUserPressedVoiceStart && !shouldShowLoadingSurface && (
+          {visionMode !== "streaming" && !isCameraActive && !hasUserPressedVoiceStart && !voiceIsActive && !shouldShowLoadingSurface && (
             <div className="fixed left-1/2 bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.14)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 isStreamReady && (
@@ -9806,6 +9886,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
           {visionMode !== "streaming" &&
             !isCameraActive &&
+            !shouldShowLoadingSurface &&
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
             voiceIsActive &&
