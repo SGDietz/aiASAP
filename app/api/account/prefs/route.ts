@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   if (!user) {
     return NextResponse.json({ error: "not signed in" }, { status: 401 });
   }
-  let body: { uiSizeLevel?: unknown; timezone?: unknown };
+  let body: { uiSizeLevel?: unknown; timezone?: unknown; zip?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -35,15 +35,23 @@ export async function POST(request: Request) {
     body.timezone !== undefined && isValidTimezone(body.timezone)
       ? body.timezone
       : null;
-  if (level === null && timezone === null) {
+  // Durable ZIP (2026-06-13): so a returning user never re-enters it. Accept
+  // ONLY a clean 5-digit string; user_metadata merges keys so this never
+  // clobbers full_name / timezone / ui_size_level.
+  const zip =
+    typeof body.zip === "string" && /^\d{5}$/.test(body.zip.trim())
+      ? body.zip.trim()
+      : null;
+  if (level === null && timezone === null && zip === null) {
     return NextResponse.json(
-      { error: "uiSizeLevel 0-4 or a valid timezone required" },
+      { error: "uiSizeLevel 0-4, a valid timezone, or a 5-digit zip required" },
       { status: 400 },
     );
   }
   const metadata: Record<string, unknown> = {};
   if (level !== null) metadata.ui_size_level = level;
   if (timezone !== null) metadata.timezone = timezone;
+  if (zip !== null) metadata.zip = zip;
   const { url, serviceRoleKey } = getSupabaseAdminConfig();
   const res = await fetch(
     `${url}/auth/v1/admin/users/${encodeURIComponent(user.id)}`,

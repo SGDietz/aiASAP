@@ -286,13 +286,20 @@ export function resolveSpokenLocation(
   }
   if (opts.allowBare === true) {
     // Short direct answer to 6's question: "21093." / "Toronto." / "Arizona".
-    const bareZip = text.trim().match(/^(\d{5})(?:-\d{4})?[.!?]?$/);
-    if (bareZip) {
-      const tz = zipToTimezone(bareZip[1]);
-      if (tz) return { kind: "tz", tz, placeName: `ZIP ${bareZip[1]}` };
+    // Harden the ZIP read (2026-06-13): strip a stray wake-word "6"/"six" and
+    // pull the FIRST clean run of exactly five digits from anywhere in the
+    // short answer, so ASR noise like "it's 21093 thanks" still resolves.
+    const stripped = text
+      .replace(/(^|\s)(?:6|six)(?=\s|$)/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const cleanZip = stripped.match(/(?<!\d)(\d{5})(?!\d)/);
+    if (cleanZip) {
+      const tz = zipToTimezone(cleanZip[1]);
+      if (tz) return { kind: "tz", tz, placeName: `ZIP ${cleanZip[1]}` };
     }
     if (text.trim().split(/\s+/).length <= 4) {
-      return lookupPlace(cleanPlace(text));
+      return lookupPlace(cleanPlace(stripped));
     }
   }
   return null;

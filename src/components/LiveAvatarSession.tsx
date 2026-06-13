@@ -624,6 +624,28 @@ function getLookupPreferenceQuestion(query: string | null | undefined): string {
   return "Got it. What are the things you really like to do?";
 }
 
+// G 2026-06-13 ("6 talks over me"): LiveAvatar's server STT fires a
+// user-transcription on short mid-sentence pauses even at turn_eagerness
+// "patient" (the API ceiling). When the fragment clearly ends on a DANGLING
+// FUNCTION WORD that almost never ends a real, finished thought (and/but/so/
+// the/a/to/of/with/I'm/I'll/I've/gonna/um/uh), forwarding it to the brain
+// makes 6 answer a half-thought with filler. TRUE = this is an obviously
+// incomplete fragment; suppress the spoken reply and wait for the next chunk
+// (which arrives on the SAME serialized turn chain and is answered normally).
+// Deliberately TIGHT: this/that/it/on/in/for/of/like/need/be/me/you are
+// EXCLUDED because they routinely END complete turns ("what is this", "turn
+// it on", "tell me what you need") — better to let a rare borderline fragment
+// through than to swallow a real turn. Greetings, banter, and every list
+// command ("add milk", "close the list", "switch to grocery list") return
+// false and are unaffected.
+function endsOnDanglingWord(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  return /\b(?:and|but|so|because|the|a|an|to|of|with|i'?m|i'?ll|i'?ve|gonna|um|uh|er)\s*$/i.test(
+    t,
+  );
+}
+
 function isLookupPreferenceFiller(text: string): boolean {
   const cleaned = text
     .replace(/[^\p{L}0-9\s]/gu, " ")
@@ -785,6 +807,15 @@ const LIST_VAGUE_BARE_ITEM_RE =
 // item that is pure banter — real groceries are untouched.
 const LIST_BANTER_ITEM_RE =
   /^(?:hey|hi|hiya|yo|hey there|hi there|hello|hello there|howdy|hey buddy|hey bud|sup|what'?s up|buddy|bud|pal|friend|dude|man|bro|sir|ma'?am|six|you there|are you there|you still there|still there|you're there|see|let'?s see|lets see|wait|hold on|hang on|one sec|huh|what|hmm|uh huh|right|yeah|yep|yup|nah|nope|cool|nice|sweet|awesome|wonderful|great|perfect|exactly|correct|good|gotcha|got it|never mind|nevermind|question|idea|problem|thought|point|go|to go|something|anything|everything|minute|second|sec|moment)$/i;
+// G 2026-06-13 HARD STOP: the WHOLE utterance is a stop/quiet command ("stop",
+// "hey stop", "6 stop", "hold on", "wait a sec", "quiet", "shut up", "enough").
+// Anchored ^...$ at word level so groceries that merely CONTAIN the letters
+// (stopwatch, doorstop, non-stop) and longer real sentences ("don't stop adding
+// things", "wait until i get to the store") never match — only a bare command.
+// NOTE: "that's enough" is deliberately NOT here — it already closes the list
+// via LIST_DONE_RE (voiceMode/intents.ts); adding it would swallow that close.
+const STOP_NOW_RE =
+  /^(?:6[,\s]+|six[,\s]+|hey[,\s]+|ok[,\s]+|okay[,\s]+)*(?:stop(?:\s+(?:talking|please|now|it))?|stop talking|be quiet|quiet|shush|hush|shut up|hold on|hold up|wait(?:\s+a?\s*(?:sec|second|minute|moment))?|hang on|one sec|one second|let me talk|let me finish|enough)[.!?]*$/i;
 
 const LIST_ACCENT_COLORS: Record<
   ListAccentColor,
@@ -1100,6 +1131,7 @@ function buildAccountMemorySnapshot(args: {
   onlineQuery: string | null;
   onlineLocation: string | null;
   name: string | null;
+  zip: string | null;
   visitCount: number;
   longGap: boolean;
 }): AccountMemorySnapshot | null {
@@ -1128,6 +1160,9 @@ function buildAccountMemorySnapshot(args: {
     summarizeMemoryTopic(lastUserText) ??
     (args.lists[0] ? `your ${args.lists[0].title}` : null);
   const contextParts = [
+    args.zip
+      ? `Saved ZIP code on file: ${args.zip}. If the user asks what their ZIP is, just tell them ${args.zip} — do NOT ask for it. Use it as the default location for local lookups (weather, nearby places) unless the user names a different place.`
+      : null,
     lastUserText ? `Last user message: ${lastUserText}` : null,
     lastAssistantText ? `Last 6 response: ${lastAssistantText}` : null,
     args.onlineQuery
@@ -1192,6 +1227,11 @@ function cleanListItem(
     // to "toothbrush" instead of garbage like "Yeah I'll toothbrush".
     .replace(/^(?:yeah|yep|yup|okay|ok|so|well|alright|all right|sure|now|and|but|um|uh)[\s,]+/i, "")
     .replace(/\b(?:i'?ll|i will|i'?m gonna|i'?m going to|let me|gonna|wanna)\s+/gi, " ")
+    // G 2026-06-13: strip the bare possessive opener "I have / I've got / I got /
+    // we have / I had X" so "I have toothbrush" cleans to "toothbrush" (was
+    // leaking the malformed item "I have toothbrush"). The (?!\s+to\b) guard
+    // leaves "have to get" for the existing need/want/have-to-get prefix strip.
+    .replace(/\b(?:i|we)\s+(?:'?ve\s+got|have\s+got|have(?!\s+to\b)|had|got)\s+/gi, " ")
     .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
     .replace(/\b(?:just\s+)?put\s+some\s+on\s+there\b/gi, " ")
@@ -2201,6 +2241,16 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
         lastListHeardRef.current = { text: heard, at: Date.now() };
+        // G 2026-06-13 HARD STOP (list/voice mode): if the whole utterance is a
+        // stop command, go silent NOW — cut the TTS queue AND the WebAudio
+        // fallback — and return before any dispatch/brain routing. No reply, no
+        // list mutation. (voiceCutSpeech is defined above at module-render scope
+        // and already drops the queue + calls cutCustomVoiceFallback().)
+        if (STOP_NOW_RE.test(heard)) {
+          voiceCutSpeech();
+          logAppEvent("t6", { p: "hard_stop", where: "list", heard: heard.slice(0, 40) });
+          return;
+        }
         // r28: echo firewall for the voice-mode ears too (avatar-mode got it
         // in r26; this path was open and 6 answered his own speaker audio).
         if (wasRecentlySpokenBySix(heard)) {
@@ -3722,6 +3772,10 @@ const LiveAvatarSessionComponent: React.FC<{
           onlineQuery: restoredOnlineQuery,
           onlineLocation: restoredOnlineLocation,
           name: accountFullName,
+          zip:
+            typeof data.zip === "string" && /^\d{5}$/.test(data.zip)
+              ? data.zip
+              : null,
           visitCount: typeof data.visitCount === "number" ? data.visitCount : 1,
           longGap: data.longGap === true,
         });
@@ -5222,6 +5276,10 @@ const LiveAvatarSessionComponent: React.FC<{
       }
       tzAskAtRef.current = 0;
       sessionTimezoneRef.current = loc.tz;
+      // If the resolved location WAS a ZIP, persist the raw 5 digits too so a
+      // returning user is never asked for it again (2026-06-13). loc.placeName
+      // is `ZIP 21093` for the ZIP paths in resolveSpokenLocation.
+      const zipFromLoc = loc.placeName.match(/\b(\d{5})\b/)?.[1] ?? null;
       // Await the save so "I'll remember that" is only ever spoken when the
       // account write actually landed (2026-06-11 review: the fire-and-forget
       // version promised memory it might not have).
@@ -5231,7 +5289,11 @@ const LiveAvatarSessionComponent: React.FC<{
           const res = await fetch("/api/account/prefs", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ timezone: loc.tz }),
+            body: JSON.stringify(
+              zipFromLoc
+                ? { timezone: loc.tz, zip: zipFromLoc }
+                : { timezone: loc.tz },
+            ),
           });
           savedToAccount = res.ok;
         } catch {
@@ -6168,6 +6230,17 @@ const LiveAvatarSessionComponent: React.FC<{
         return true;
       }
       if (pendingQuery) {
+        // Scenario (a): an explicit stop/hold-on inside a pending lookup must NOT
+        // auto-fire the pending search off a trailing ZIP. Honor the stop and let
+        // the utterance fall through to normal handling. A clean ZIP answer like
+        // "21093" does not match this, so the real ZIP-capture path is unchanged.
+        if (
+          /\b(?:stop talking|stop it|be quiet|shut up|hold on|never\s*mind|forget it|wait a (?:minute|second|sec))\b/i.test(
+            text,
+          )
+        ) {
+          return false;
+        }
         if (LOCATION_SHARE_CHOICE_RE.test(text)) {
           await requestSharedLocation();
           return true;
@@ -6243,6 +6316,17 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (onlineLookupLocationRef.current) {
+        // Scenario (b): a cached ZIP from a prior lookup must NOT let a sentence
+        // that merely contains a topic word (e.g. "Park" in "no Park you should
+        // say that first") silently re-fire a brand-new web search. Only reuse
+        // the cached location when this turn is a genuine lookup REQUEST: an action
+        // verb is present, or it is a short topic-dominated phrase (<= 6 words).
+        const isGenuineLookupRequest =
+          ONLINE_LOOKUP_ACTION_RE.test(text) ||
+          text.trim().split(/\s+/).length <= 6;
+        if (!isGenuineLookupRequest) {
+          return false;
+        }
         if (shouldAskPreferencesBeforeLookup(text)) {
           onlineLookupPendingQueryRef.current = text;
           const spoken = getLookupPreferenceQuestion(text);
@@ -7522,6 +7606,20 @@ const LiveAvatarSessionComponent: React.FC<{
         void interrupt();
       }
 
+      // G 2026-06-13 HARD STOP (avatar mode): if the whole utterance is a stop
+      // command, cut BOTH 6's mouths immediately — the LiveAvatar session via
+      // interrupt() and the WebAudio custom-voice fallback via
+      // cutCustomVoiceFallback() — then return before any list/brain routing so
+      // 6 says nothing back. interrupt() above only fires while isAvatarTalking;
+      // this also handles the case where the line is queued but the flag has
+      // already dropped, and explicitly cuts the CUSTOM-mode fallback.
+      if (STOP_NOW_RE.test(userText)) {
+        void interrupt();
+        cutCustomVoiceFallback();
+        logAppEvent("t6", { p: "hard_stop", where: "avatar", heard: userText.slice(0, 40) });
+        return;
+      }
+
       // r30 (G 2026-06-12): voice sign-out — checked before every other
       // handler so nothing can eat "log me out" / "switch accounts".
       if (LOGOUT_COMMAND_RE.test(userText)) {
@@ -7824,6 +7922,35 @@ const LiveAvatarSessionComponent: React.FC<{
           schedulePromptBrain(userText);
           return;
         }
+      }
+
+      // G 2026-06-13 waterfall bug: when lookup RESULTS are on 6's chest and G asks
+      // to read "what's in these boxes" / "say them in order" / "read them back",
+      // read the RESULT lines in order — NOT the default idea pills, and never the
+      // online-search pipeline (handleOnlineLookupSpeech would re-run a search
+      // because onlineLookupLocationRef is still set after a lookup). Runs only when
+      // results are showing and no real list owns the screen. NOTE: the regex must
+      // NOT key on the word "list" (verb or noun) — "start a grocery list" / "add X
+      // to the list" would be hijacked into a readback while results are up. Gated
+      // on box/order/them/these/those/results/options instead.
+      if (
+        onlineLookupResultLines.length > 0 &&
+        !activeListId &&
+        !isShoppingMode &&
+        /\b(?:read|say|go (?:through|over)|what(?:'?s| is| are| do you (?:see|have)))\b/i.test(
+          userText,
+        ) &&
+        /\b(?:box|boxes|order|them|these|those|results?|options?)\b/i.test(
+          userText,
+        )
+      ) {
+        const spoken = `In order: ${formatListItemsForSpeech(onlineLookupResultLines)}.`;
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        return;
       }
 
       if (await handleOnlineLookupSpeech(userText)) {
@@ -8170,6 +8297,18 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       }
       if (mode === "CUSTOM" && visionMode !== "streaming") {
+        // G 2026-06-13 ("6 talks over me"): never answer a half-thought. If
+        // the STT fragment ends on a dangling function word (and/so/the/to/
+        // I'm/um...), DROP the spoken reply and return — the user is still
+        // mid-sentence. The next real chunk arrives on this SAME serialized
+        // turn chain (turnChainRef) and is answered normally, so we never
+        // bypass the queue, never arm an out-of-chain timer, and never leak
+        // an orphan into the list/close/lookup branches above. Banter,
+        // greetings, and list commands return false here and behave exactly
+        // as before.
+        if (endsOnDanglingWord(userText)) {
+          return;
+        }
         schedulePromptBrain(userText);
         await sendMessage(buildMemoryAugmentedMessage(userText));
         return;
@@ -9328,6 +9467,14 @@ const LiveAvatarSessionComponent: React.FC<{
     !isShoppingMode;
   // Pillboxes go 2x2 (on the hands) for EITHER an active list or lookup results.
   const chestGrid = Boolean(showActiveList) || lookupResultsOnChest;
+  // G 2026-06-13 waterfall bug: when lookup RESULTS own the chest, the 2x2 boxes
+  // must show the RESULT lines (Cunningham Falls, Great Falls, Billy Goat Trail) —
+  // NOT the default idea pills. Render them VERBATIM (do NOT route through
+  // normalizeThoughtPrompts — its 18-char filter drops real place names and
+  // backfills the defaults). Otherwise the boxes keep the normal thought prompts.
+  const chestPrompts = lookupResultsOnChest
+    ? onlineLookupResultLines.slice(0, 4)
+    : visibleThoughtPrompts.slice(0, visiblePromptLimit);
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] flex flex-col">
@@ -10161,9 +10308,9 @@ const LiveAvatarSessionComponent: React.FC<{
                       } as React.CSSProperties)
                 }
               >
-                {visibleThoughtPrompts.slice(0, visiblePromptLimit).map((prompt, index) => {
+                {chestPrompts.map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
-                  const _visiblePromptsForSize = visibleThoughtPrompts.slice(0, visiblePromptLimit);
+                  const _visiblePromptsForSize = chestPrompts;
                   const _maxPromptLen = Math.max(...(_visiblePromptsForSize.map((p) => p.length)), 0);
                   let _tierBase: number;
                   if (_maxPromptLen > 26) _tierBase = 0.70;

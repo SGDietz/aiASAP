@@ -51,6 +51,7 @@ export async function GET(request: Request) {
   let longGap = false;
   let uiSizeLevel: number | null = null;
   let timezone: string | null = null;
+  let zip: string | null = null;
 
   try {
     const authResult = await Promise.race([
@@ -91,6 +92,11 @@ export async function GET(request: Request) {
         // Voice-set timezone (2026-06-11) — follows the account everywhere.
         if (typeof meta.timezone === "string" && meta.timezone) {
           timezone = meta.timezone;
+        }
+        // Durable ZIP (2026-06-13): surfaced into 6's memory snapshot so a
+        // returning user is never asked for it again.
+        if (typeof meta.zip === "string" && /^\d{5}$/.test(meta.zip)) {
+          zip = meta.zip;
         }
         // Per-account visit counter (drives 6's tiered returning intros).
         // De-duped by a 30-min window so page refreshes don't inflate the count.
@@ -215,6 +221,7 @@ export async function GET(request: Request) {
       longGap,
       uiSizeLevel,
       timezone,
+      zip,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
