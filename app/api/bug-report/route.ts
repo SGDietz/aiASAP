@@ -139,9 +139,14 @@ export async function POST(request: Request) {
   });
 
   // 1) Email G (best-effort, via the purpose-routed sender catalog).
+  // r35 (G 2026-06-12 21:58: "I'm getting a lot of emails about bugs...
+  // that needs to be turned off while we're testing"): BUG_EMAILS_ENABLED
+  // gates the EMAIL only — the row always lands in bug_reports.
   let emailed = false;
   let emailError: string | null = null;
-  if (TO) {
+  if (process.env.BUG_EMAILS_ENABLED === "false") {
+    emailError = "emails off for testing (BUG_EMAILS_ENABLED=false)";
+  } else if (TO) {
     const sent = await sendPurposeEmail({
       purpose: "bug",
       to: TO,

@@ -120,7 +120,10 @@ export async function POST(request: Request) {
 
   let emailed = false;
   let emailError: string | null = null;
-  if (TO) {
+  // r35: same testing gate as bug emails — rows always land.
+  if (process.env.BUG_EMAILS_ENABLED === "false") {
+    emailError = "emails off for testing (BUG_EMAILS_ENABLED=false)";
+  } else if (TO) {
     const sent = await sendPurposeEmail({
       purpose: "feedback",
       to: TO,
