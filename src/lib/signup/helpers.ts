@@ -264,7 +264,15 @@ export function cleanDeviceName(value: string): string | null {
   }
   if (!words.every((word) => /^[a-z][a-z'.-]*$/i.test(word))) return null;
 
-  name = words
+  // r32 (G live 2026-06-12 20:42: "G the letter G" stored as "G G" and 6
+  // greeted him "Welcome back, G G!"): after letter-form expansion, repeated
+  // words collapse — people repeat the letter, nobody is named "G G".
+  const deduped = words.filter(
+    (word, index) =>
+      index === 0 || word.toLowerCase() !== words[index - 1].toLowerCase(),
+  );
+
+  name = deduped
     .map((word) =>
       word.length === 1
         ? word.toUpperCase()

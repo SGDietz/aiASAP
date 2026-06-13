@@ -16,6 +16,9 @@ export const useTextChat = (
   // 6 re-introduced himself on every turn. The component supplies the running
   // conversation; we send it with each call.
   getHistory?: () => Array<{ role: "user" | "assistant"; content: string }>,
+  // r32 (G 2026-06-12 20:43: 6 said "I don't have a name from you yet"
+  // minutes after G gave it): the captured name rides on every brain call.
+  getUserName?: () => string | null,
 ) => {
   const { sessionRef, reportActivity } = useLiveAvatarContext();
 
@@ -32,6 +35,7 @@ export const useTextChat = (
             message,
             image_analysis: imageAnalysis || undefined,
             history: getHistory?.() ?? [],
+            userName: getUserName?.() ?? null,
           }),
         });
         const { response: chatResponseText } = await response.json();
@@ -59,7 +63,7 @@ export const useTextChat = (
         }
       }
     },
-    [sessionRef, mode, reportActivity, onAssistantText, getHistory],
+    [sessionRef, mode, reportActivity, onAssistantText, getHistory, getUserName],
   );
 
   return {

@@ -61,6 +61,22 @@
   }
 }
 
+/* r32 (G's wish, live 2026-06-12 20:44: "one of those pill boxes could shake
+   a little bit every once in a while... a little animation"): one random
+   pillbox wiggles when the room goes quiet. Animation only — no layout or
+   size change, the gold-standard pill look is untouched. */
+@keyframes pill-wiggle {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  15% { transform: translateX(-2px) rotate(-1.2deg); }
+  30% { transform: translateX(2px) rotate(1.1deg); }
+  45% { transform: translateX(-2px) rotate(-0.8deg); }
+  60% { transform: translateX(2px) rotate(0.7deg); }
+  78% { transform: translateX(-1px) rotate(-0.3deg); }
+}
+.pill-wiggle {
+  animation: pill-wiggle 0.95s ease-in-out !important;
+}
+
 @layer components {
   /* Inset button: gray glass with aiASAP amber text. */
   .btn-inset {

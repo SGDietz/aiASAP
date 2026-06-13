@@ -66,6 +66,28 @@ export function captureClientError(
 }
 
 /**
+ * r32 (G live 2026-06-12 20:46: "Red box at the bottom... it says one
+ * issue, it's red" — lifecycle breadcrumbs logged at error level lit the
+ * Next dev overlay's red badge): tracers and diagnostics report at WARN so
+ * only real failures count as errors.
+ */
+export function captureClientWarn(
+  error: unknown,
+  context?: Record<string, unknown>,
+): Promise<void> {
+  const err =
+    error instanceof Error
+      ? error
+      : new Error(typeof error === "string" ? error : "unknown warn");
+  return flush({
+    level: "warn",
+    message: err.message || "unknown warn",
+    stack: err.stack,
+    context,
+  });
+}
+
+/**
  * Install global handlers exactly once. Safe to call multiple times.
  * Idempotent. Mounted from AuthProvider so it runs on every page load.
  */

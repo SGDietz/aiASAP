@@ -27,7 +27,10 @@ import {
   type SignupFlags,
   type SignupPorts,
 } from "../lib/signup/machine";
-import { captureClientError } from "../lib/observability/clientLogger";
+import {
+  captureClientError,
+  captureClientWarn,
+} from "../lib/observability/clientLogger";
 import {
   logAppEvent,
   maybeSubmitBugReport,
@@ -1150,6 +1153,11 @@ function cleanListItem(
       "",
     )
     .replace(/^(?:some|a|an|the|their|there|my|our|el|la|los|las|un|una|le|la|les|des|du|der|die|das|ein|eine)\s+/i, "")
+    // r32 (G live 2026-06-12 20:48: "rice and yogurt ON the list" \u2192 item
+    // "Yogurt on"; "put yogurt as the next thing on the list" \u2192 the whole
+    // phrase): dangling tails are never part of a grocery item.
+    .replace(/\s+as the next thing(?:\s+on)?\s*$/i, "")
+    .replace(/\s+(?:on|off|onto|to|from|in)\s*(?:the|this|that|my|there|here)?\s*$/i, "")
     .replace(/[.!?]+$/g, "")
     .replace(/^[\s,.;:\-\u2013\u2014]+|[\s,.;:\-\u2013\u2014]+$/g, "")
     .replace(/\s+/g, " ")
@@ -1743,6 +1751,9 @@ const LiveAvatarSessionComponent: React.FC<{
     mode,
     (text) => assistantLogRef.current(text),
     getBrainHistory,
+    // r32: the brain always knows the captured name (ref-read at call time —
+    // deviceProfileRef is declared later; closures only read when called).
+    () => deviceProfileRef.current?.name ?? null,
   );
   const { sessionRef, sessionEpoch, renewSessionToken } = useLiveAvatarContext();
 
@@ -1970,6 +1981,7 @@ const LiveAvatarSessionComponent: React.FC<{
               message: text,
               listMode: true,
               history: getBrainHistory(),
+              userName: deviceProfileRef.current?.name ?? null,
             }),
           });
           if (r.ok) {
@@ -2071,6 +2083,14 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
         if (wantsAvatarBack(heard)) {
+          // r32 (G 20:49: "take down the Walmart list and make a grocery
+          // list" — the close won and the create vanished, his berries went
+          // to the brain): a new-list ask in the same breath means SWAP
+          // lists in place, never leave list mode.
+          if (detectListIntent(heard)) {
+            await voiceDispatchRef.current?.(heard);
+            return;
+          }
           // r29 (G 2026-06-12 09:01: "let's go back to six" brought the
           // grocery list BACK with him): face-back = clean stage. The list
           // survives ONLY an explicit "keep".
@@ -2099,6 +2119,10 @@ const LiveAvatarSessionComponent: React.FC<{
               message: heard,
               listMode: true,
               history: getBrainHistory(),
+              // r32 (G 20:43: "I don't have a name from you yet this
+              // session" minutes after he gave it): the brain always knows
+              // the captured name.
+              userName: deviceProfileRef.current?.name ?? null,
             }),
           });
           if (r.ok) {
@@ -2256,7 +2280,7 @@ const LiveAvatarSessionComponent: React.FC<{
       voiceReturnKeepsListRef.current = false;
       voiceEnteredAtRef.current = Date.now();
       voiceReturnAttemptsRef.current = 0; // fresh stay, fresh comeback budget
-      void captureClientError(new Error("voice-mode"), {
+      void captureClientWarn(new Error("voice-mode"), {
         where: "voice-mode",
         what: "enter",
         list: listTitle,
@@ -2299,7 +2323,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (attempt === 1) {
         void voiceSay("You got it - one sec, bringing myself back.");
       }
-      void captureClientError(new Error("voice-mode"), {
+      void captureClientWarn(new Error("voice-mode"), {
         where: "voice-mode",
         what: "return",
         keepList,
@@ -3747,6 +3771,34 @@ const LiveAvatarSessionComponent: React.FC<{
     setListFocusNonce((value) => value + 1);
     return true;
   }, [assistantLists]);
+
+  // r32 (G live 2026-06-12 20:48: "make number four say yogurt" had no
+  // handler — three rounds of fighting, and the brain claimed fixes that
+  // never happened): a real rename-by-number.
+  const renameListItem = useCallback(
+    (listId: string, itemIndex: number, newText: string) => {
+      const list = assistantLists.find((item) => item.id === listId);
+      if (!list || itemIndex < 0 || itemIndex >= list.items.length)
+        return false;
+      const cleaned = newText.trim();
+      if (!cleaned) return false;
+      const cased = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+      if (list.items[itemIndex] === cased) return false;
+      const nextItems = [...list.items];
+      nextItems[itemIndex] = cased;
+      latestListMutationRef.current = { listId, item: cased, action: "add" };
+      setAssistantLists((currentLists) =>
+        currentLists.map((currentList) =>
+          currentList.id === listId
+            ? { ...currentList, items: nextItems, updatedAt: Date.now() }
+            : currentList,
+        ),
+      );
+      setListFocusNonce((value) => value + 1);
+      return true;
+    },
+    [assistantLists],
+  );
 
   const capitalizeListItems = useCallback(
     (listId: string) => {
@@ -5237,7 +5289,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // r27: NEVER auto-retry forever — the 01:39 runaway spoke the failure
       // line ~60x in 7s. After 3 failed comebacks, only a tap retries.
       if (voiceReturnAttemptsRef.current >= 3) return;
-      void captureClientError(new Error("voice-mode"), {
+      void captureClientWarn(new Error("voice-mode"), {
         where: "voice-mode",
         what: "return-list-gone",
       });
@@ -7071,7 +7123,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // in error_logs that the spoken name landed in the ref (G's sessions
         // keep hitting "you already asked my name" — this proves/disproves the
         // capture side without needing his browser console).
-        void captureClientError(
+        void captureClientWarn(
           new Error("signup-tracer: name captured"),
           { where: "name-catch", name: deviceNameCandidate },
         );
@@ -7371,6 +7423,26 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
+      // r32 (G live 2026-06-12 20:49: "show me the list" → "Tell me your
+      // five-digit ZIP code" — the lookup ate it): showing a list always
+      // wins over searching the internet.
+      if (
+        /\bshow (?:me )?(?:the |my )?(?:\w+ )?list\b|\bput (?:the |my )?list (?:back )?up\b|\bwhere(?:'s| is) (?:the |my )list\b/i.test(
+          userText,
+        ) &&
+        assistantLists.length > 0
+      ) {
+        const shown = activeList ?? moveActiveList(1);
+        if (shown) {
+          const spoken = `I opened the ${shown.title}.`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+      }
+
       if (await handleOnlineLookupSpeech(userText)) {
         schedulePromptBrain(userText);
         return;
@@ -7414,7 +7486,10 @@ const LiveAvatarSessionComponent: React.FC<{
         inferredListIntentRaw &&
         // r31 (G 09:03: "I didn't say to do that" spawned a "That To Do
         // List"): meta/negation sentences never create or open lists.
+        // r32 (G 20:53: "I need to set a reminder" round spawned a
+        // "Reminders To Do List"): reminder talk is cards, never lists.
         (META_TALK_RE.test(userText) ||
+          /\bremind(?:er|ers)?\b/i.test(userText) ||
           (activeListId &&
             /^(?:blank|empty|new|the|this|that|same|whole|my)\b\s*(?:list)?$/i.test(
               inferredListIntentRaw.title.trim(),
@@ -7474,7 +7549,9 @@ const LiveAvatarSessionComponent: React.FC<{
         // verbless speech only counts as items when it's SHORT (real dictation
         // like "toothpaste, shampoo" — never a monologue).
         const _LIST_REMOVE_VERB_RE = /\b(?:take|remove|delete|cross|scratch|clear)\b/i;
-        const _LIST_ADD_VERB_RE = /\b(?:add|put|i (?:want|need)|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
+        // r32 (G 20:46: "List toothbrush and toothpaste and a blow dryer"
+        // missed every verb and the brain faked the add): "list" is a verb.
+        const _LIST_ADD_VERB_RE = /\b(?:add|put|list|i (?:want|need)|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
         const _clauses = userText.split(/(?<=[.!?])\s+/).filter(Boolean);
         const _removeSource = _clauses.find((c) => _LIST_REMOVE_VERB_RE.test(c)) ?? "";
         const _addSource =
@@ -7541,7 +7618,27 @@ const LiveAvatarSessionComponent: React.FC<{
           /\bcapitaliz|\bcapital\s+letter|\bcapital\s+[A-Za-z]\b|\bupper\s?case\b/i.test(
             userText,
           );
-        if (wantsCapitals) {
+        // r32: "make number four say yogurt" / "number 4 should say X" /
+        // "change item two to read X" — rename by number, checked first.
+        const _renameMatch = userText.match(
+          /\b(?:make|change|fix)?\s*(?:number|item)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:should\s+)?(?:to\s+)?(?:just\s+)?(?:say|read|be)\s+(?:just\s+)?([^.!?,]{1,40})/i,
+        );
+        if (_renameMatch && targetListId) {
+          const _ORDINALS: Record<string, number> = {
+            one: 1, two: 2, three: 3, four: 4, five: 5,
+            six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+          };
+          const idxRaw = _renameMatch[1].toLowerCase();
+          const idx =
+            (/^\d+$/.test(idxRaw)
+              ? parseInt(idxRaw, 10)
+              : _ORDINALS[idxRaw] ?? 0) - 1;
+          const newText = _renameMatch[2].trim();
+          const renamed = renameListItem(targetListId, idx, newText);
+          listActionSpoken = renamed
+            ? `Done - number ${idx + 1} says ${newText} now.`
+            : `Hmm - I couldn't change number ${_renameMatch[1]}. Tell me again?`;
+        } else if (wantsCapitals) {
           const capped = capitalizeListItems(targetListId);
           listActionSpoken = capped
             ? "Done - capital letters on the list."
@@ -7971,6 +8068,7 @@ const LiveAvatarSessionComponent: React.FC<{
     activeListId,
     addItemsToList,
     capitalizeListItems,
+    renameListItem,
     assistantLists,
     buildMemoryAugmentedMessage,
     deleteAssistantList,
@@ -8704,6 +8802,66 @@ const LiveAvatarSessionComponent: React.FC<{
     emailEntryOpen,
     showChestEmail,
   ]);
+
+  // r32 (G's wish, live 2026-06-12 20:44: "one of those pill boxes could
+  // shake a little bit every once in a while"): when the room's been quiet
+  // ~25s+, ONE random pillbox wiggles — random pill, random beat, never a
+  // metronome. Chaos is the brand.
+  const [wigglingPromptIndex, setWigglingPromptIndex] = useState<number | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!pillboxesVisible) return;
+    let wiggleTimer: ReturnType<typeof setTimeout> | null = null;
+    const id = setInterval(() => {
+      const lastTalk = Math.max(
+        prevUserSpeechRef.current?.at ?? 0,
+        lastVisionResponseTimeRef.current,
+      );
+      if (Date.now() - lastTalk < 25_000) return;
+      if (Math.random() < 0.45) return; // skip beats at random
+      setWigglingPromptIndex(Math.floor(Math.random() * 4));
+      wiggleTimer = setTimeout(() => setWigglingPromptIndex(null), 1000);
+    }, 12_000);
+    return () => {
+      clearInterval(id);
+      if (wiggleTimer) clearTimeout(wiggleTimer);
+    };
+  }, [pillboxesVisible]);
+
+  // r32 (G's wish, live 2026-06-12 20:45: "if the person's quiet you could
+  // say... just talk to me, I'm full of ideas"): one gentle spoken nudge per
+  // quiet stretch, only on the open stage (never mid-list/signup/camera —
+  // the pillbox gate covers all of those), max 2 per session.
+  const idleNudgeCountRef = useRef(0);
+  const idleNudgeArmedRef = useRef(false);
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (voicePresenceRef.current !== "avatar") return;
+      if (!pillboxesVisibleRef.current) return;
+      if (isAvatarTalking) return;
+      const lastTalk = Math.max(
+        prevUserSpeechRef.current?.at ?? 0,
+        lastVisionResponseTimeRef.current,
+      );
+      if (lastTalk === 0) return; // nobody has talked yet — the greeting owns the open
+      const idleMs = Date.now() - lastTalk;
+      if (idleMs < 75_000) {
+        idleNudgeArmedRef.current = true;
+        return;
+      }
+      if (!idleNudgeArmedRef.current) return;
+      if (idleNudgeCountRef.current >= 2) return;
+      idleNudgeArmedRef.current = false;
+      idleNudgeCountRef.current += 1;
+      const line = "Just talk to me - I'm full of ideas.";
+      lastAvatarResponseRef.current = line;
+      rememberConversationLine("assistant", line);
+      void repeat(line);
+      logAppEvent("idle_nudge", { count: idleNudgeCountRef.current });
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [isAvatarTalking, rememberConversationLine, repeat]);
   // v1 dormant: LIST_UI_DORMANT hides the list panels. activeList state still tracked.
   const showActiveList = !LIST_UI_DORMANT && activeList;
 
@@ -9571,7 +9729,7 @@ const LiveAvatarSessionComponent: React.FC<{
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
-                      }`}
+                      }${wigglingPromptIndex === index ? " pill-wiggle" : ""}`}
                       style={{
                         animationDelay: `${index * 80}ms`,
                         // G 23:36 "total fail": the compact home-stage pills

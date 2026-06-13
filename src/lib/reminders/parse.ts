@@ -72,10 +72,21 @@ function polishTitle(raw: string): string {
     }
   }
   title = title.replace(TITLE_DONT_FORGET_RE, "");
-  return title
+  title = title
     .replace(/[\s,]+/g, " ")
     .replace(/[.?!]+\s*$/g, "")
     .trim();
+  // r32 (G live 2026-06-12 20:53: "I want you to remind me of something"
+  // saved a junk card titled "something - whenever"): a placeholder is not a
+  // task — empty title makes 6 ASK what to remind instead of saving fog.
+  if (
+    /^(?:of\s+)?(?:something|anything|stuff|things?|this|that|it)$/i.test(
+      title,
+    )
+  ) {
+    return "";
+  }
+  return title;
 }
 
 const WEEKDAYS = [

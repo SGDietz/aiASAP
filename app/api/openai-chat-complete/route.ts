@@ -37,6 +37,7 @@ export async function POST(request: Request) {
       image_analysis: rawImageAnalysis,
       listMode,
       history: rawHistory,
+      userName: rawUserName,
     } = body;
 
     if (typeof rawMessage !== "string" || !rawMessage.trim()) {
@@ -105,6 +106,14 @@ export async function POST(request: Request) {
     }
     if (memoryBlock) {
       systemSections.push(memoryBlock);
+    }
+    // r32 (G live 2026-06-12 20:43: "I don't have a name from you yet this
+    // session" minutes after he gave his name): the app's captured name is
+    // the truth — never re-ask, never deny knowing it.
+    if (typeof rawUserName === "string" && rawUserName.trim()) {
+      systemSections.push(
+        `THE USER'S NAME IS: ${rawUserName.trim().slice(0, 40)}. Use it naturally. NEVER ask for their name and NEVER say you don't have a name from them.`,
+      );
     }
     if (listMode === true) {
       // Voice-list mode (2026-06-11): the user is looking at a full-screen
