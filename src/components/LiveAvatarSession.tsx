@@ -2936,6 +2936,9 @@ const LiveAvatarSessionComponent: React.FC<{
   // True once a signed-in account loads. Gates account-setup OFF for returning
   // users so the email-on-chest box + email parsing never fire on the return.
   const accountSignedInRef = useRef(false);
+  // True once the signed-in account's saved lists have LOADED, so the durable
+  // list-save effect never fires before restore and clobbers saved lists with [].
+  const accountListsHydratedRef = useRef(false);
   // True between "ask the name" and "got the name" during account setup, so the
   // next utterance is taken as the user's name even if 6's spoken line didn't
   // match the name-ask regex. Guarantees deviceProfile.name is set BEFORE the
@@ -3028,6 +3031,34 @@ const LiveAvatarSessionComponent: React.FC<{
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
     [activeListId, assistantLists],
   );
+  // Durable list persistence (2026-06-13, G dogfood: "next time I open you, the
+  // Walmart list comes up exactly like this, right?" — 6 promised it; it wasn't
+  // real). Debounce-save the signed-in user's lists + active-list pointer to the
+  // account on every change so they return EXACTLY next session. /api/account/me
+  // reads it back and the restore path calls setAssistantLists(). Guarded so it
+  // never fires before restore (would clobber saved lists with []) and never for
+  // anonymous users (no account to save to).
+  useEffect(() => {
+    if (!accountSignedInRef.current || !accountListsHydratedRef.current) return;
+    const t = setTimeout(() => {
+      const activeTitle =
+        assistantLists.find((l) => l.id === activeListId)?.title ?? null;
+      void fetch("/api/account/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lists: assistantLists,
+          resumeState: {
+            activeListId: activeListId ?? null,
+            activeListTitle: activeTitle,
+          },
+        }),
+      }).catch(() => {
+        // Best-effort; a failed save just retries on the next change.
+      });
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [assistantLists, activeListId]);
   // r29 telemetry: ref mirror so fire-and-forget bug reports can snapshot the
   // on-screen list from inside stale-closure callbacks.
   const activeListSnapshotRef = useRef<string[] | null>(null);
@@ -3795,6 +3826,8 @@ const LiveAvatarSessionComponent: React.FC<{
           setActiveListId(null);
           setIsShoppingMode(false);
         }
+        // Saved lists (if any) are now loaded — enable the durable list-save.
+        accountListsHydratedRef.current = true;
         if (accountStatus === "verified") {
           // Hard-coded return greeting. Now greets BY NAME when we have a clean
           // one — the old "First Time"/"It Is" name-capture leak is fixed

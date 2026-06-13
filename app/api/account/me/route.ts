@@ -52,6 +52,8 @@ export async function GET(request: Request) {
   let uiSizeLevel: number | null = null;
   let timezone: string | null = null;
   let zip: string | null = null;
+  let savedListsMeta: unknown[] | null = null;
+  let savedResumeMeta: unknown = null;
 
   try {
     const authResult = await Promise.race([
@@ -97,6 +99,20 @@ export async function GET(request: Request) {
         // returning user is never asked for it again.
         if (typeof meta.zip === "string" && /^\d{5}$/.test(meta.zip)) {
           zip = meta.zip;
+        }
+        // Durable saved lists (2026-06-13): the ongoing list-save writes here.
+        // Takes precedence over the start-time captured_lists snapshot below, so
+        // a returning user's lists come back EXACTLY as they left them.
+        if (
+          meta.assistant_lists &&
+          typeof meta.assistant_lists === "object" &&
+          !Array.isArray(meta.assistant_lists)
+        ) {
+          const al = meta.assistant_lists as Record<string, unknown>;
+          if (Array.isArray(al.lists)) savedListsMeta = al.lists;
+          if (al.resumeState && typeof al.resumeState === "object") {
+            savedResumeMeta = al.resumeState;
+          }
         }
         // Per-account visit counter (drives 6's tiered returning intros).
         // De-duped by a 30-min window so page refreshes don't inflate the count.
@@ -210,6 +226,10 @@ export async function GET(request: Request) {
       console.error("/api/account/me lists fetch threw:", error);
     }
   }
+
+  // Durable user_metadata lists win over the start-time captured_lists snapshot.
+  if (savedListsMeta) lists = savedListsMeta;
+  if (savedResumeMeta !== null) resumeState = savedResumeMeta;
 
   return new Response(
     JSON.stringify({
