@@ -14,3 +14,5 @@ telegram_conversations.json.tmp
 .env*.local
 supabase/.temp/
 .hermes-supabase-readonly/
+__scratch__/
+__scratch2__/

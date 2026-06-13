@@ -178,6 +178,26 @@ const pickSessionCloseGoodbye = (): string =>
   ];
 const LIST_CLOSE_EDUCATION =
   "If you want this list off the screen, just ask me to close the list.";
+// G (2026-06-13): the close-list tip must be a ONE-TIME education, not a
+// per-session repeat. "If you say that to somebody a few times, they know it."
+// The in-memory ref resets every mount, so back it with localStorage (same
+// device/browser scope as LAST_GREETING + DEVICE_KEY). Once a user has heard
+// it on this device, they never hear it again on any future session.
+const LIST_CLOSE_EDUCATION_SHOWN_STORAGE_KEY = "aiasap.listCloseEducation.shown.v1";
+const loadListCloseEducationShown = (): boolean => {
+  try {
+    return window.localStorage.getItem(LIST_CLOSE_EDUCATION_SHOWN_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+const persistListCloseEducationShown = (): void => {
+  try {
+    window.localStorage.setItem(LIST_CLOSE_EDUCATION_SHOWN_STORAGE_KEY, "1");
+  } catch {
+    // best-effort; storage blocked just means it may repeat once more
+  }
+};
 // v2.1 (2026-05-28): voice magic-link sign-in + per-user memory ENABLED.
 // Was gated true on gold while the account flow was held back; flipped to
 // false here so startAccountSetup / handleAccountSetupSpeech / the email
@@ -776,16 +796,31 @@ const DATA_EXPORT_INTENT_RE = new RegExp(
 // (BACKCHANNEL_ONLY_RE removed 2026-06-04: v2.1 now yields the floor on ANY user
 // speech while 6 is talking, matching the v1 domain build — see the unconditional
 // `if (isAvatarTalking) void interrupt()` in handleUserTranscription.)
+// G 2026-06-13 dogfood: "I have got 3 ideas for you" fired on the face-glow
+// feedback because the bare verbs "show" ("...show that you're there") and
+// "where" ("this is where your face...") passed the lookup intent test. Drop
+// the standalone "show|shows" topic word and the standalone "where" action word
+// -- they collide with ordinary conversation. "show me" (phrase), "where i am",
+// concerts/events/restaurants still cover real entertainment/place lookups.
 const ONLINE_LOOKUP_TOPIC_RE =
-  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|waterfall|waterfalls|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
+  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|waterfall|waterfalls|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|events?|restaurant|restaurants)\b/i;
 const ONLINE_LOOKUP_ACTION_RE =
-  /\b(?:find|look up|search|show me|where|nearby|near me|check|help me find|plan)\b/i;
+  /\b(?:find|look up|search|show me|nearby|near me|check|help me find|plan)\b/i;
 const ONLINE_LOOKUP_DIRECT_RE =
-  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|waterfall|waterfalls|weekend|cool things to do|concert|concerts|show|shows|events?|restaurants?)\b/i;
+  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|waterfall|waterfalls|weekend|cool things to do|concert|concerts|events?|restaurants?)\b/i;
 const LOCATION_HINT_RE =
   /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
 const LOCATION_SHARE_CHOICE_RE =
   /\b(?:share (?:my )?location|use (?:my )?location|current location|where i am|near me|around me)\b/i;
+// Recall question about the saved ZIP (2026-06-13): "what's my zip", "do you
+// know my zip", "you know my zip code", "what zip do you have". A RECALL ASK is
+// NOT the user GIVING a ZIP - never run the invalid-zip coach on it. The caller
+// also requires NO 5-digit run in the same breath, so "my zip is 21093" and ASR
+// jumbles like "do you know my zip it's 21093" stay on the GIVE path. The bare
+// "my zip" alternative excludes "my zip line / zip drive / zip file" so 6 never
+// blurts the ZIP over unrelated talk; "my zip code" always counts as recall.
+const ZIP_RECALL_RE =
+  /\b(?:what(?:'?s| is| are)?|do you (?:know|remember|have|recall)|you (?:know|remember|have)|tell me)\b[^?.!]*\bmy\s+zip\s*code\b|\b(?:what(?:'?s| is| are)?|do you (?:know|remember|have|recall)|you (?:know|remember|have)|tell me)\b[^?.!]*\bmy\s+zip\b(?!\s*(?:code|line|drive|file|lock|tie|ties|up|loc))|\bwhat\s+zip(?:\s*code)?\s+(?:do you have|did i (?:give|say)|is (?:it|mine|on file))\b/i;
 const SHOPPING_MODE_OPEN_RE =
   /\b(?:shopping mode|store mode|in the store|at the store|in the grocery store|at the grocery store|at walmart|in walmart|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
 const LIST_MUTATION_SIGNAL_RE =
@@ -816,6 +851,16 @@ const LIST_BANTER_ITEM_RE =
 // via LIST_DONE_RE (voiceMode/intents.ts); adding it would swallow that close.
 const STOP_NOW_RE =
   /^(?:6[,\s]+|six[,\s]+|hey[,\s]+|ok[,\s]+|okay[,\s]+)*(?:stop(?:\s+(?:talking|please|now|it))?|stop talking|be quiet|quiet|shush|hush|shut up|hold on|hold up|wait(?:\s+a?\s*(?:sec|second|minute|moment))?|hang on|one sec|one second|let me talk|let me finish|enough)[.!?]*$/i;
+
+// G 2026-06-13 dogfood (session b2f1dd29 21:51): "This is my permanent list in
+// my account, right, Six?" SPAWNED a brand-new list named "Permanent List".
+// A QUESTION ("?") or a meta-confirmation tail ("...right, Six", "...correct")
+// is the user asking ABOUT a list, NEVER an order to create one. Only block the
+// CREATE when there is NO explicit list command verb (make/start/open/switch...,
+// via LIST_COMMAND_ONLY_RE) and NO mutation signal (need/want/add/put...). That
+// keeps real "make a Walmart list" and "can you open my todo list?" working.
+const LIST_QUESTION_META_RE =
+  /[?]|\b(?:right|correct|isn'?t it|is(?:n'?t)? (?:this|that|it)|does that|wouldn'?t that)\b[\s,]*(?:six|6|buddy|bud|pal)?\s*[?]?\s*$/i;
 
 const LIST_ACCENT_COLORS: Record<
   ListAccentColor,
@@ -1223,6 +1268,12 @@ function cleanListItem(
 
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
+    // G 2026-06-13 dogfood: extractListItems splits on /[,.;]|and/ which leaves a
+    // LEADING SPACE on every non-first chunk (" let's put blackberries"). The
+    // ^-anchored strips below ("let's", LIST_ITEM_PREFIX_RE, leading article) then
+    // see the space, not the word, and silently no-op -> "let's"/"a couple of"
+    // leaked as items. Drop the leading edge FIRST so those strips actually fire.
+    .replace(/^[\s,.;:\-–—]+/, "")
     // G 2026-06-13: strip natural lead-ins so "Yeah, I'll put toothbrush" cleans
     // to "toothbrush" instead of garbage like "Yeah I'll toothbrush".
     .replace(/^(?:yeah|yep|yup|okay|ok|so|well|alright|all right|sure|now|and|but|um|uh)[\s,]+/i, "")
@@ -1236,6 +1287,13 @@ function cleanListItem(
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
     .replace(/\b(?:just\s+)?put\s+some\s+on\s+there\b/gi, " ")
     .replace(/\bi\s+know\b/gi, " ")
+    // G 2026-06-13 dogfood: the vague COUNT phrase a user says before naming items
+    // ("let's put a couple more things", "add a couple of things", "a few more")
+    // is never an item - strip it anywhere so it can't survive as "couple of" /
+    // "a couple more". The (?:things?|items?)? tail is OPTIONAL so "a few apples"
+    // and "a couple eggs" keep the real noun (only the quantifier word is removed).
+    .replace(/\b(?:a\s+)?(?:couple|few)\s+(?:of|more)?\s*(?:things?|items?)?\b/gi, " ")
+    .replace(/\bsome\s+more\s+(?:things?|items?)?\b/gi, " ")
     .replace(/^(?:let'?s|lets)\s+(?:on\s+)?(?:(?:their|there|the|my|our)\s+)?/i, "")
     .replace(/^on\s+(?:(?:their|there|the|my|our)\s+)?/i, "")
     .replace(/\bfor\s+tacos?\b/gi, (match) =>
@@ -1254,6 +1312,11 @@ function cleanListItem(
     // "Yogurt on"; "put yogurt as the next thing on the list" \u2192 the whole
     // phrase): dangling tails are never part of a grocery item.
     .replace(/\s+as the next thing(?:\s+on)?\s*$/i, "")
+    // G 2026-06-13: after the count-phrase strip, a chunk like "add a couple of
+    // things to the Walmart list" reduces to a dangling "to the" - kill a trailing
+    // preposition+article even when it is now the WHOLE remaining string (no
+    // leading space) so the orphan drops instead of becoming an item.
+    .replace(/(?:^|\s)(?:on|off|onto|to|from|in|into|for|with|at)\s+(?:the|this|that|my|there|here|a|an)\s*$/i, "")
     .replace(/\s+(?:on|off|onto|to|from|in)\s*(?:the|this|that|my|there|here)?\s*$/i, "")
     .replace(/[.!?]+$/g, "")
     .replace(/^[\s,.;:\-\u2013\u2014]+|[\s,.;:\-\u2013\u2014]+$/g, "")
@@ -1381,6 +1444,14 @@ function extractLocationHint(text: string): string | null {
   return cleaned.length >= 2 ? cleaned.slice(0, 80) : null;
 }
 
+// G 2026-06-13 dogfood: during a pending lookup waiting for a ZIP, the QUESTION
+// "what's my zip" was accepted as a typed location (STT drops the "?", so it is
+// all letters) and fired the pending waterfall search -> "I have got 3 ideas for
+// you." Reject question-shaped / self-referential phrases. Real city names
+// (Timonium, Ellicott City, Winston-Salem) and ZIPs are untouched.
+const NON_LOCATION_PHRASE_RE =
+  /^(?:what|where|when|why|who|how|which|whose|is|are|am|do|does|did|can|could|would|should|will|tell me|say|read|repeat)\b|\bmy (?:zip|name|email|account|list|number)\b/i;
+
 function isLikelyTypedLocation(text: string): boolean {
   const value = text.trim();
   if (value.length < 2 || value.length > 80) return false;
@@ -1389,6 +1460,7 @@ function isLikelyTypedLocation(text: string): boolean {
   if (ACCOUNT_READY_YES_RE.test(value) || ACCOUNT_READY_NO_RE.test(value)) {
     return false;
   }
+  if (NON_LOCATION_PHRASE_RE.test(value)) return false;
   return /\b\d{5}(?:-\d{4})?\b/.test(value) || /^[a-z][a-z\s,.'-]+$/i.test(value);
 }
 
@@ -1464,6 +1536,18 @@ function formatOnlineLookupSpeech(lines: string[], query: string): string {
   return `I have got ${lines.length} ideas for you. Want me to walk through them?`;
 }
 
+// G 2026-06-13 dogfood (21:51:16 "watermelon and half and half" -> lost "half
+// and half"): the split below treats EVERY "and" as an item separator, so
+// compound grocery names that legitimately contain "and" get torn apart.
+// Protect a known set by gluing their inner whitespace to an ASCII-word
+// sentinel BEFORE the split, then restore " and " inside the map. The sentinel
+// MUST be an ASCII word char (\b is zero-width and still fires between a word
+// char and a non-word char). "milk and eggs" is NOT here, so it still splits.
+const COMPOUND_LIST_ITEM_RE =
+  /\b(?:half\s+and\s+half|mac(?:aroni)?\s+and\s+cheese|peanut\s+butter\s+and\s+jelly|salt\s+and\s+pepper|bread\s+and\s+butter|cream\s+and\s+sugar|oil\s+and\s+vinegar|chips\s+and\s+salsa|rice\s+and\s+beans|biscuits\s+and\s+gravy|spaghetti\s+and\s+meatballs|fish\s+and\s+chips|pork\s+and\s+beans|ham\s+and\s+cheese|sweet\s+and\s+sour)\b/gi;
+const COMPOUND_AND_SENTINEL = "zqzandzqz";
+const COMPOUND_AND_SENTINEL_RE = /zqzandzqz/g;
+
 function extractListItems(
   text: string,
   options: { allowBareItems?: boolean } = {},
@@ -1472,13 +1556,20 @@ function extractListItems(
   const fromExplicitCommand = LIST_MUTATION_SIGNAL_RE.test(text);
 
   const normalized = text
+    .replace(COMPOUND_LIST_ITEM_RE, (m) =>
+      m.replace(/\s+and\s+/gi, COMPOUND_AND_SENTINEL),
+    )
     .replace(/\b(?:and then|also|tambien|tambi\u00e9n|aussi|auch)\b/gi, ",")
     .replace(/\b(?:i need|i want|add|grab|buy|pick up|necesito|quiero|agrega|agregar|anade|a\u00f1ade|comprar|compra|j'?ai besoin de|je veux|ajoute|ajouter|acheter|achete|ich brauche|ich will|fuege|f\u00fcge|kauf|kaufen)\b/gi, ", $&")
     .replace(/\s+/g, " ");
 
   return normalized
     .split(/[,.;\n]|\b(?:and|y|e|et|und)\b/gi)
-    .map((item) => cleanListItem(item, { fromExplicitCommand }))
+    .map((item) =>
+      cleanListItem(item.replace(COMPOUND_AND_SENTINEL_RE, " and "), {
+        fromExplicitCommand,
+      }),
+    )
     .filter((item): item is string => Boolean(item));
 }
 
@@ -1499,9 +1590,19 @@ function formatListItemsForSpeech(items: string[]): string {
   if (cleanItems.length === 0) return "that";
   if (cleanItems.length === 1) return cleanItems[0];
   if (cleanItems.length === 2) return `${cleanItems[0]} and ${cleanItems[1]}`;
-  const shown = cleanItems.slice(0, 3).join(", ");
-  const remaining = cleanItems.length - 3;
-  return remaining > 0 ? `${shown}, and ${remaining} more` : shown;
+  // G 2026-06-13 dogfood: NAME every item (he hated "and 1 more" / "Added
+  // those" — couldn't tell what landed). Name up to 9 with a natural Oxford
+  // comma ("Milk, Eggs, Pancakes, and Waffles"); his real lists hit 9 items.
+  // Only past 9 do we fall back to "and N more".
+  const MAX_NAMED = 9;
+  if (cleanItems.length <= MAX_NAMED) {
+    const head = cleanItems.slice(0, -1).join(", ");
+    const last = cleanItems[cleanItems.length - 1];
+    return `${head}, and ${last}`;
+  }
+  const shown = cleanItems.slice(0, MAX_NAMED).join(", ");
+  const remaining = cleanItems.length - MAX_NAMED;
+  return `${shown}, and ${remaining} more`;
 }
 
 function cleanRemoveListItem(value: string): string | null {
@@ -1690,6 +1791,19 @@ function findMentionedListItem(
   // mine an item out of a question or a conversational turn — let those go to the
   // brain for a real answer instead of "I found X on the list."
   if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return null;
+  // G 2026-06-13 dogfood: a readback correction is NOT an item lookup. "Waffles
+  // is number four, not one more" was correcting the spoken "...and 1 more"
+  // summary (which hid Waffles), but the item name matched and we said "I found
+  // Waffles on the list." The shapes "X is number N" and "...not one more" mean
+  // the user is fixing what we read back, not asking us to find an item — let it
+  // go to the brain.
+  if (
+    /\bnot\s+(?:just\s+)?(?:one|1)\s+more\b|\bis\s+number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(
+      text,
+    )
+  ) {
+    return null;
+  }
   if (
     /^\s*(?:what|where|when|why|who|how|are|is|do|does|did|can|could|would|should|tell me)\b/i.test(
       text.trim(),
@@ -2936,9 +3050,6 @@ const LiveAvatarSessionComponent: React.FC<{
   // True once a signed-in account loads. Gates account-setup OFF for returning
   // users so the email-on-chest box + email parsing never fire on the return.
   const accountSignedInRef = useRef(false);
-  // True once the signed-in account's saved lists have LOADED, so the durable
-  // list-save effect never fires before restore and clobbers saved lists with [].
-  const accountListsHydratedRef = useRef(false);
   // True between "ask the name" and "got the name" during account setup, so the
   // next utterance is taken as the user's name even if 6's spoken line didn't
   // match the name-ask regex. Guarantees deviceProfile.name is set BEFORE the
@@ -3012,6 +3123,8 @@ const LiveAvatarSessionComponent: React.FC<{
   const sessionStartedAtRef = useRef(Date.now());
   const supersedeStoppingRef = useRef(false);
   const sessionBatonChannelRef = useRef<BroadcastChannel | null>(null);
+  // Seeded from localStorage in the account-bootstrap effect so a returning
+  // user (same device/browser) never re-hears the close-list tip (G 2026-06-13).
   const listCloseEducationSpokenRef = useRef(false);
   const pendingListCustomizationPromptRef = useRef<{
     id: string;
@@ -3031,34 +3144,6 @@ const LiveAvatarSessionComponent: React.FC<{
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
     [activeListId, assistantLists],
   );
-  // Durable list persistence (2026-06-13, G dogfood: "next time I open you, the
-  // Walmart list comes up exactly like this, right?" — 6 promised it; it wasn't
-  // real). Debounce-save the signed-in user's lists + active-list pointer to the
-  // account on every change so they return EXACTLY next session. /api/account/me
-  // reads it back and the restore path calls setAssistantLists(). Guarded so it
-  // never fires before restore (would clobber saved lists with []) and never for
-  // anonymous users (no account to save to).
-  useEffect(() => {
-    if (!accountSignedInRef.current || !accountListsHydratedRef.current) return;
-    const t = setTimeout(() => {
-      const activeTitle =
-        assistantLists.find((l) => l.id === activeListId)?.title ?? null;
-      void fetch("/api/account/lists", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lists: assistantLists,
-          resumeState: {
-            activeListId: activeListId ?? null,
-            activeListTitle: activeTitle,
-          },
-        }),
-      }).catch(() => {
-        // Best-effort; a failed save just retries on the next change.
-      });
-    }, 1500);
-    return () => clearTimeout(t);
-  }, [assistantLists, activeListId]);
   // r29 telemetry: ref mirror so fire-and-forget bug reports can snapshot the
   // on-screen list from inside stale-closure callbacks.
   const activeListSnapshotRef = useRef<string[] | null>(null);
@@ -3519,6 +3604,13 @@ const LiveAvatarSessionComponent: React.FC<{
 
     let cancelled = false;
 
+    // One-time close-list education: if this device already heard it in any
+    // past session, start this session already-shown so 6 never repeats it
+    // (G 2026-06-13). Seeded here (client-only effect) — no SSR concern.
+    if (loadListCloseEducationShown()) {
+      listCloseEducationSpokenRef.current = true;
+    }
+
     // Magic-link return: aiASAP's OTP send issues an IMPLICIT-flow link, so the
     // session token lands in the URL hash (#access_token=...). The server
     // callback can't read a fragment, so it forwards us here with the hash
@@ -3811,6 +3903,10 @@ const LiveAvatarSessionComponent: React.FC<{
           longGap: data.longGap === true,
         });
         accountMemoryContextInjectedRef.current = false;
+        accountZipRef.current =
+          typeof data.zip === "string" && /^\d{5}$/.test(data.zip)
+            ? data.zip
+            : null;
 
         onlineLookupPendingQueryRef.current = null;
         onlineLookupLocationRef.current = null;
@@ -3826,8 +3922,6 @@ const LiveAvatarSessionComponent: React.FC<{
           setActiveListId(null);
           setIsShoppingMode(false);
         }
-        // Saved lists (if any) are now loaded — enable the durable list-save.
-        accountListsHydratedRef.current = true;
         if (accountStatus === "verified") {
           // Hard-coded return greeting. Now greets BY NAME when we have a clean
           // one — the old "First Time"/"It Is" name-capture leak is fixed
@@ -5098,6 +5192,10 @@ const LiveAvatarSessionComponent: React.FC<{
   // for reminder saves; loaded from the account on sign-in, written to the
   // account when set by voice while signed in.
   const sessionTimezoneRef = useRef<string | null>(null);
+  // Saved 5-digit ZIP for THIS session (2026-06-13). Loaded from the account on
+  // sign-in and set when the user gives a ZIP by voice, so a recall question
+  // ("what's my zip") is answered instantly without waking the brain.
+  const accountZipRef = useRef<string | null>(null);
 
   const handleReminderSpeech = useCallback(
     async (userText: string): Promise<boolean> => {
@@ -5313,6 +5411,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // returning user is never asked for it again (2026-06-13). loc.placeName
       // is `ZIP 21093` for the ZIP paths in resolveSpokenLocation.
       const zipFromLoc = loc.placeName.match(/\b(\d{5})\b/)?.[1] ?? null;
+      if (zipFromLoc) accountZipRef.current = zipFromLoc;
       // Await the save so "I'll remember that" is only ever spoken when the
       // account write actually landed (2026-06-11 review: the fire-and-forget
       // version promised memory it might not have).
@@ -5343,6 +5442,31 @@ const LiveAvatarSessionComponent: React.FC<{
       return true;
     },
     [rememberConversationLine, repeat],
+  );
+
+  // ZIP RECALL (2026-06-13): "what's my zip" / "do you know my zip" is a question
+  // ABOUT the saved ZIP, never the user GIVING a (bad) ZIP. Answer from the
+  // saved value; never run the "does not sound quite right" coach on it. Fires
+  // ONLY on a recall ask with NO 5-digit number in the same breath, so giving
+  // ("my zip is 21093") and ASR jumbles stay on the capture path. Runs BEFORE
+  // the timezone and online-lookup handlers so a pending lookup can never trap
+  // the question into the invalid-zip coach.
+  const handleZipRecallSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      if (!ZIP_RECALL_RE.test(userText)) return false;
+      if (/\d{5}/.test(userText)) return false;
+      const savedZip = accountZipRef.current;
+      const spoken = savedZip
+        ? `Your ZIP is ${savedZip}.`
+        : "I don't have your ZIP yet - what is it?";
+      await interrupt();
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      rememberConversationLine("assistant", spoken);
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [interrupt, rememberConversationLine, repeat],
   );
 
   const sizeStepAtRef = useRef(0);
@@ -6278,7 +6402,7 @@ const LiveAvatarSessionComponent: React.FC<{
           await requestSharedLocation();
           return true;
         }
-        if (soundsLikeInvalidZipCode(text)) {
+        if (soundsLikeInvalidZipCode(text) && !ZIP_RECALL_RE.test(text)) {
           const spoken =
             "That ZIP code does not sound quite right. ZIP codes are five digits. Tell me the five-digit ZIP code.";
           await repeat(spoken);
@@ -6440,6 +6564,7 @@ const LiveAvatarSessionComponent: React.FC<{
             pendingListCustomizationPromptRef.current = null;
           } else if (!listCloseEducationSpokenRef.current) {
             listCloseEducationSpokenRef.current = true;
+            persistListCloseEducationShown();
           }
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -7735,6 +7860,14 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
+      // ZIP recall (2026-06-13): "what's my zip" is answered from the saved
+      // value and must win over the timezone + online-lookup handlers, so a
+      // pending waterfall lookup can never mis-route it into the invalid-zip
+      // coach. Self-contained answer; the brain is not woken.
+      if (await handleZipRecallSpeech(userText)) {
+        return;
+      }
+
       // Timezone by voice (2026-06-11): zip / "wrong time zone" / place-with-
       // time-context. Stateless; window-scoped bare answers; cannot trap.
       if (await handleTimezoneSpeech(userText)) {
@@ -8034,6 +8167,13 @@ const LiveAvatarSessionComponent: React.FC<{
         // "Reminders To Do List"): reminder talk is cards, never lists.
         (META_TALK_RE.test(userText) ||
           /\bremind(?:er|ers)?\b/i.test(userText) ||
+          // G 2026-06-13: a QUESTION / "right, Six?" / "is that...correct?" about a
+          // list is never a create order. Block ONLY when the turn carries no
+          // explicit list command verb and no add/need signal, so real creates
+          // ("make a Walmart list", "can you open my todo list?") still pass.
+          (LIST_QUESTION_META_RE.test(userText) &&
+            !LIST_COMMAND_ONLY_RE.test(userText) &&
+            !LIST_MUTATION_SIGNAL_RE.test(userText)) ||
           (activeListId &&
             /^(?:blank|empty|new|the|this|that|same|whole|my)\b\s*(?:list)?$/i.test(
               inferredListIntentRaw.title.trim(),
@@ -8238,12 +8378,11 @@ const LiveAvatarSessionComponent: React.FC<{
             : `I do not see ${formatListItemsForSpeech(removeItems)} on this list.`;
         } else if (addItems.length > 0) {
           const added = addItemsToList(targetListId, addItems);
-          // G 2026-06-13 dogfood: name what was added (vague "Added those" — he
-          // couldn't tell what landed). Name up to 4; beyond that it's a mouthful.
+          // G 2026-06-13 dogfood: ALWAYS name what was added (he hated the vague
+          // "Added those." on 5+ items). formatListItemsForSpeech now names up to
+          // 9 with an Oxford comma, so no per-branch cap is needed.
           listActionSpoken = added
-            ? addItems.length <= 4
-              ? `Added ${formatListItemsForSpeech(addItems)}.`
-              : "Added those."
+            ? `Added ${formatListItemsForSpeech(addItems)}.`
             : `${formatListItemsForSpeech(addItems)} is already on the list.`;
         } else {
           const mentionedItem = findMentionedListItem(activeList, userText);
@@ -8280,6 +8419,9 @@ const LiveAvatarSessionComponent: React.FC<{
           const closeEducation = listCloseEducationSpokenRef.current
             ? ""
             : ` ${LIST_CLOSE_EDUCATION}`;
+          if (!listCloseEducationSpokenRef.current) {
+            persistListCloseEducationShown();
+          }
           listCloseEducationSpokenRef.current = true;
           listActionSpoken = `I ${action} the ${ensured?.title ?? inferredListIntent.title}. Just tell me what goes on it.${closeEducation}`;
         }
@@ -9590,25 +9732,43 @@ const LiveAvatarSessionComponent: React.FC<{
 
       {lookupResultsOnChest && !emailEntryOpen && (
         <div
-          className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border border-[#e0aa62]/62 bg-[#221c17]/82 px-4 py-4 text-[#f1c477] shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
+          className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border px-4 py-4 text-[#f1c477] backdrop-blur-md"
           style={{
             top: "calc(var(--stage-top) + var(--stage-height) * 0.38)",
             maxHeight: "calc(var(--stage-height) * 0.30)",
+            borderColor: "rgba(232,180,107,0.56)",
+            background:
+              "radial-gradient(circle at 18% 0%, rgba(232,180,107,0.28), transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))",
+            boxShadow:
+              "inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px rgba(232,180,107,0.18)",
           }}
         >
-          <div className="flex items-start justify-between gap-3">
+          <div
+            className="absolute inset-x-6 top-0 h-1 rounded-b-full"
+            style={{ backgroundColor: "#e0aa62" }}
+          />
+          <div className="flex items-start justify-between gap-3 pt-1">
             <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
               {onlineLookupNotice?.trim() && (
-                <p className="text-[1.2rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
+                <p className="text-[1.2rem] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">{onlineLookupNotice}</p>
               )}
               {onlineLookupResultLines.length > 0 && (
                 <div className="grid gap-2">
                   {onlineLookupResultLines.map((line, index) => (
                     <div
                       key={`${index}-${line}`}
-                      className="rounded-md border border-[#e0aa62]/38 bg-[#2f2b27]/72 px-3 py-2 text-[0.9rem] font-black leading-snug text-[#f1c477] md:text-[0.95rem]"
+                      className="rounded-[0.95rem] border px-3 py-2 text-[0.9rem] font-black leading-snug md:text-[0.95rem]"
+                      style={{
+                        background:
+                          "linear-gradient(180deg, rgba(255,226,176,0.08), rgba(0,0,0,0.24))",
+                        borderColor: "rgba(232,180,107,0.28)",
+                        boxShadow:
+                          "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
+                      }}
                     >
-                      {line}
+                      <span className="bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                        {line}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -9628,7 +9788,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   setSourcePreview(null);
                   setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
                 }}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-[#e0aa62]/48 bg-[#e0aa62]/12 text-[#f1c477]"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[#e0aa62]/55 bg-gradient-to-b from-[#4a2a0c]/92 to-[#241406]/92 text-[#f1c477] transition hover:scale-105"
               >
                 <X className="h-6 w-6" aria-hidden />
               </button>
@@ -9691,10 +9851,24 @@ const LiveAvatarSessionComponent: React.FC<{
           className={`${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
-              : `h-full w-full object-cover md:object-contain md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 ${
-                  isStreamReady
-                    ? "md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
-                    : "md:shadow-[0_0_0_1px_rgba(215,160,90,0.45)]"
+              : `h-full w-full object-cover md:object-contain md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] rounded-[2.25rem] md:rounded-[2.25rem] border border-[#d7a05a]/40 md:border md:border-[#d7a05a]/40 ${
+                  // G 2026-06-13: a gold-amber PRESENCE RING around 6's full face
+                  // that pulses with BOTH voices. CRITICAL: the default mode is
+                  // CUSTOM, where the SDK's isAvatarTalking/isUserTalking do NOT
+                  // fire (6 speaks via repeatAudio/WebAudio fallback, the mic uses
+                  // our own ears loop). So we drive the ring off voiceSixTalking /
+                  // voiceUserTalking — the SAME proven signals the list thumbnail
+                  // uses — and only while 6's full face is on screen
+                  // (voicePresence === "avatar"; the list panel owns its own glow).
+                  !isStreamReady
+                    ? "shadow-[0_0_0_1px_rgba(215,160,90,0.45)]"
+                    : voicePresence !== "avatar"
+                      ? "md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+                      : voiceUserTalking
+                        ? "six-ring-user"
+                        : voiceSixTalking
+                          ? "six-ring-six"
+                          : "six-ring-idle"
                 }`
           }`}
         />
@@ -10531,6 +10705,55 @@ const LiveAvatarSessionComponent: React.FC<{
 
         .animate-prompt-dissolve {
           animation: prompt-dissolve 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        }
+
+        /* G 2026-06-13: gold-amber PRESENCE RING around 6 that pulses with both
+           voices. Brand stops: cream #ffe9c2, amber #d7a05a, glow #f4d086.
+           Idle = steady thin amber; 6-talking = warm gold breathe; user-talking
+           = brighter, faster cream breathe. Driven by voiceSixTalking /
+           voiceUserTalking (the signals that actually fire in CUSTOM mode). */
+        .six-ring-idle {
+          box-shadow:
+            0 0 0 2px rgba(215, 160, 90, 0.5),
+            0 0 18px 3px rgba(244, 208, 134, 0.28),
+            0 30px 90px rgba(0, 0, 0, 0.72);
+          transition: box-shadow 300ms ease-out;
+        }
+        .six-ring-six {
+          animation: six-ring-pulse 1.15s ease-in-out infinite;
+        }
+        .six-ring-user {
+          animation: six-ring-pulse-user 0.9s ease-in-out infinite;
+        }
+        @keyframes six-ring-pulse {
+          0%,
+          100% {
+            box-shadow:
+              0 0 0 2px rgba(215, 160, 90, 0.6),
+              0 0 22px 5px rgba(244, 208, 134, 0.4),
+              0 30px 90px rgba(0, 0, 0, 0.72);
+          }
+          50% {
+            box-shadow:
+              0 0 0 6px rgba(215, 160, 90, 0.85),
+              0 0 46px 13px rgba(244, 208, 134, 0.72),
+              0 30px 90px rgba(0, 0, 0, 0.72);
+          }
+        }
+        @keyframes six-ring-pulse-user {
+          0%,
+          100% {
+            box-shadow:
+              0 0 0 2px rgba(255, 233, 194, 0.6),
+              0 0 24px 5px rgba(255, 233, 194, 0.42),
+              0 30px 90px rgba(0, 0, 0, 0.72);
+          }
+          50% {
+            box-shadow:
+              0 0 0 7px rgba(255, 233, 194, 0.95),
+              0 0 54px 15px rgba(255, 233, 194, 0.82),
+              0 30px 90px rgba(0, 0, 0, 0.72);
+          }
         }
       `}</style>
     </div>

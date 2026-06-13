@@ -19,9 +19,36 @@ export const AVATAR_RETURN_RE =
 export const LIST_DONE_RE =
   /\b(?:close (?:the |this |my |that )?list|close (?:it|this|that)(?: out)?(?: down)?|(?:i'?m|i am|we'?re|we are) (?:done|finished|good|all set)\b|that'?s (?:it|all|everything|enough|good|perfect)\b|all done\b|done with (?:the |this |my |that )?list|done with (?:that|this|it)\b|finish(?:ed)? (?:the |this |my )?list|get rid of (?:the|this|that) list|hide (?:the|this|that) list|put (?:the|this|that) list away|save (?:the|this|my|that) list(?: and close)?|we'?re good\b|looks good\b|wrap (?:it|this) up|exit (?:the )?list|leave (?:the )?list|take (?:the |this |that |my )?list (?:off|down|away)|list off\b|remove (?:the|this|that) list|take (?:it|that) (?:off|down)(?: the screen)?|off the screen)\b/i;
 
+/** Discussion / teaching / hypothetical markers. When the user is TALKING ABOUT
+ * a close-or-return phrase (not commanding it) these fire and we do NOT leave list
+ * mode. Born from the 2026-06-13 dogfood (session 535b9d29): G said "...you don't
+ * have to say...to remove the list, just say, take it off..." and 6 wrongly walked
+ * back in. NOTE: deliberately NO "i want my/the/a/to" clause here -- that would kill
+ * the legit returns "I want to see you" and "I want to close the list". */
+const RETURN_SUPPRESS_RE =
+  /\b(?:i (?:didn'?t|did not|never) (?:ask|want|wanna|say|tell|mean)|don'?t (?:have to|need to) say|just say|you know what i mean|if you (?:say|said) (?:that|it)|instead of saying|rather than|next time(?: you)?|(?:was|were) supposed to|by the way)\b/i;
+
+/** If the SAME utterance also asks to add/put an item, it's list work, not a close
+ * ("looks good, let's add bananas" must NOT bring the avatar back). */
+const ADD_ITEM_INLINE_RE = /\b(?:add|put|throw in|toss in|include)\b/i;
+
+/** A bare close phrase is short; a long sentence that merely CONTAINS one is
+ * almost always discussion. Cap protects the close path; explicit AVATAR_RETURN
+ * phrases stay length-immune. */
+const CLOSE_WORD_CAP = 12;
+
 /** Anything that should END voice-list mode and bring the avatar back. */
 export function wantsAvatarBack(text: string): boolean {
-  return AVATAR_RETURN_RE.test(text) || LIST_DONE_RE.test(text);
+  // Talking ABOUT a command (teaching / negating / hypothetical) never triggers it.
+  if (RETURN_SUPPRESS_RE.test(text)) return false;
+  // Explicit "come back / show your face / see 6 again" -- always honored.
+  if (AVATAR_RETURN_RE.test(text)) return true;
+  // A close phrase counts only when it's short AND carries no add/put item.
+  const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+  if (LIST_DONE_RE.test(text) && !ADD_ITEM_INLINE_RE.test(text) && wordCount <= CLOSE_WORD_CAP) {
+    return true;
+  }
+  return false;
 }
 
 /** Spoken lines for entering list mode — short, the list is the star. */

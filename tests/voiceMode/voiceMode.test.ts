@@ -59,8 +59,24 @@ describe("avatar return intents (G: any and all reasonable ways)", () => {
       "Add done... I mean, add donuts.",
       "My back hurts.",
       "Remind me to call Bob tomorrow at 9.",
+      // 2026-06-13 dogfood: G TALKING ABOUT a close phrase, not commanding it.
+      "Okay, great. Now, I know you very well, so at some point, you don't have to say, you know, to remove the list, just say, take it off, because I already know that. You know what I mean?",
+      // a close-ish phrase that also adds an item is list work, not a close:
+      "looks good, let's add bananas",
+      "we're good, now add eggs",
+      "that's perfect, add milk too",
     ]) {
       expect(wantsAvatarBack(t), t).toBe(false);
+    }
+  });
+  it("legit return phrases still end the mode via wantsAvatarBack", () => {
+    for (const t of [
+      "I want to see you",
+      "come back",
+      "bring 6 back",
+      "Okay, six, come on back.",
+    ]) {
+      expect(wantsAvatarBack(t), t).toBe(true);
     }
   });
   it("enter lines stay short", () => {
