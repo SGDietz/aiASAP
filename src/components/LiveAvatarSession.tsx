@@ -6658,11 +6658,17 @@ const LiveAvatarSessionComponent: React.FC<{
           // The listener may already be paused.
         }
       }
+      // ONLINE-SEARCH TIMEOUT (Herm review 2026-06-14): no abort meant a slow
+      // web search left 6 stuck in "Looking online…" silence (G's "just a
+      // moment" then nothing). 25s client abort -> deterministic spoken failure.
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 25000);
       try {
         const response = await fetch("/api/online-search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query, location: lookupLocation }),
+          signal: controller.signal,
         });
         const data = await response.json().catch(() => null);
         if (!response.ok || typeof data?.answer !== "string") {
@@ -6690,8 +6696,11 @@ const LiveAvatarSessionComponent: React.FC<{
         return true;
       } catch (error) {
         console.error("Online lookup failed:", error);
-        const spoken =
-          "I had trouble looking that up online. Try telling me the city or ZIP code again.";
+        const timedOut =
+          error instanceof DOMException && error.name === "AbortError";
+        const spoken = timedOut
+          ? "That search is taking too long. Try the city or ZIP code again and I'll run a fresh one."
+          : "I had trouble looking that up online. Try telling me the city or ZIP code again.";
         setOnlineLookupNotice(null);
         setOnlineLookupResultLines([]);
         await repeat(spoken);
@@ -6702,6 +6711,7 @@ const LiveAvatarSessionComponent: React.FC<{
         lastVisionResponseTimeRef.current = Date.now();
         return true;
       } finally {
+        window.clearTimeout(timeoutId);
         setIsOnlineLookupLoading(false);
       }
     },
