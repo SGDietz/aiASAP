@@ -93,6 +93,12 @@ import {
   AVATAR_BACK_LINES,
   isGarbledListOpen,
 } from "../lib/voiceMode/intents";
+import {
+  ADD_OFFER_RE,
+  ADD_OFFER_NEGATE_RE,
+  isAddOfferAffirmative,
+  parseOfferedAddItems,
+} from "../lib/listAddOffer";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
 import {
@@ -3156,6 +3162,18 @@ const LiveAvatarSessionComponent: React.FC<{
     action: "add" | "remove" | "mention";
   } | null>(null);
   const pendingListDeleteRef = useRef<string | null>(null);
+  // ITEM 4 (2026-06-14): when 6 OFFERS to add an item ("Want me to add milk?"),
+  // park the offered item(s) here so the next bare "yes" lands the add BEFORE the
+  // brain sees it. Armed in the AVATAR_TRANSCRIPTION handler (where 6's brain
+  // offers actually land), one-shot, 45s expiry, resolved in the dispatcher
+  // AFTER every other yes/no confirm so it never steals a delete/send/end "yes".
+  const pendingAddRef = useRef<{
+    items: string[];
+    listId: string | null;
+    at: number;
+  } | null>(null);
+  // Live mirror of activeListId for the stable AVATAR_TRANSCRIPTION closure.
+  const activeListIdLiveRef = useRef<string | null>(null);
   const lastEnsuredListRef = useRef<{
     id: string;
     title: string;
@@ -3272,6 +3290,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const activeListSnapshotRef = useRef<string[] | null>(null);
   useEffect(() => {
     activeListSnapshotRef.current = activeList ? [...activeList.items] : null;
+    activeListIdLiveRef.current = activeListId;
     // G 2026-06-13 ("can you see all that are written on the lists, not just what
     // I describe?"): log the FULL list so telemetry always shows the exact items,
     // not just the spoken add/remove deltas.
@@ -5771,6 +5790,27 @@ const LiveAvatarSessionComponent: React.FC<{
       if (typeof text !== "string" || text.trim().length === 0) return;
       lastAvatarTranscriptionRef.current = text;
 
+      // ITEM 4 add-offer slot (2026-06-14): the moment 6 OFFERS to add an item
+      // ("Want me to add milk?"), park it so the user's next bare "yes" lands the
+      // add. Brain offers only surface HERE (lastAvatarResponseRef holds scripted
+      // lines only). Never arm during a competing confirm. Any non-offer line 6
+      // speaks clears a stale slot.
+      if (
+        ADD_OFFER_RE.test(text) &&
+        !accountDeleteAwaitingConfirmRef.current &&
+        !accountSetupAwaitingSendRef.current &&
+        !pendingListDeleteRef.current &&
+        !endSessionConfirmationPendingRef.current
+      ) {
+        const offered = parseOfferedAddItems(text);
+        pendingAddRef.current =
+          offered.length > 0
+            ? { items: offered, listId: activeListIdLiveRef.current, at: Date.now() }
+            : null;
+      } else if (!ADD_OFFER_RE.test(text)) {
+        pendingAddRef.current = null;
+      }
+
       // FIX (2026-06-01, box-not-showing): 6's BRAIN often runs the email
       // conversation itself (asks for the email, reads it back) and races AHEAD
       // of the scripted handler — so accountSetupAwaitingEmailRef was never armed
@@ -8258,6 +8298,44 @@ const LiveAvatarSessionComponent: React.FC<{
       if (setupHandled) {
         schedulePromptBrain(userText);
         return;
+      }
+
+      // ITEM 4 (2026-06-14): resolve a pending add-offer ("Want me to add milk?")
+      // BEFORE the brain. Sits downstream of every other yes/no confirm (delete,
+      // send, end-session, account) so it can never steal their "yes". One-shot.
+      if (pendingAddRef.current) {
+        const slot = pendingAddRef.current;
+        if (Date.now() - slot.at > 45000) {
+          pendingAddRef.current = null; // expired — let this turn route normally
+        } else if (isAddOfferAffirmative(userText)) {
+          pendingAddRef.current = null;
+          const targetId =
+            slot.listId && assistantLists.some((l) => l.id === slot.listId)
+              ? slot.listId
+              : activeListId ??
+                ensureAssistantList({ title: "My List", kind: "custom" });
+          const added = addItemsToList(targetId, slot.items);
+          const spoken = added
+            ? `Added ${formatListItemsForSpeech(slot.items)}.`
+            : `${formatListItemsForSpeech(slot.items)} is already on the list.`;
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          logAppEvent("list_action", {
+            source: userText.slice(0, 300),
+            spoken: spoken.slice(0, 200),
+            added: slot.items.slice(0, 20),
+            via: "add_offer_yes",
+            listId: targetId,
+          });
+          schedulePromptBrain(userText);
+          return;
+        } else {
+          // Negative or unrelated — drop the one-shot slot and route normally.
+          pendingAddRef.current = null;
+        }
       }
 
       // r32 (G live 2026-06-12 20:49: "show me the list" → "Tell me your
