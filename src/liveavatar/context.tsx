@@ -420,6 +420,39 @@ export const LiveAvatarContextProvider = ({
     return () => clearInterval(intervalId);
   }, [sessionState]);
 
+  // CREDIT SAVER (G 2026-06-14: "users will keep him open on their phone
+  // forever"): a HIDDEN tab — phone locked, app switched, window minimized,
+  // tab backgrounded — must not keep billing the avatar. Stop the session a few
+  // seconds after it goes hidden (short grace so a quick tab-flip back doesn't
+  // kill a live chat). The user's next interaction re-mints, same path as the
+  // idle timeout. This is the big lever for the "left open forever" cost case —
+  // it fires regardless of mic noise, which can hold the idle timer open.
+  const HIDDEN_GRACE_MS = 4000;
+  useEffect(() => {
+    if (sessionState !== SessionState.CONNECTED) return;
+    if (typeof document === "undefined") return;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (graceTimer) clearTimeout(graceTimer);
+        graceTimer = setTimeout(() => {
+          if (document.hidden) {
+            stoppedDueToInactivityRef.current = true;
+            sessionRef.current?.stop?.();
+          }
+        }, HIDDEN_GRACE_MS);
+      } else if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (graceTimer) clearTimeout(graceTimer);
+    };
+  }, [sessionState]);
+
   return (
     <LiveAvatarContext.Provider
       value={{
