@@ -102,6 +102,7 @@ import {
   isAddOfferAffirmative,
   parseOfferedAddItems,
 } from "../lib/listAddOffer";
+import { isClearAllCommand } from "../lib/listClear";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
 import {
@@ -9150,7 +9151,22 @@ const LiveAvatarSessionComponent: React.FC<{
         // named "See"). wantsListReadback is pure + tested; safe on the bare form
         // because this whole block only runs when a list is the active context.
         const _wantsReadback = wantsListReadback(userText);
-        if (_wantsReadback && targetListId) {
+        // G 2026-06-14 (said it ~26 times, nothing cleared): "clear the list" /
+        // "remove everything" must EMPTY the list in one go. Runs first so it
+        // beats the per-item remove path (where "everything" was junk-filtered to
+        // [], leaving the brain to fake "done").
+        const _wantsClearAll = isClearAllCommand(userText);
+        if (_wantsClearAll && targetListId) {
+          const _clrList = assistantLists.find((l) => l.id === targetListId);
+          if (_clrList && _clrList.items.length > 0) {
+            const cleared = removeItemsFromList(targetListId, [..._clrList.items]);
+            listActionSpoken = cleared
+              ? `Done - cleared everything off your ${_clrList.title}.`
+              : "Hmm - I couldn't clear it. Say that again?";
+          } else {
+            listActionSpoken = `Your ${_clrList?.title ?? "list"} is already empty.`;
+          }
+        } else if (_wantsReadback && targetListId) {
           const _rbList = assistantLists.find((l) => l.id === targetListId);
           const _rbItems = _rbList?.items ?? [];
           listActionSpoken = _rbItems.length
