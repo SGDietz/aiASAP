@@ -1296,7 +1296,12 @@ function buildAccountMemorySnapshot(args: {
       : null,
   ].filter(Boolean);
 
-  if (contextParts.length === 0) return null;
+  // BUG (G 2026-06-14): a signed-in, NAMED user with no resume memory / no lists
+  // yet got a NULL snapshot here, so the IDENTITY line ("ALREADY SIGNED IN - do
+  // NOT ask their name") was never injected and the brain re-asked the name. This
+  // builder only runs inside the authenticated branch, so always emit identity
+  // even with no other memory; return null only when we truly have nothing.
+  if (contextParts.length === 0 && !args.name) return null;
   return {
     greetingTopic: topic,
     contextText: [
@@ -6710,8 +6715,25 @@ const LiveAvatarSessionComponent: React.FC<{
         // say that first") silently re-fire a brand-new web search. Only reuse
         // the cached location when this turn is a genuine lookup REQUEST: an action
         // verb is present, or it is a short topic-dominated phrase (<= 6 words).
+        // G 2026-06-14 ONLINE-LOOKUP STALL: after a prior search the cached ZIP
+        // stays set while the pending query is cleared. When 6 (via the brain)
+        // offers "want me to search?" and G answers with a VERBOSE affirmative
+        // ("yes yeah for events you think I'd like..."), there's no action verb
+        // and it's > 6 words, so this guard used to bail and the turn fell to the
+        // brain, which faked "searching... just a moment" and never ran a real
+        // search. We are already past isOnlineLookupIntent, so a real lookup
+        // TOPIC is guaranteed; with a cached ZIP a yes-led reply that carries NO
+        // negation/correction can only mean "yes, search now."
+        const isAffirmLeadConfirm =
+          /^[\s,.!'-]*(?:well|um|uh|so|okay|ok|alright|all right|yes|yeah|yea|yep|yup|sure|please|absolutely|definitely|go ahead|go for it|do it|sounds good|why not)\b/i.test(
+            text,
+          ) &&
+          !/\b(?:no|not|nope|nah|don'?t|do not|never mind|nevermind|cancel|stop|wait|hold on|actually no|instead|rather|not that)\b/i.test(
+            text,
+          );
         const isGenuineLookupRequest =
           ONLINE_LOOKUP_ACTION_RE.test(text) ||
+          isAffirmLeadConfirm ||
           text.trim().split(/\s+/).length <= 6;
         if (!isGenuineLookupRequest) {
           return false;
@@ -6730,6 +6752,15 @@ const LiveAvatarSessionComponent: React.FC<{
         return performOnlineLookup(text, onlineLookupLocationRef.current);
       }
 
+      // G 2026-06-14 (loud, repeated: "why would you ask my zip code, you DO
+      // know it - I've given it repeatedly"): if we already have the user's
+      // saved ZIP, SEARCH THERE NOW instead of asking for it again.
+      const _savedZip = accountZipRef.current;
+      if (_savedZip && /^\d{5}$/.test(_savedZip)) {
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = normalizeLookupLocation(_savedZip);
+        return performOnlineLookup(text, _savedZip);
+      }
       onlineLookupPendingQueryRef.current = text;
       onlineLookupLocationRef.current = null;
       setOnlineLookupSources([]);
@@ -8449,7 +8480,22 @@ const LiveAvatarSessionComponent: React.FC<{
         !endsOnDanglingWord(userText) &&
         assistantLists.length > 0
       ) {
-        const shown = activeList ?? moveActiveList(1);
+        // G 2026-06-14 dogfood: "show me my Walmart list" opened GROCERY — the
+        // opener ignored the spoken NAME and showed the active/first list.
+        // Resolve the named list first (resolveListPick: ordinal -> title ->
+        // fuzzy, pure + tested); fall back to active/first only when no name is
+        // named, so bare "show me the list" is unchanged. Robust to the
+        // "X or no, actually Y" self-correction (keys on the trailing name).
+        const _picked = resolveListPick(
+          userText,
+          assistantLists.map((l) => ({ id: l.id, title: l.title })),
+        );
+        const shown = _picked
+          ? (() => {
+              setActiveListId(_picked.id);
+              return assistantLists.find((l) => l.id === _picked.id) ?? null;
+            })()
+          : activeList ?? moveActiveList(1);
         if (shown) {
           const spoken = `I opened the ${shown.title}.`;
           await repeat(spoken);
@@ -8937,8 +8983,11 @@ const LiveAvatarSessionComponent: React.FC<{
         }
 
         if (enteringShoppingMode) {
+          // G 2026-06-14 (chose "6 steps out but snaps right back"): full-screen
+          // mode shuts off the live face to save credits, so TELL him he's one
+          // word away — never let it feel like he vanished.
           const spoken =
-            "Got it. I'll keep the list up and stay out of the way. Tell me what to remove, or ask me to close the list.";
+            "Here's the full-screen list - I stepped back so it fills the screen. Say 'show me 6' or tap my photo and I'm right back.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
