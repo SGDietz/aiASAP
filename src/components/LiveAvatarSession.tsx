@@ -661,9 +661,41 @@ function getLookupPreferenceQuestion(query: string | null | undefined): string {
 function endsOnDanglingWord(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
-  return /\b(?:and|but|so|because|the|a|an|to|of|with|i'?m|i'?ll|i'?ve|gonna|um|uh|er)\s*$/i.test(
-    t,
-  );
+  // (A) the original dangling FUNCTION-word ending (any length).
+  if (
+    /\b(?:and|but|so|because|the|a|an|to|of|with|i'?m|i'?ll|i'?ve|gonna|um|uh|er)\s*$/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  // (B) G 2026-06-14 ("they need to be" → 6 spat "Go ahead."): the STT also
+  // chops musings that end on a COPULA, a modal-to, or a bare pronoun
+  // ("they need to be", "it is", "I want to be", "they need to", "he was").
+  // These are ONLY treated as incomplete when the whole fragment is very short
+  // (<=4 words) — long, finished turns routinely end this way ("tell me who you
+  // are", "leave it the way it was", "I want some shirts and pants") and MUST
+  // still pass through to the brain.
+  const wordCount = t.split(/\s+/).filter(Boolean).length;
+  if (
+    wordCount <= 4 &&
+    /\b(?:is|are|was|were|be|been|being|am|need(?:s|ed)?\s+to(?:\s+be)?|want(?:s|ed)?\s+to(?:\s+be)?|have\s+to|has\s+to|had\s+to|going\s+to|about\s+to|trying\s+to|like\s+to)\s*$/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  if (wordCount <= 4 && /\b(?:they|he|she|we|you)\s*$/i.test(t)) {
+    return true;
+  }
+  // (C) a trailing bare "I" is a trail-off at ANY length ("can you help oh I",
+  // "yeah I'm" is already caught above) — "I" never ends a finished command.
+  // \bi\s*$ requires "i" on its own word boundary, so "chai"/"wifi"/"hawaii"
+  // (which end in the letter i mid-word) are untouched.
+  if (/\bi\s*$/i.test(t)) {
+    return true;
+  }
+  return false;
 }
 
 function isLookupPreferenceFiller(text: string): boolean {
@@ -983,8 +1015,26 @@ function softFromHex(hex: string, alpha = 0.2): string {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
-function listColorThemeFor(_list: AssistantList | null): ListColorTheme {
-  return LIST_ACCENT_COLORS.amber;
+function listColorThemeFor(list: AssistantList | null): ListColorTheme {
+  // No list or no chosen accent -> keep the locked amber brand look.
+  if (!list) return LIST_ACCENT_COLORS.amber;
+  const named = LIST_ACCENT_COLORS[list.accentColor] ?? LIST_ACCENT_COLORS.amber;
+  // accentHex is the shade-adjusted value ("darker"/"lighter") and is the
+  // source of truth when present; otherwise fall back to the named swatch.
+  const hex =
+    (list.accentHex && hexToRgb(list.accentHex) ? list.accentHex : null) ??
+    named.solid;
+  // Default amber with no custom hex -> return the canonical amber theme
+  // untouched so the gold brand look is byte-identical when nothing was set.
+  if (list.accentColor === "amber" && !list.accentHex) {
+    return LIST_ACCENT_COLORS.amber;
+  }
+  return {
+    label: list.accentLabel ?? named.label,
+    foreground: hex,
+    solid: hex,
+    soft: softFromHex(hex, 0.2),
+  };
 }
 
 function titleCaseWords(value: string): string {
@@ -2059,6 +2109,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceReturnRef = useRef<((keepList: boolean) => Promise<void>) | null>(
     null,
   );
+  // Forward-ref so the voice/list-mode handler (defined ABOVE handleEndSession)
+  // can route a real session-close to the SAME end path the avatar handler uses.
+  // (G 2026-06-14: "Close this session" while a list was up wrongly brought the
+  // avatar back instead of ending — list mode had no end-session branch.)
+  const handleEndSessionRef = useRef<(() => void) | null>(null);
   const voiceEnteredAtRef = useRef(0);
   const voiceCurrentSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
@@ -2103,6 +2158,7 @@ const LiveAvatarSessionComponent: React.FC<{
       for (;;) {
         const text = voiceTtsQueueRef.current.shift();
         if (!text) break;
+        // (drives the gold presence ring while 6 speaks via the WebAudio mouth)
         setVoiceSixTalking(true);
         try {
           const res = await fetch("/api/elevenlabs-text-to-speech", {
@@ -2404,6 +2460,16 @@ const LiveAvatarSessionComponent: React.FC<{
           voiceLogTurn("assistant", ACCOUNT_SIGNOUT_LINE);
           void voiceSay(ACCOUNT_SIGNOUT_LINE);
           performSignOut();
+          return;
+        }
+        // SESSION-CLOSE wins over avatar-return in list mode (G 2026-06-14):
+        // "close the session" / "close this session" / "end session" must END the
+        // experience (Session Ended screen), not bring 6 back. hasEndSessionIntent
+        // is narrow — it fires on session/conversation/app/avatar close, and is
+        // FALSE for list-close phrases ("close the list", "take it down") and bare
+        // "stop"/"done", so legit list closes still fall through to wantsAvatarBack.
+        if (hasEndSessionIntent(heard) && !END_SESSION_BLOCK_RE.test(heard)) {
+          void handleEndSessionRef.current?.();
           return;
         }
         if (wantsAvatarBack(heard)) {
@@ -2870,6 +2936,14 @@ const LiveAvatarSessionComponent: React.FC<{
   const fallbackImageInputRef = useRef<HTMLInputElement>(null);
   const isDebugProcessingRef = useRef<boolean>(false);
   const lastAvatarResponseRef = useRef<string>("");
+  // G 2026-06-14: the last user fragment we SUPPRESSED as a dangling musing
+  // (endsOnDanglingWord), so we never let a filler-shaped half-thought reach the
+  // brain twice in a row. When two incomplete chunks arrive back to back
+  // ("the Okay so" → "there was a"), both are dropped silently; the brain only
+  // ever speaks once the user actually finishes a thought.
+  const lastDanglingSuppressRef = useRef<{ text: string; at: number } | null>(
+    null,
+  );
   const lastUserTextRef = useRef<string>("");
   // The immediately-preceding user speech fragment + when it arrived. Used to
   // stitch STT chunks of the SAME utterance back together before deciding a
@@ -3221,13 +3295,13 @@ const LiveAvatarSessionComponent: React.FC<{
       color: activeListTheme.foreground,
       borderColor: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.42)"
-        : "rgba(232,180,107,0.56)",
+        : softFromHex(activeListTheme.foreground, 0.56),
       background: activeListUsesBlackTheme
         ? "linear-gradient(180deg, rgba(246,241,231,0.88), rgba(210,200,184,0.76))"
-        : "radial-gradient(circle at 18% 0%, rgba(232,180,107,0.28), transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))",
+        : `radial-gradient(circle at 18% 0%, ${softFromHex(activeListTheme.foreground, 0.28)}, transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))`,
       boxShadow: activeListUsesBlackTheme
         ? "inset 0 1px 20px rgba(255,255,255,0.36), 0 18px 42px rgba(0,0,0,0.42)"
-        : "inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px rgba(232,180,107,0.18)",
+        : `inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px ${softFromHex(activeListTheme.foreground, 0.18)}`,
     }),
     [activeListTheme, activeListUsesBlackTheme],
   );
@@ -3243,24 +3317,24 @@ const LiveAvatarSessionComponent: React.FC<{
     () => ({
       background: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.48)"
-        : "linear-gradient(180deg, rgba(255,226,176,0.08), rgba(0,0,0,0.24))",
+        : `linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.08)}, rgba(0,0,0,0.24))`,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.12)"
-        : "rgba(232,180,107,0.28)",
+        : softFromHex(activeListTheme.foreground, 0.28),
       boxShadow: activeListUsesBlackTheme
         ? "0 10px 24px rgba(0,0,0,0.12)"
         : "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
     }),
-    [activeListUsesBlackTheme],
+    [activeListTheme.foreground, activeListUsesBlackTheme],
   );
   const compactListBadgeStyle = useMemo<React.CSSProperties>(
     () => ({
       background: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.08)"
-        : "linear-gradient(180deg, rgba(232,180,107,0.24), rgba(232,180,107,0.08))",
+        : `linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.24)}, ${softFromHex(activeListTheme.foreground, 0.08)})`,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.14)"
-        : "rgba(232,180,107,0.32)",
+        : softFromHex(activeListTheme.foreground, 0.32),
       color: activeListTheme.foreground,
     }),
     [activeListTheme.foreground, activeListUsesBlackTheme],
@@ -3273,7 +3347,7 @@ const LiveAvatarSessionComponent: React.FC<{
       color: activeListTheme.foreground,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.12)"
-        : "rgba(232,180,107,0.22)",
+        : softFromHex(activeListTheme.foreground, 0.22),
     }),
     [activeListTheme.foreground, activeListUsesBlackTheme],
   );
@@ -5459,8 +5533,12 @@ const LiveAvatarSessionComponent: React.FC<{
       if (!ZIP_RECALL_RE.test(userText)) return false;
       if (/\d{5}/.test(userText)) return false;
       const savedZip = accountZipRef.current;
+      // G 2026-06-14: ENUNCIATE digits one at a time (he heard "21093" slurred as
+      // "2193"). Dash-separate the digits — "2-1-0-9-3" — the SAME trick as
+      // "a-i-ASAP" so the TTS says each digit clearly instead of "twenty-one
+      // thousand ninety-three".
       const spoken = savedZip
-        ? `Your ZIP is ${savedZip}.`
+        ? `Your ZIP is ${savedZip.split("").join("-")}.`
         : "I don't have your ZIP yet - what is it?";
       await interrupt();
       await repeat(spoken);
@@ -6109,6 +6187,13 @@ const LiveAvatarSessionComponent: React.FC<{
     stopListening,
     stopSession,
   ]);
+
+  // Wire the forward-ref now that handleEndSession exists (declared above), so the
+  // voice/list-mode handler can route "close the session" to the real end path
+  // without a TDZ on handleEndSession (G 2026-06-14). [[feedback_tdz_useeffect_placement]]
+  useEffect(() => {
+    handleEndSessionRef.current = handleEndSession;
+  }, [handleEndSession]);
 
   // FIX #2 (2026-06-01): close THIS session because a NEWER one took over (the
   // magic-link return / another tab). 6 says a short goodbye FIRST, THEN stops —
@@ -8212,11 +8297,18 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
         logAppEvent("t6", { p: "ht_list_enter", pres: voicePresenceRef.current, shop: isShoppingMode });
-        // VOICE/AVATAR SEPARATION (2026-06-11, G: "when the lists come up the
-        // avatar disappears, voice stays a constant"): the moment a list owns
-        // the screen, the avatar steps off (credits stop) and the ElevenLabs
-        // voice carries the same conversation.
-        if (voicePresenceRef.current === "avatar") {
+        // CHEST-CARD LISTS (2026-06-14, G 6+ times: "on his chest", "I need to
+        // see it on your chest", "the grocery list is still open and you're not
+        // on the screen, Six"): a NORMAL list rides a card on 6's CHEST while he
+        // STAYS on screen (the chest-list panel below, gated on !isShoppingMode +
+        // showActiveList, at the same chest anchor as the lookup-results card).
+        // We only do the VOICE/AVATAR SEPARATION (stop the avatar, ElevenLabs
+        // carries on) when the user EXPLICITLY asks for full-screen / shopping
+        // mode (enteringShoppingMode = SHOPPING_MODE_OPEN_RE). For every other
+        // list open the avatar keeps running: presence stays "avatar", so the
+        // dispatcher's "I started the X..." line speaks through the live session
+        // (repeat() -> sessionRepeat, raced at 4s) and the chest card shows.
+        if (enteringShoppingMode && voicePresenceRef.current === "avatar") {
           const enteredTitle =
             lastEnsuredListRef.current?.title ??
             assistantLists.find((list) => list.id === targetListId)?.title ??
@@ -8261,14 +8353,28 @@ const LiveAvatarSessionComponent: React.FC<{
         const _LIST_ADD_VERB_RE = /\b(?:add|put|list|i (?:want|need|have)|i'?ve got|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
         const _clauses = userText.split(/(?<=[.!?])\s+/).filter(Boolean);
         const _removeSource = _clauses.find((c) => _LIST_REMOVE_VERB_RE.test(c)) ?? "";
-        const _addSource =
-          _clauses.filter((c) => _LIST_ADD_VERB_RE.test(c)).join(" ") || userText;
+        // r33 (G copilot 2026-06-14 03:14: a 5-item batch add spoken in ONE
+        // breath with unrelated commentary -- "it says nothing here yet... that's
+        // not in a brand color. Walmart list, let's add toothbrush, toothpaste..."
+        // -- was wholly dropped because META_TALK_RE matched "it says"/"not" in the
+        // commentary clauses, so _addsBlocked nuked the clean add command and the
+        // turn fell to the brain, which faked the add). Work clause by clause:
+        // keep only the add-verb clauses that are NOT meta-talk, so commentary in
+        // OTHER clauses can't poison a real add. Block adds only when there is no
+        // clean add clause left AND the whole utterance still reads as commentary.
+        const _addClauses = _clauses.filter((c) => _LIST_ADD_VERB_RE.test(c));
+        const _cleanAddClauses = _addClauses.filter(
+          (c) => !META_TALK_RE.test(c),
+        );
+        const _addSource = _cleanAddClauses.join(" ") || userText;
         // r29 (G live 2026-06-12 09:01: "The ad is not something that you buy
         // at a grocery store" → "Added a store"; "I had blackberries" → added
         // verbatim; his complaint ABOUT the list became more list): talking
         // ABOUT items is never an order — META_TALK_RE is module-level now
-        // (r31) because list CREATION needs the same guard.
-        const _addsBlocked = META_TALK_RE.test(userText);
+        // (r31) because list CREATION needs the same guard. r33: only block when
+        // NO clean add clause survives, so a real add beside commentary lands.
+        const _addsBlocked =
+          _cleanAddClauses.length === 0 && META_TALK_RE.test(userText);
         // r29: bare dictation is pure nouns ("toothpaste, shampoo") — any
         // pronoun or speech word means it's a sentence, not a grocery run.
         // G 2026-06-13: greetings/address/banter words also mark a SENTENCE, never
@@ -8504,8 +8610,13 @@ const LiveAvatarSessionComponent: React.FC<{
         // greetings, and list commands return false here and behave exactly
         // as before.
         if (endsOnDanglingWord(userText)) {
+          // Record the suppression so back-to-back dangling chunks never reach
+          // the brain (no filler twice in a row); when the user finally lands a
+          // real thought, endsOnDanglingWord returns false and it flows through.
+          lastDanglingSuppressRef.current = { text: userText, at: Date.now() };
           return;
         }
+        lastDanglingSuppressRef.current = null;
         schedulePromptBrain(userText);
         await sendMessage(buildMemoryAugmentedMessage(userText));
         return;
@@ -9882,15 +9993,20 @@ const LiveAvatarSessionComponent: React.FC<{
                   // voiceUserTalking — the SAME proven signals the list thumbnail
                   // uses — and only while 6's full face is on screen
                   // (voicePresence === "avatar"; the list panel owns its own glow).
+                  // G 2026-06-14 RING FIX: the pulse classes were gated on
+                  // voicePresence === "avatar", but voiceSixTalking /
+                  // voiceUserTalking ONLY ever fire while presence is NOT
+                  // "avatar" (six=WebAudio mouth in list mode; user=ears loop,
+                  // which is a no-op in avatar mode). So the pulse could never
+                  // render. Drive the pulse off the talking signals FIRST,
+                  // independent of presence; idle is the always-on base ring.
                   !isStreamReady
                     ? "shadow-[0_0_0_1px_rgba(215,160,90,0.45)]"
-                    : voicePresence !== "avatar"
-                      ? "md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
-                      : voiceUserTalking
-                        ? "six-ring-user"
-                        : voiceSixTalking
-                          ? "six-ring-six"
-                          : "six-ring-idle"
+                    : voiceUserTalking
+                      ? "six-ring-user"
+                      : voiceSixTalking
+                        ? "six-ring-six"
+                        : "six-ring-idle"
                 }`
           }`}
         />
@@ -10333,7 +10449,7 @@ const LiveAvatarSessionComponent: React.FC<{
                     ))}
                   </ol>
                 ) : (
-                  <p className="pt-16 text-center text-xl font-black" style={compactListMutedStyle}>
+                  <p className="pt-16 text-center text-xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
                     Nothing here yet - just say what to add.
                   </p>
                 )}
@@ -10424,7 +10540,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       ))}
                     </ol>
                   ) : (
-                    <p className="pt-6 text-center text-[1.2rem] font-black leading-snug" style={compactListMutedStyle}>
+                    <p className="pt-6 text-center text-[1.2rem] font-black leading-snug bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
                       Nothing here yet - just say what to add.
                     </p>
                   )}
@@ -10736,10 +10852,26 @@ const LiveAvatarSessionComponent: React.FC<{
            voiceUserTalking (the signals that actually fire in CUSTOM mode). */
         .six-ring-idle {
           box-shadow:
-            0 0 0 2px rgba(215, 160, 90, 0.5),
-            0 0 18px 3px rgba(244, 208, 134, 0.28),
+            0 0 0 3px rgba(215, 160, 90, 0.7),
+            0 0 26px 6px rgba(244, 208, 134, 0.45),
             0 30px 90px rgba(0, 0, 0, 0.72);
           transition: box-shadow 300ms ease-out;
+          animation: six-ring-idle-breathe 2.6s ease-in-out infinite;
+        }
+        @keyframes six-ring-idle-breathe {
+          0%,
+          100% {
+            box-shadow:
+              0 0 0 3px rgba(215, 160, 90, 0.7),
+              0 0 26px 6px rgba(244, 208, 134, 0.45),
+              0 30px 90px rgba(0, 0, 0, 0.72);
+          }
+          50% {
+            box-shadow:
+              0 0 0 4px rgba(215, 160, 90, 0.85),
+              0 0 38px 10px rgba(244, 208, 134, 0.62),
+              0 30px 90px rgba(0, 0, 0, 0.72);
+          }
         }
         .six-ring-six {
           animation: six-ring-pulse 1.15s ease-in-out infinite;
