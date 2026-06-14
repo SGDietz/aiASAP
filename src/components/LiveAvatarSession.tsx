@@ -4251,6 +4251,16 @@ const LiveAvatarSessionComponent: React.FC<{
           typeof data.zip === "string" && /^\d{5}$/.test(data.zip)
             ? data.zip
             : null;
+        // NEW-2 (G 2026-06-14 12:52 "why would you ask my zip"): if the load didn't
+        // surface a top-level zip, recover it from the memory snapshot we just built
+        // (it embeds "Saved ZIP code on file: NNNNN") so the ref is never empty for
+        // a user who has one on file. Read-only, fires only when the ref is empty.
+        if (!accountZipRef.current) {
+          const _snapZip = accountMemorySnapshotRef.current?.contextText?.match(
+            /\bZIP code on file:\s*(\d{5})\b/i,
+          )?.[1];
+          if (_snapZip) accountZipRef.current = _snapZip;
+        }
 
         onlineLookupPendingQueryRef.current = null;
         onlineLookupLocationRef.current = null;

@@ -203,6 +203,21 @@ export async function POST(request: NextRequest) {
     let turnsFound = 0;
     let factsExtracted = 0;
     let factsStored = 0;
+    // A8 (G 2026-06-14 "you know my name" -> 6 re-asks): the LLM extractor is told
+    // to IGNORE signup turns, so the captured name never became a user_memory_facts
+    // row and recall came back empty. Write the known name as a deterministic fact
+    // here; storeFacts dedupes, so it is idempotent and never piles copies.
+    const knownName = existingName ?? recoveredName;
+    if (knownName && knownName.trim()) {
+      try {
+        await storeFacts({
+          userId,
+          facts: [{ kind: "name", content: knownName.trim() }],
+        });
+      } catch (err) {
+        console.error("[link-session:retro-facts] name fact failed", err);
+      }
+    }
     try {
       const messagesRes = await fetch(
         `${url}/rest/v1/conversation_messages?session_id=${inFilter}&user_id=eq.${userId}&order=la_absolute_timestamp.asc&select=session_id,role,message,la_absolute_timestamp&limit=500`,
