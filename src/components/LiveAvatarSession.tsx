@@ -103,6 +103,7 @@ import {
   parseOfferedAddItems,
 } from "../lib/listAddOffer";
 import { isClearAllCommand } from "../lib/listClear";
+import { parseReorderCommand } from "../lib/listReorder";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
 import {
@@ -4640,6 +4641,34 @@ const LiveAvatarSessionComponent: React.FC<{
     [assistantLists],
   );
 
+  // G 2026-06-14 copilot ride: he asked ~6 ways to MOVE items ("make number 2
+  // number 1", "put comb at the top", "hair dryer as number 2") and 6 kept
+  // saying "I can't reorder yet." Real reorder-by-index now.
+  const reorderListItem = useCallback(
+    (listId: string, fromIndex: number, toIndex: number) => {
+      const list = assistantLists.find((item) => item.id === listId);
+      if (!list) return false;
+      const count = list.items.length;
+      if (fromIndex < 0 || fromIndex >= count) return false;
+      const target = Math.max(0, Math.min(count - 1, toIndex));
+      if (target === fromIndex) return false;
+      const nextItems = [...list.items];
+      const [moved] = nextItems.splice(fromIndex, 1);
+      nextItems.splice(target, 0, moved);
+      latestListMutationRef.current = { listId, item: moved, action: "add" };
+      setAssistantLists((currentLists) =>
+        currentLists.map((currentList) =>
+          currentList.id === listId
+            ? { ...currentList, items: nextItems, updatedAt: Date.now() }
+            : currentList,
+        ),
+      );
+      setListFocusNonce((value) => value + 1);
+      return true;
+    },
+    [assistantLists],
+  );
+
   const capitalizeListItems = useCallback(
     (listId: string) => {
       const list = assistantLists.find((item) => item.id === listId);
@@ -9042,7 +9071,15 @@ const LiveAvatarSessionComponent: React.FC<{
                     // what G said worked — "when I'd ask for things." Kills the
                     // conversational junk-adds at the root, no more deny-list chase.
                     _LIST_ADD_VERB_RE.test(userText) ||
+                    // G 2026-06-14 ride: the comma/"and" branch leaked chatter
+                    // ("Wow, you can reorder it", "Yes, that's great", "Claude,
+                    // change them now") because ANY comma returned true. Require
+                    // it to read as item dictation, not a sentence.
                     (/[,;\n]|\band\b/i.test(userText) &&
+                      !_BARE_SPEECH_RE.test(userText) &&
+                      !/\b(?:change|move|reorder|rename|swap|why|talking|can you|could you|them|then|now)\b/i.test(
+                        userText,
+                      ) &&
                       canInferListItems(userText, { allowBareItems: true })),
                 },
               )
@@ -9113,6 +9150,14 @@ const LiveAvatarSessionComponent: React.FC<{
               !/^(?:through|except|except for|up|down|over|under|with|without|for|from|to|of|at|in|on|then|also|as|while|when|if|that|which|who|people|second|seconds|minute|minutes)$/i.test(
                 it.trim(),
               ),
+          )
+          // G 2026-06-14 ride: a bare command/add verb said alone ("Yeah, put,
+          // um" -> "Added Put") is never a grocery item.
+          .filter(
+            (it) =>
+              !/^(?:put|add|list|get|grab|buy|throw|need|want|have|had|move|change)$/i.test(
+                it.trim(),
+              ),
           );
         // r26 (G live 2026-06-12 08:37: "Change toothbrush to be a capital T"
         // got "I found toothbrush on the list" three times — no handler): a
@@ -9156,6 +9201,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // beats the per-item remove path (where "everything" was junk-filtered to
         // [], leaving the brain to fake "done").
         const _wantsClearAll = isClearAllCommand(userText);
+        const _reorder = parseReorderCommand(userText);
         if (_wantsClearAll && targetListId) {
           const _clrList = assistantLists.find((l) => l.id === targetListId);
           if (_clrList && _clrList.items.length > 0) {
@@ -9165,6 +9211,39 @@ const LiveAvatarSessionComponent: React.FC<{
               : "Hmm - I couldn't clear it. Say that again?";
           } else {
             listActionSpoken = `Your ${_clrList?.title ?? "list"} is already empty.`;
+          }
+        } else if (_reorder && targetListId) {
+          const _roList = assistantLists.find((l) => l.id === targetListId);
+          const _roItems = _roList?.items ?? [];
+          let _fromIdx =
+            typeof _reorder.from === "number"
+              ? _reorder.from - 1
+              : _roItems.findIndex(
+                  (it) =>
+                    it.toLowerCase() === String(_reorder.from).toLowerCase(),
+                );
+          if (_fromIdx < 0 && typeof _reorder.from === "string") {
+            const _needle = String(_reorder.from).toLowerCase();
+            _fromIdx = _roItems.findIndex((it) =>
+              it.toLowerCase().includes(_needle),
+            );
+          }
+          if (_fromIdx >= 0 && _fromIdx < _roItems.length) {
+            const _movedName = _roItems[_fromIdx];
+            const _toIdx =
+              _reorder.to === "top"
+                ? 0
+                : _reorder.to === "bottom"
+                  ? _roItems.length - 1
+                  : _reorder.to - 1;
+            const _clampTo = Math.max(0, Math.min(_roItems.length - 1, _toIdx));
+            const moved = reorderListItem(targetListId, _fromIdx, _clampTo);
+            listActionSpoken = moved
+              ? `Done - ${_movedName} is number ${_clampTo + 1} now.`
+              : `${_movedName} is already number ${_clampTo + 1}.`;
+          } else {
+            listActionSpoken =
+              "I couldn't find that one to move. Which item, and where should it go?";
           }
         } else if (_wantsReadback && targetListId) {
           const _rbList = assistantLists.find((l) => l.id === targetListId);
@@ -9685,6 +9764,7 @@ const LiveAvatarSessionComponent: React.FC<{
     addItemsToList,
     capitalizeListItems,
     renameListItem,
+    reorderListItem,
     assistantLists,
     buildMemoryAugmentedMessage,
     deleteAssistantList,
