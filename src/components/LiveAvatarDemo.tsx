@@ -305,10 +305,12 @@ export const LiveAvatarDemo = () => {
             centered + gold border on desktop, full-cover on mobile). */}
         <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* G 2026-06-14: same black-bar fix as Session Ended — object-cover
+              fills the gold frame (no object-contain letterbox, no black bg). */}
           <img
             src="/startscreen.png"
             alt=""
-            className="h-full w-full object-cover md:object-contain md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
           <div className="absolute left-1/2 -translate-x-1/2 bottom-[14svh] md:bottom-[16%] z-20 flex justify-center">
             <button
