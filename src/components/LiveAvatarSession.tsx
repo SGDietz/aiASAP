@@ -2246,7 +2246,8 @@ const LiveAvatarSessionComponent: React.FC<{
             const meterData = new Uint8Array(analyser.fftSize);
             const meter = setInterval(() => {
               const circle = document.getElementById("six-voice-circle");
-              if (!circle) return;
+              const glow = document.getElementById("six-voice-glow");
+              if (!circle && !glow) return;
               analyser.getByteTimeDomainData(meterData);
               let sum = 0;
               for (let i = 0; i < meterData.length; i++) {
@@ -2254,10 +2255,13 @@ const LiveAvatarSessionComponent: React.FC<{
                 sum += v * v;
               }
               const level = Math.min(1, Math.sqrt(sum / meterData.length) * 6);
-              circle.style.boxShadow = `0 0 0 ${(1.5 + level * 4).toFixed(1)}px rgba(244,208,134,${(0.45 + level * 0.5).toFixed(2)}), 0 0 ${(7 + level * 22).toFixed(0)}px ${(1 + level * 6).toFixed(0)}px rgba(255,233,194,${(0.2 + level * 0.5).toFixed(2)})`;
+              // G 2026-06-14: the golden glow lives in the un-clipped ring layer
+              // AROUND the face, so it shows in the SPACE around the circle.
+              if (glow)
+                glow.style.boxShadow = `0 0 0 ${(2 + level * 5).toFixed(1)}px rgba(244,208,134,${(0.5 + level * 0.45).toFixed(2)}), 0 0 ${(12 + level * 30).toFixed(0)}px ${(4 + level * 9).toFixed(0)}px rgba(255,233,194,${(0.28 + level * 0.5).toFixed(2)})`;
               // G 2026-06-13: face HOLDS STILL — no zoom. Only the gold glow
-              // (boxShadow above) pulses. 1.7 = the class base scale, pinned.
-              circle.style.transform = "scale(1.7)";
+              // pulses. 1.7 = the class base scale, pinned.
+              if (circle) circle.style.transform = "scale(1.7)";
             }, 60);
             src.onended = () => {
               clearInterval(meter);
@@ -2697,12 +2701,16 @@ const LiveAvatarSessionComponent: React.FC<{
         // (While 6's own audio is playing, HIS meter owns the glow.)
         if (!voiceTtsBusyRef.current) {
           const circle = document.getElementById("six-voice-circle");
-          if (circle) {
+          const glow = document.getElementById("six-voice-glow");
+          if (circle || glow) {
             const level = Math.min(1, rms * 14);
-            circle.style.boxShadow = `0 0 0 ${(1.5 + level * 4).toFixed(1)}px rgba(244,208,134,${(0.45 + level * 0.5).toFixed(2)}), 0 0 ${(7 + level * 22).toFixed(0)}px ${(1 + level * 6).toFixed(0)}px rgba(255,233,194,${(0.2 + level * 0.5).toFixed(2)})`;
+            // G 2026-06-14: glow in the un-clipped ring layer around the face,
+            // pulsing straight off the live mic level.
+            if (glow)
+              glow.style.boxShadow = `0 0 0 ${(2 + level * 5).toFixed(1)}px rgba(244,208,134,${(0.5 + level * 0.45).toFixed(2)}), 0 0 ${(12 + level * 30).toFixed(0)}px ${(4 + level * 9).toFixed(0)}px rgba(255,233,194,${(0.28 + level * 0.5).toFixed(2)})`;
             // G 2026-06-13: face HOLDS STILL — no zoom. Only the gold glow
-            // (boxShadow above) pulses with the voice level.
-            circle.style.transform = "scale(1.7)";
+            // pulses with the voice level.
+            if (circle) circle.style.transform = "scale(1.7)";
           }
         }
         // G 2026-06-13 INTERRUPT FIX: barge-in must also trigger while 6 speaks
@@ -10788,38 +10796,55 @@ const LiveAvatarSessionComponent: React.FC<{
                       voiceReturnAttemptsRef.current = 0;
                       void beginAvatarReturn(true);
                     }}
-                    className="relative h-14 w-14 shrink-0 overflow-hidden rounded-full focus:outline-none"
+                    className="relative h-14 w-14 shrink-0 rounded-full focus:outline-none"
                   >
-                    {/* r20 (G's screenshot: the circle wasn't 6's face — the
-                        2c44c052 jpg is a vision-mode test image). startscreen
-                        IS 6; object-position frames his face in the circle. */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      id="six-voice-circle"
-                      src="/startscreen.png"
-                      alt="6 - tap to bring him back"
-                      className={`h-full w-full scale-[1.7] rounded-full border-2 object-cover transition-all duration-150 ${
+                    {/* GOLDEN GLOW in the SPACE AROUND the circle (G 2026-06-14
+                        inked screenshot: "put a golden glow inside that area that
+                        pulses with all speech from the user and from six"). It is
+                        its OWN un-clipped layer — the old button overflow-hidden
+                        was swallowing the halo so it never showed in the space
+                        around the face. The voice meters write this element's
+                        boxShadow in real time (6's audio AND the user's mic) so it
+                        pulses with ALL speech; this inline style is the resting /
+                        React fallback state. */}
+                    <span
+                      id="six-voice-glow"
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-full transition-all duration-150"
+                      style={
+                        voiceUserTalking ||
+                        voiceSixTalking ||
+                        voicePresence === "returning"
+                          ? {
+                              boxShadow:
+                                "0 0 0 5px rgba(215,160,90,0.5), 0 0 34px 12px rgba(244,208,134,0.72)",
+                            }
+                          : {
+                              boxShadow: "0 0 16px 4px rgba(215,160,90,0.42)",
+                            }
+                      }
+                    />
+                    {/* Face — clipped to the circle so the 1.7x framing stays
+                        inside the ring. startscreen IS 6; object-position frames
+                        his face. */}
+                    <span
+                      className={`absolute inset-0 block overflow-hidden rounded-full border-2 transition-all duration-150 ${
                         voiceUserTalking ||
                         voiceSixTalking ||
                         voicePresence === "returning"
                           ? "border-[#ffe9c2]"
                           : "border-[#d7a05a]/70"
                       }`}
-                      style={
-                        voiceUserTalking ||
-                        voiceSixTalking ||
-                        voicePresence === "returning"
-                          ? {
-                              objectPosition: "50% 12%",
-                              boxShadow:
-                                "0 0 0 4px rgba(215,160,90,0.35), 0 0 26px 8px rgba(244,208,134,0.6)",
-                            }
-                          : {
-                              objectPosition: "50% 12%",
-                              boxShadow: "0 0 10px 2px rgba(215,160,90,0.35)",
-                            }
-                      }
-                    />
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        id="six-voice-circle"
+                        src="/startscreen.png"
+                        alt="6 - tap to bring him back"
+                        className="h-full w-full scale-[1.7] object-cover"
+                        style={{ objectPosition: "50% 12%" }}
+                      />
+                    </span>
                   </button>
                 </div>
               </div>
