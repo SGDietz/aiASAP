@@ -9034,9 +9034,15 @@ const LiveAvatarSessionComponent: React.FC<{
                   // _LIST_ADD_VERB_RE. The old `activeListId || inferredListIntent`
                   // trust (the hole that junk-added his venting) is gone.
                   allowBareItems:
-                    (_shortBare &&
-                      canInferListItems(userText, { allowBareItems: true })) ||
-                    _LIST_ADD_VERB_RE.test(userText),
+                    // G 2026-06-14: bare single/stray words ("Look", "Claude",
+                    // "same", "problems") must NEVER auto-add — that's talk, not a
+                    // grocery item. Add ONLY when the user ASKS (add/need/get/put X)
+                    // or lists several at once ("milk, eggs, bread"). This matches
+                    // what G said worked — "when I'd ask for things." Kills the
+                    // conversational junk-adds at the root, no more deny-list chase.
+                    _LIST_ADD_VERB_RE.test(userText) ||
+                    (/[,;\n]|\band\b/i.test(userText) &&
+                      canInferListItems(userText, { allowBareItems: true })),
                 },
               )
         )
