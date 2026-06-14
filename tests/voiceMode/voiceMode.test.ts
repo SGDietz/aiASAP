@@ -7,6 +7,7 @@ import {
   voiceListEnterLine,
   isGarbledListOpen,
   parseRemoveByPosition,
+  parseRemovePositions,
   wantsListReadback,
 } from "../../src/lib/voiceMode/intents";
 import { pcm16BytesToFloat32 } from "../../src/lib/voiceMode/pcm";
@@ -191,5 +192,20 @@ describe("wantsListReadback (G 2026-06-13: read it back, never find an item name
     ]) {
       expect(wantsListReadback(t), t).toBe(false);
     }
+  });
+});
+
+describe("parseRemovePositions (G 2026-06-14: 'remove both 1 and 2')", () => {
+  it("parses multi-position removes", () => {
+    expect(parseRemovePositions("Remove both 1 and 2.")).toEqual([1, 2]);
+    expect(parseRemovePositions("remove 1 and 3")).toEqual([1, 3]);
+    expect(parseRemovePositions("take off numbers 1, 2 and 3")).toEqual([1, 2, 3]);
+    expect(parseRemovePositions("delete one and two")).toEqual([1, 2]);
+  });
+  it("returns [] for a single position or non-removes", () => {
+    expect(parseRemovePositions("remove number one")).toEqual([]);
+    expect(parseRemovePositions("take off the first one")).toEqual([]);
+    expect(parseRemovePositions("add milk and eggs")).toEqual([]);
+    expect(parseRemovePositions("what do you see")).toEqual([]);
   });
 });

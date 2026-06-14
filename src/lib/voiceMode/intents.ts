@@ -131,6 +131,23 @@ export function parseRemoveByPosition(text: string): number | null {
   return null;
 }
 
+/** MULTI-position remove (G 2026-06-14: "Remove both 1 and 2" hunted for an item
+ * named "Both 1"). Returns the 1-based positions, or [] when it is not a
+ * multi-position remove (single position stays with parseRemoveByPosition).
+ * Covers "remove both 1 and 2", "take off numbers 1, 2 and 3", "delete 1 and 3". */
+export function parseRemovePositions(text: string): number[] {
+  const t = String(text);
+  const m = t.match(
+    /\b(?:take|remove|delete|cross|scratch)\s+(?:off\s+|out\s+)?(?:both\s+|the\s+)?(?:numbers?\s+|items?\s+|#\s*)?((?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)(?:\s*(?:,|and|&|\+)\s*(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten))+)\b/i,
+  );
+  if (!m) return [];
+  const nums = m[1]
+    .split(/\s*(?:,|and|&|\+)\s*/i)
+    .map((w) => _wordToNumber(w))
+    .filter((n) => n >= 1);
+  return [...new Set(nums)];
+}
+
 /** LIST READBACK (G 2026-06-13 dogfood: "what do you see" / "read me the list"
  * must RELIABLY read the items back, never hunt for an item named "See"). Only
  * ever consulted while a list is the active context (caller gates on targetListId),

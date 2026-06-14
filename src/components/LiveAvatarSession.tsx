@@ -93,6 +93,7 @@ import {
   AVATAR_BACK_LINES,
   isGarbledListOpen,
   parseRemoveByPosition,
+  parseRemovePositions,
   wantsListReadback,
 } from "../lib/voiceMode/intents";
 import {
@@ -8883,6 +8884,9 @@ const LiveAvatarSessionComponent: React.FC<{
         // (pure, tested) returns the 1-based slot; checked before literal-text
         // remove so the number/ordinal is a POSITION, not an item name.
         const _removePos = parseRemoveByPosition(userText);
+        // G 2026-06-14: "Remove both 1 and 2" hunted for an item named "Both 1".
+        // Plural positions removed together, checked before the single branch.
+        const _removePositions = parseRemovePositions(userText);
         // G 2026-06-13 dogfood: "read me the list" / "what's on the list" / "what
         // do you see on the list" must RELIABLY read it back (it only worked once,
         // by accident, when the brain happened to know). Dedicated handler now.
@@ -8897,6 +8901,19 @@ const LiveAvatarSessionComponent: React.FC<{
           listActionSpoken = _rbItems.length
             ? `Your ${_rbList?.title ?? "list"} has ${formatListItemsForSpeech(_rbItems)}.`
             : `Your ${_rbList?.title ?? "list"} is empty so far — tell me what to add.`;
+        } else if (_removePositions.length >= 2 && targetListId) {
+          const _mpList = assistantLists.find((l) => l.id === targetListId);
+          const _mpItems = _removePositions
+            .map((p) => _mpList?.items?.[p - 1])
+            .filter((it): it is string => Boolean(it));
+          if (_mpItems.length) {
+            const removed = removeItemsFromList(targetListId, _mpItems);
+            listActionSpoken = removed
+              ? `Done - took ${formatListItemsForSpeech(_mpItems)} off the list.`
+              : "Hmm - I couldn't remove those. Tell me again?";
+          } else {
+            listActionSpoken = "I don't see those numbers on the list yet.";
+          }
         } else if (_removePos && targetListId) {
           const pos = _removePos;
           const _posList = assistantLists.find((l) => l.id === targetListId);
