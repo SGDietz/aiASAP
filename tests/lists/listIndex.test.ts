@@ -34,6 +34,9 @@ describe("LIST_INDEX_RE — asking for the menu of lists", () => {
       "show me my grocery list",
       "open the walmart list",
       "add milk to the list",
+      "add eggs to my lists",
+      "put bread on my lists",
+      "these are all my lists now",
     ]) {
       expect(LIST_INDEX_RE.test(t), t).toBe(false);
     }
@@ -75,13 +78,20 @@ describe("resolveListPick", () => {
     );
     expect(resolveListPick("Walmart", ENTRIES)?.id).toBe("walmart-list");
   });
-  it("picks by fuzzy keyword", () => {
+  it("picks by fuzzy keyword (incl. the to-do alias)", () => {
     expect(resolveListPick("the grocery one", ENTRIES)?.id).toBe("grocery-list");
     expect(resolveListPick("packing", ENTRIES)?.id).toBe("packing-list");
+    expect(resolveListPick("the to do one", ENTRIES)?.id).toBe("to-do-list");
   });
   it("returns null when nothing clearly matches (no hijack of normal speech)", () => {
     expect(resolveListPick("how's the weather today", ENTRIES)).toBeNull();
     expect(resolveListPick("thanks that's great", ENTRIES)).toBeNull();
+  });
+  it("a bare ordinal buried in a sentence does NOT pick (review 2026-06-14)", () => {
+    expect(resolveListPick("the first thing I need is milk", ENTRIES)).toBeNull();
+    expect(resolveListPick("first, let me grab my keys", ENTRIES)).toBeNull();
+    expect(resolveListPick("what's the last time we talked", ENTRIES)).toBeNull();
+    expect(resolveListPick("the second I get home", ENTRIES)).toBeNull();
   });
   it("returns null for an empty index", () => {
     expect(resolveListPick("the first one", [])).toBeNull();

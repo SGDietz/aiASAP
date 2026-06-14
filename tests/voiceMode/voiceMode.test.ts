@@ -6,6 +6,8 @@ import {
   wantsAvatarBack,
   voiceListEnterLine,
   isGarbledListOpen,
+  parseRemoveByPosition,
+  wantsListReadback,
 } from "../../src/lib/voiceMode/intents";
 import { pcm16BytesToFloat32 } from "../../src/lib/voiceMode/pcm";
 
@@ -127,6 +129,67 @@ describe("isGarbledListOpen — a chopped 'I'll show me' mashup must not open a 
       "let me see the list",
     ]) {
       expect(isGarbledListOpen(t), t).toBe(false);
+    }
+  });
+});
+
+describe("parseRemoveByPosition (G 2026-06-13: remove by slot, not by name)", () => {
+  it("number / item / # forms map to the 1-based position", () => {
+    expect(parseRemoveByPosition("take off number one")).toBe(1);
+    expect(parseRemoveByPosition("Take off number two.")).toBe(2);
+    expect(parseRemoveByPosition("remove number 2")).toBe(2);
+    expect(parseRemoveByPosition("delete item three")).toBe(3);
+    expect(parseRemoveByPosition("cross off #4")).toBe(4);
+    expect(parseRemoveByPosition("take number 3 off")).toBe(3);
+    expect(parseRemoveByPosition("take 2 out")).toBe(2);
+  });
+  it("ordinal-word forms map to the 1-based position", () => {
+    expect(parseRemoveByPosition("take off the first one")).toBe(1);
+    expect(parseRemoveByPosition("cross off the third item")).toBe(3);
+    expect(parseRemoveByPosition("delete the second one")).toBe(2);
+    expect(parseRemoveByPosition("remove the first item")).toBe(1);
+  });
+  it("returns null when there is no position (real item names / adds)", () => {
+    expect(parseRemoveByPosition("take off the milk")).toBeNull();
+    expect(parseRemoveByPosition("add bananas")).toBeNull();
+    expect(parseRemoveByPosition("what do you see")).toBeNull();
+    expect(parseRemoveByPosition("take off number zero")).toBeNull();
+  });
+});
+
+describe("wantsListReadback (G 2026-06-13: read it back, never find an item named 'See')", () => {
+  it("explicit readback forms fire", () => {
+    for (const t of [
+      "what do you see on the list",
+      "what's on the list",
+      "read me the list",
+      "read it back",
+      "go through the list",
+      "what's on it",
+    ]) {
+      expect(wantsListReadback(t), t).toBe(true);
+    }
+  });
+  it("bare question forms fire (a list is already open)", () => {
+    for (const t of [
+      "what do you see",
+      "What do you see?",
+      "what do you have",
+      "what do you got",
+      "what have you got",
+      "so what do you see",
+    ]) {
+      expect(wantsListReadback(t), t).toBe(true);
+    }
+  });
+  it("does not fire for adds or unrelated talk", () => {
+    for (const t of [
+      "add bananas",
+      "take off number one",
+      "what do you think",
+      "do you see what I mean",
+    ]) {
+      expect(wantsListReadback(t), t).toBe(false);
     }
   });
 });

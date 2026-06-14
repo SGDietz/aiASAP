@@ -41,10 +41,13 @@ export function parseOfferedAddItems(spoken: string): string[] {
   );
   tail = tail.replace(/\s+(?:to it|for you|as well|too|then|now)\b.*$/i, "");
   return tail
-    .split(/\s*,\s*|\s+and\s+/i)
+    // Consume an Oxford "and" right after a comma so "bread, butter, and jam"
+    // splits to [bread, butter, jam], never [..., "and jam"] (review 2026-06-14).
+    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/i)
     .map((s) =>
       s
         .replace(/^[\s,.;:-]+|[\s,.;:-]+$/g, "")
+        .replace(/^(?:and|or)\s+/i, "")
         .replace(/^(?:a|an|the|some|of)\s+/i, "")
         .trim(),
     )

@@ -79,3 +79,80 @@ export const AVATAR_BACK_LINES = [
   "Back! Good to see you again.",
   "There we go - I'm back. What's next?",
 ];
+
+/** Map a spoken 1-10 word OR digit to its number. */
+const _ORDINAL_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5,
+  six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+  sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10,
+};
+function _wordToNumber(raw: string): number {
+  const v = raw.trim().toLowerCase();
+  if (/^\d+$/.test(v)) return parseInt(v, 10);
+  return _ORDINAL_WORDS[v] ?? 0;
+}
+
+/** REMOVE-BY-POSITION (G 2026-06-13 dogfood: "take off number one" must drop the
+ * item AT position 1, never hunt for an item literally named "Number one").
+ * Returns the 1-based position, or null when the turn is not a positional remove.
+ * Covers: "take/remove/delete/cross/scratch (off/out) (the) number|item|# N",
+ * "take (the) N off/out", and the ordinal-word forms "take off the first one",
+ * "cross off the third item", "delete the second one". N is a digit or one..ten /
+ * first..tenth. */
+export function parseRemoveByPosition(text: string): number | null {
+  const t = String(text);
+  // number / item / # forms: "take off number one", "remove item 2", "delete #3"
+  const m1 = t.match(
+    /\b(?:take|remove|delete|cross|scratch)\s+(?:off\s+|out\s+)?(?:the\s+)?(?:number|item|#)\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i,
+  );
+  if (m1) {
+    const n = _wordToNumber(m1[1]);
+    return n >= 1 ? n : null;
+  }
+  // ordinal-word forms: "take off the first one", "cross off the third item",
+  // "delete the second one". Requires a trailing one|item|thing so a real item
+  // that merely starts with an ordinal isn't swallowed.
+  const m2 = t.match(
+    /\b(?:take|remove|delete|cross|scratch)\s+(?:off\s+|out\s+)?(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d+)\s+(?:one|item|thing)\b/i,
+  );
+  if (m2) {
+    const n = _wordToNumber(m2[1]);
+    return n >= 1 ? n : null;
+  }
+  // "take (the) N off/out": "take number 3 off", "take 2 out"
+  const m3 = t.match(
+    /\btake\s+(?:the\s+)?(?:number|item)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:off|out)\b/i,
+  );
+  if (m3) {
+    const n = _wordToNumber(m3[1]);
+    return n >= 1 ? n : null;
+  }
+  return null;
+}
+
+/** LIST READBACK (G 2026-06-13 dogfood: "what do you see" / "read me the list"
+ * must RELIABLY read the items back, never hunt for an item named "See"). Only
+ * ever consulted while a list is the active context (caller gates on targetListId),
+ * so the bare "what do you see" / "what do you have" forms are safe here. */
+export function wantsListReadback(text: string): boolean {
+  const t = String(text);
+  // explicit "...the list" / "read me the list" / "what did you add" forms
+  if (
+    /\bread\s+(?:me\s+|back\s+|out\s+|it\s+|the\s+|my\s+|them\s+)*(?:list|back|it|them)\b|\bwhat(?:'?s| is| do you see| do you have| have you got)?\s+(?:on|in)\s+(?:the|my|this)\s+list\b|\bwhat do you see on (?:the|my)\b|\bwhat did (?:you|i) (?:say (?:you )?)?add(?:ed)?\b|\bwhat(?:'?s| is)\s+(?:the|my)\s+[a-z]+\s+list\b|\bwhat(?:'?s| is)\s+on\s+it\b|\bgo (?:through|over) (?:the|my)\s+list\b/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  // bare question forms (a list is already open): "what do you see", "what do you
+  // see?", "what do you have", "what do you got", "what have you got".
+  if (
+    /^\s*(?:so\s+|okay\s+|ok\s+|hey\s+|and\s+)?what\s+do\s+you\s+(?:see|have|got)\b|^\s*what\s+have\s+you\s+got\b/i.test(
+      t,
+    )
+  ) {
+    return true;
+  }
+  return false;
+}

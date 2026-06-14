@@ -7,8 +7,11 @@ export type ListIndexEntry = { id: string; title: string };
 
 /** User asks for the MENU/INDEX of their lists. Plural "lists" on purpose so it
  * never collides with the singular "show me the list" opener. */
+// The bare "my lists" / "all my lists" form is whole-utterance ONLY, so an ADD
+// like "add eggs to my lists" never pops the menu (adversarial review 2026-06-14).
+// The verb-led asks ("show me my lists", "what are my lists") match anywhere.
 export const LIST_INDEX_RE =
-  /\b(?:list of lists|what(?:'?s| are| do you have| do i have)?\s+(?:my\s+)?lists|which lists(?: do i have)?|show me (?:my |all my |the )?lists|see (?:my |all my )?lists|(?:all )?my lists|how many lists|read me (?:my |the )?lists|name (?:my |the )?lists)\b/i;
+  /^\s*(?:all\s+)?my lists\b[\s,.!?]*$|\b(?:list of lists|what(?:'?s| are| do you have| do i have)?\s+(?:my\s+)?lists|which lists(?: do i have)?|show me (?:my |all my |the )?lists|see (?:my |all my )?lists|how many lists|read me (?:my |the )?lists|name (?:my |the )?lists)\b/i;
 
 export const LIST_PICK_ORDINAL: Record<string, number> = {
   first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6,
@@ -58,10 +61,19 @@ export function resolveListPick(
   if (entries.length === 0) return null;
   const lower = text.toLowerCase();
 
-  // 1) Ordinal: "the first one", "second", "the last one".
-  const ord = lower.match(
-    /\b(?:the\s+)?(first|second|third|fourth|fifth|sixth|last|1st|2nd|3rd|4th|5th)\b(?:\s+(?:one|list|option))?/i,
+  // 1) Ordinal pick — must be a real PICK shape, never a bare ordinal buried in
+  //    conversation (adversarial review 2026-06-14: "the first thing I need is
+  //    milk" must NOT open a list). Accept "the first one/list/option/item"
+  //    (qualified, any length) OR a whole-utterance bare ordinal ("second",
+  //    "the first").
+  const qualifiedOrd = lower.match(
+    /\b(?:the\s+)?(first|second|third|fourth|fifth|sixth|last|1st|2nd|3rd|4th|5th)\s+(?:one|list|option|item)\b/i,
   );
+  const bareOrd =
+    /^[\s,.!?'-]*(?:the\s+)?(first|second|third|fourth|fifth|sixth|last|1st|2nd|3rd|4th|5th)[\s,.!?'-]*$/i.exec(
+      lower,
+    );
+  const ord = qualifiedOrd ?? bareOrd;
   if (ord) {
     const pos = LIST_PICK_ORDINAL[ord[1].toLowerCase()] ?? 0;
     if (pos === -1) return entries[entries.length - 1];
@@ -84,5 +96,12 @@ export function resolveListPick(
       }
     }
   }
-  return best?.entry ?? null;
+  if (best) return best.entry;
+  // 4) To-do alias: "the to do one" / "tasks" -> the to-do list (its keywords
+  //    are all stop-words, so the fuzzy pass above can't catch it).
+  if (/\bto[-\s]?do\b|\btasks?\b/i.test(lower)) {
+    const td = entries.find((e) => /\bto[-\s]?do\b/i.test(e.title));
+    if (td) return td;
+  }
+  return null;
 }

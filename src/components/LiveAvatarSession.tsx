@@ -92,6 +92,8 @@ import {
   wantsAvatarBack,
   AVATAR_BACK_LINES,
   isGarbledListOpen,
+  parseRemoveByPosition,
+  wantsListReadback,
 } from "../lib/voiceMode/intents";
 import {
   ADD_OFFER_RE,
@@ -1346,6 +1348,14 @@ function cleanListItem(
     // G 2026-06-13: strip natural lead-ins so "Yeah, I'll put toothbrush" cleans
     // to "toothbrush" instead of garbage like "Yeah I'll toothbrush".
     .replace(/^(?:yeah|yep|yup|okay|ok|so|well|alright|all right|sure|now|and|but|um|uh)[\s,]+/i, "")
+    // G BUG D (filler-as-item family, 2026-06-14): conversational command openers
+    // that WRAP a real add ("can you add X", "could you put X", "go ahead and add
+    // X", "i'd like X") leaked as items ("Can you", "I'd bananas") or got dropped
+    // by the lossy post-filter that took the real noun ("cheese") with them. Strip
+    // them at this shared chokepoint so the real item survives.
+    .replace(/\b(?:can|could|would|will)\s+(?:you|ya)\s+(?:please\s+)?/gi, " ")
+    .replace(/\bgo\s+ahead\s+and\s+/gi, " ")
+    .replace(/\b(?:i'?d|id)\s+like\s+(?:to\s+(?:add|get|have)\s+)?/gi, " ")
     .replace(/\b(?:i'?ll|i will|i'?m gonna|i'?m going to|let me|gonna|wanna)\s+/gi, " ")
     // G 2026-06-13: strip the bare possessive opener "I have / I've got / I got /
     // we have / I had X" so "I have toothbrush" cleans to "toothbrush" (was
@@ -8799,31 +8809,27 @@ const LiveAvatarSessionComponent: React.FC<{
         // "remove number 2", "take number 3 off". (He said it 4+ times and 6 kept
         // hunting for an item literally NAMED "Number one.") Checked before the
         // literal-text remove so the number is treated as a position, not a name.
-        const _removeNumberMatch = userText.match(
-          /\b(?:take|remove|delete|cross|scratch)\s+(?:off\s+|out\s+)?(?:the\s+)?(?:number|item|#)\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b|\btake\s+(?:the\s+)?(?:number|item)?\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:off|out)\b/i,
-        );
+        // G 2026-06-13 dogfood: REMOVE by position — "take off number one", "take
+        // off the first one", "cross off the third item". parseRemoveByPosition
+        // (pure, tested) returns the 1-based slot; checked before literal-text
+        // remove so the number/ordinal is a POSITION, not an item name.
+        const _removePos = parseRemoveByPosition(userText);
         // G 2026-06-13 dogfood: "read me the list" / "what's on the list" / "what
         // do you see on the list" must RELIABLY read it back (it only worked once,
         // by accident, when the brain happened to know). Dedicated handler now.
-        const _wantsReadback =
-          /\bread\s+(?:me\s+|back\s+|out\s+|it\s+|the\s+|my\s+|them\s+)*(?:list|back|it|them)\b|\bwhat(?:'?s| is| do you see| do you have| have you got)?\s+(?:on|in)\s+(?:the|my|this)\s+list\b|\bwhat do you see on (?:the|my)\b|\bwhat did (?:you|i) (?:say (?:you )?)?add(?:ed)?\b|\bwhat(?:'?s| is)\s+(?:the|my)\s+[a-z]+\s+list\b|\bwhat(?:'?s| is)\s+on\s+it\b|\bgo (?:through|over) (?:the|my)\s+list\b/i.test(
-            userText,
-          );
+        // G 2026-06-13 dogfood: "read me the list" / "what's on the list" / bare
+        // "what do you see" must RELIABLY read it back (never hunt for an item
+        // named "See"). wantsListReadback is pure + tested; safe on the bare form
+        // because this whole block only runs when a list is the active context.
+        const _wantsReadback = wantsListReadback(userText);
         if (_wantsReadback && targetListId) {
           const _rbList = assistantLists.find((l) => l.id === targetListId);
           const _rbItems = _rbList?.items ?? [];
           listActionSpoken = _rbItems.length
             ? `Your ${_rbList?.title ?? "list"} has ${formatListItemsForSpeech(_rbItems)}.`
             : `Your ${_rbList?.title ?? "list"} is empty so far — tell me what to add.`;
-        } else if (_removeNumberMatch && targetListId) {
-          const numRaw = (
-            _removeNumberMatch[1] ??
-            _removeNumberMatch[2] ??
-            ""
-          ).toLowerCase();
-          const pos = /^\d+$/.test(numRaw)
-            ? parseInt(numRaw, 10)
-            : _ORDINALS[numRaw] ?? 0;
+        } else if (_removePos && targetListId) {
+          const pos = _removePos;
           const _posList = assistantLists.find((l) => l.id === targetListId);
           const _posItem = pos >= 1 ? _posList?.items?.[pos - 1] : undefined;
           if (_posItem) {
@@ -10126,8 +10132,13 @@ const LiveAvatarSessionComponent: React.FC<{
     onlineLookupResultLines.length > 0 &&
     voiceIsActive &&
     !isShoppingMode;
-  // Pillboxes go 2x2 (on the hands) for EITHER an active list or lookup results.
-  const chestGrid = Boolean(showActiveList) || lookupResultsOnChest;
+  // Pillboxes go 2x2 (on the hands) for an active list, lookup results, OR the
+  // list-of-lists index card (review 2026-06-14: the index card must flip the
+  // pills to 2x2 too, or the stacked column can overlap it on short viewports).
+  const chestGrid =
+    Boolean(showActiveList) ||
+    lookupResultsOnChest ||
+    Boolean(listIndexOnChest && listIndexOnChest.length > 0);
   // G 2026-06-13 waterfall bug: when lookup RESULTS own the chest, the 2x2 boxes
   // must show the RESULT lines (Cunningham Falls, Great Falls, Billy Goat Trail) —
   // NOT the default idea pills. Render them VERBATIM (do NOT route through

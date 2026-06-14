@@ -50,6 +50,11 @@ describe("parseOfferedAddItems", () => {
       parseOfferedAddItems("Want me to add apples, bananas and some grapes?"),
     ).toEqual(["apples", "bananas", "grapes"]);
   });
+  it("Oxford comma offer does not add an 'and X' item (review 2026-06-14)", () => {
+    expect(
+      parseOfferedAddItems("Shall I put bread, butter, and jam on the list?"),
+    ).toEqual(["bread", "butter", "jam"]);
+  });
   it("returns [] when there is no parseable item", () => {
     expect(parseOfferedAddItems("Want me to add it to the list?").length).toBe(0);
     expect(parseOfferedAddItems("I closed the list.")).toEqual([]);
