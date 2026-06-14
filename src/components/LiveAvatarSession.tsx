@@ -80,6 +80,7 @@ import {
   UI_SIZE_STORAGE_KEY,
 } from "../lib/uiSize";
 import {
+  extractSpokenZip,
   humanZoneName,
   resolveSpokenLocation,
   TZ_WRONG_RE,
@@ -1522,6 +1523,9 @@ function soundsLikeInvalidZipCode(text: string): boolean {
   const value = text.trim();
   if (!/\d/.test(value)) return false;
   if (/\b\d{5}(?:-\d{4})?\b/.test(value)) return false;
+  // A doubled/garbled ZIP we CAN recover is not invalid — never coach it
+  // (2026-06-14): "321093"/"2109321093" hold a real ZIP.
+  if (extractSpokenZip(value)) return false;
   const digits = value.replace(/\D/g, "");
   return digits.length > 0 && digits.length < 5;
 }
@@ -6565,7 +6569,9 @@ const LiveAvatarSessionComponent: React.FC<{
           return performOnlineLookup(lookupQuery, pendingLocation);
         }
         const location =
-          extractLocationHint(text) ?? (isLikelyTypedLocation(text) ? text : null);
+          extractSpokenZip(text) ??
+          extractLocationHint(text) ??
+          (isLikelyTypedLocation(text) ? text : null);
         if (!location) return false;
         onlineLookupLocationRef.current = normalizeLookupLocation(location);
         if (shouldAskPreferencesBeforeLookup(pendingQuery)) {

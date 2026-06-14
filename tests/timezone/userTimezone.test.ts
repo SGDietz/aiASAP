@@ -3,6 +3,7 @@
 // conversation must NEVER claim the turn.
 import { describe, expect, it } from "vitest";
 import {
+  extractSpokenZip,
   formatLocalTime,
   humanZoneName,
   isValidTimezone,
@@ -120,5 +121,60 @@ describe("formatting helpers", () => {
     expect(isValidTimezone("Not/AZone")).toBe(false);
     expect(isValidTimezone(42)).toBe(false);
     expect(isValidTimezone("")).toBe(false);
+  });
+});
+
+describe("extractSpokenZip — doubled/garbled ASR repair", () => {
+  it("clean 5-digit passes through", () => {
+    expect(extractSpokenZip("21093")).toBe("21093");
+    expect(extractSpokenZip("my zip is 21093")).toBe("21093");
+    expect(extractSpokenZip("60601")).toBe("60601");
+  });
+  it("collapses exact doubling", () => {
+    expect(extractSpokenZip("21093 21093")).toBe("21093");
+    expect(extractSpokenZip("2109321093")).toBe("21093");
+    expect(extractSpokenZip("60601 60601")).toBe("60601");
+  });
+  it("pulls the ZIP out of dash-garbled doubling", () => {
+    expect(extractSpokenZip("210-93-210-93")).toBe("21093");
+  });
+  it("six digits: trailing five is the real ZIP", () => {
+    expect(extractSpokenZip("321093")).toBe("21093");
+  });
+  it("longer noise: first valid window", () => {
+    expect(extractSpokenZip("210932109")).toBe("21093");
+  });
+  it("ignores embedded noise around a real ZIP", () => {
+    expect(extractSpokenZip("it's 21093 thanks")).toBe("21093");
+  });
+  it("genuinely-bad input returns null (coach still fires)", () => {
+    expect(extractSpokenZip("1093")).toBe(null);
+    expect(extractSpokenZip("123")).toBe(null);
+    expect(extractSpokenZip("")).toBe(null);
+    expect(extractSpokenZip("abc")).toBe(null);
+    expect(extractSpokenZip("my name is Bob")).toBe(null);
+  });
+});
+
+describe("resolveSpokenLocation — garbled ZIP give path", () => {
+  it("'zip' + doubled digits resolves", () => {
+    expect(resolveSpokenLocation("my zip is 2109321093")).toEqual({
+      kind: "tz",
+      tz: "America/New_York",
+      placeName: "ZIP 21093",
+    });
+    expect(resolveSpokenLocation("zip 321093")?.kind).toBe("tz");
+  });
+  it("bare window + garbled digits resolves; clean answer unchanged", () => {
+    expect(resolveSpokenLocation("210-93-210-93", { allowBare: true })).toEqual({
+      kind: "tz",
+      tz: "America/New_York",
+      placeName: "ZIP 21093",
+    });
+    expect(resolveSpokenLocation("21093.", { allowBare: true })?.kind).toBe("tz");
+  });
+  it("NO hijack: garbled digits without 'zip' and outside the window stay null", () => {
+    expect(resolveSpokenLocation("2109321093")).toBe(null);
+    expect(resolveSpokenLocation("321093")).toBe(null);
   });
 });

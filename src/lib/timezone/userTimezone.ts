@@ -180,6 +180,53 @@ export function zipToTimezone(zip: string): string | null {
   return US_ZIP3_TO_TZ[m[1]] ?? null;
 }
 
+/**
+ * Pull the real 5-digit ZIP out of doubled/garbled ASR on the GIVE path
+ * (2026-06-14, G dogfood: STT spits "210-93-210-93", "2109321093", "321093",
+ * "210932109"). PURE + table-validated: a candidate only counts if its 3-digit
+ * prefix is a real US zone prefix, so junk like "12345"-shaped noise can't pose
+ * as a ZIP. Returns null for genuinely-bad input (<5 real digits, "1093",
+ * "123") so the invalid-zip coach still fires. NEVER call this on the recall
+ * path — it is a GIVE-path repair only.
+ */
+export function extractSpokenZip(text: string): string | null {
+  if (typeof text !== "string") return null;
+  const digits = text.replace(/\D/g, "");
+  if (digits.length < 5) return null;
+  if (digits.length === 5) return zipToTimezone(digits) ? digits : null;
+  // Every valid 5-digit window (prefix must be a real zone prefix).
+  const windows: string[] = [];
+  for (let i = 0; i + 5 <= digits.length; i++) {
+    const cand = digits.slice(i, i + 5);
+    if (zipToTimezone(cand)) windows.push(cand);
+  }
+  if (windows.length === 0) return null;
+  // 1) Perfect doubling: even length, two identical halves ("2109321093").
+  if (digits.length % 2 === 0) {
+    const half = digits.slice(0, digits.length / 2);
+    if (
+      half === digits.slice(digits.length / 2) &&
+      half.length === 5 &&
+      zipToTimezone(half)
+    ) {
+      return half;
+    }
+  }
+  // 2) A window that repeats as a 5-block = the doubled ZIP ("21093 21093").
+  for (const w of windows) {
+    let count = 0;
+    for (let i = 0; i + 5 <= digits.length; i++) {
+      if (digits.slice(i, i + 5) === w) count++;
+    }
+    if (count >= 2) return w;
+  }
+  // 3) Six digits = one stray digit; the TRAILING five is the real ZIP
+  //    ("321093" -> "21093").
+  if (digits.length === 6) return windows[windows.length - 1];
+  // 4) Otherwise the first valid window ("210932109" -> "21093").
+  return windows[0];
+}
+
 // ---- Voice patterns (stateless — each fires on its own, no armed gates) ----
 
 /** "my zip code is 21093" / "zip 21093" — the word "zip" is required so a
@@ -276,6 +323,17 @@ export function resolveSpokenLocation(
     }
   }
 
+  // GIVE-path repair (2026-06-14): the word "zip" is present but ASR doubled or
+  // garbled the digits ("zip 2109321093", "zip 321093"). Only fires when "zip"
+  // is in the breath, so a long number elsewhere can never hijack the turn.
+  if (/\bzip\b/i.test(text)) {
+    const repaired = extractSpokenZip(text);
+    if (repaired) {
+      const tz = zipToTimezone(repaired);
+      if (tz) return { kind: "tz", tz, placeName: `ZIP ${repaired}` };
+    }
+  }
+
   const purposeful = opts.allowBare === true || TIME_CONTEXT_RE.test(text);
   if (!purposeful) return null;
 
@@ -297,6 +355,13 @@ export function resolveSpokenLocation(
     if (cleanZip) {
       const tz = zipToTimezone(cleanZip[1]);
       if (tz) return { kind: "tz", tz, placeName: `ZIP ${cleanZip[1]}` };
+    }
+    // Bare answer right after 6 asked, but ASR doubled/garbled the digits
+    // ("210-93-210-93", "321093"). The asked-window already scopes this.
+    const repairedBare = extractSpokenZip(stripped);
+    if (repairedBare) {
+      const tz = zipToTimezone(repairedBare);
+      if (tz) return { kind: "tz", tz, placeName: `ZIP ${repairedBare}` };
     }
     if (text.trim().split(/\s+/).length <= 4) {
       return lookupPlace(cleanPlace(stripped));
