@@ -1457,8 +1457,13 @@ function cleanListItem(
   // chokepoint, so BOTH the bare path AND explicit-verb adds ("add the same
   // problems") are protected — not just a gate-side deny-list.
   if (
-    /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|same|problem|problems|stuck|nothing|anything|something|everything|people|keep|saying)\b/i.test(
+    /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|same|stuck|keep|saying)\b/i.test(
       item,
+    ) ||
+    // Herm TASK_008: vague-quantity + app-problem words EXACT-only, so real
+    // items survive ("everything bagels", "bug spray") but bare venting dies.
+    /^(?:nothing|anything|something|everything|people|problem|problems|bug|bugs|crash|crashes|crashing|broken|failing|error|errors)$/i.test(
+      item.trim(),
     ) ||
     /^\d+$/.test(item.trim()) ||
     /^(?:through|except|up|down|over|under|then|also)$/i.test(item.trim())
@@ -3205,12 +3210,12 @@ const LiveAvatarSessionComponent: React.FC<{
   );
   const lastVisionResponseTimeRef = useRef<number>(0);
   const hasAutoAnalyzedRef = useRef<boolean>(false);
-  // Tracks the specific problem the user is trying to fix (persists across vision calls so
-  // Grok can stay laser-focused on the object/problem the user named at the start).
+  // Tracks the specific problem the user is trying to fix across vision calls.
   const currentProblemRef = useRef<string>("");
-  // Tracks the last non-silent vision analysis so Grok can compare frames and only break
+  // Tracks the last non-silent vision analysis so the system can compare frames and only break
   // silence when something meaningful has actually changed.
   const lastAnalysisRef = useRef<string>("");
+
 
   const isAttachedRef = useRef<boolean>(false);
   const greetingTriggeredRef = useRef<boolean>(false);
@@ -7821,16 +7826,16 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
 
-        // Persist the current problem so Grok stays locked on it across every
-        // subsequent frame in this Go Live session. We only overwrite when the
-        // user says something meaningful — empty / auto-fire calls reuse the last problem.
+        // Persist the current problem across every subsequent frame in this Go Live session.
+        // We only overwrite when the user says something meaningful — empty / auto-fire
+        // calls reuse the last problem.
         if (userText.length > 0) {
           currentProblemRef.current = userText;
         }
 
         console.log("Frame captured, sending to API with question:", userText);
         // Send to analyze-image API in streaming mode with problem context + last analysis
-        // so Grok stays laser-focused on the user's actual problem and silent when nothing changed.
+        // so vision stays focused on the user's actual problem and silent when nothing changed.
         const formData = new FormData();
         formData.append("image", frameFile, frameFile.name || "camera-frame.jpg");
         formData.append("question", userText);
@@ -7871,7 +7876,7 @@ const LiveAvatarSessionComponent: React.FC<{
           problem: currentProblemRef.current || null,
         });
 
-        // Silent-first: Grok outputs [SILENT] when nothing meaningful has changed.
+        // Silent-first: vision analysis outputs [SILENT] when nothing meaningful has changed.
         // Keep the avatar quiet entirely — no repeat(), no state churn.
         const trimmed = analysis.trim();
         if (trimmed === "[SILENT]" || trimmed.startsWith("[SILENT]")) {
@@ -8973,7 +8978,11 @@ const LiveAvatarSessionComponent: React.FC<{
         // "paper towels", "half and half") still pass; explicit-verb adds ("add
         // eggs") are unaffected (they ride _LIST_ADD_VERB_RE below).
         const _looksLikeFragment =
-          /^\d+\b/.test(userText.trim()) ||
+          // Herm TASK_008: block only bare-number / spoken-fragment shapes —
+          // NOT real grocery tokens like "2% milk", "12 eggs", "16 oz".
+          /^\d+$/.test(userText.trim()) ||
+          /^\d+\s*(?:st|nd|rd|th)$/i.test(userText.trim()) ||
+          /^\d+\s*(?:secs?|seconds?|mins?|minutes?)\b/i.test(userText.trim()) ||
           /^(?:and|or|but|so|because|except|through|up|down|over|under|with|without|for|from|to|of|at|in|on|then|also|like|as|while|when|if|that|which|who)\b/i.test(
             userText.trim(),
           ) ||
@@ -8981,7 +8990,9 @@ const LiveAvatarSessionComponent: React.FC<{
           // "Fucking problems"): profanity, question words, or "talking-about-it"
           // verbs mean this turn is CHATTER, not a grocery item — never bare-add it.
           // Clean items ("milk", "eggs", "paper towels") have none of these.
-          /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|what|why|how|where|when|who|which|keep|saying|said|same|problem|problems|stuck|issue|issues|nothing|anything|something|everything|people)\b/i.test(
+          // Herm TASK_008: vague-quantity words (everything/anything/...) moved to
+          // the EXACT chokepoint so real items like "everything bagels" survive.
+          /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|what|why|how|where|when|who|which|keep|saying|said|same|problem|problems|stuck|issue|issues)\b/i.test(
             userText,
           ) ||
           /\byou know\b/i.test(userText);
