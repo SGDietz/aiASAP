@@ -2268,7 +2268,7 @@ const LiveAvatarSessionComponent: React.FC<{
               // G 2026-06-14: the golden glow lives in the un-clipped ring layer
               // AROUND the face, so it shows in the SPACE around the circle.
               if (glow)
-                glow.style.boxShadow = `0 0 0 ${(2 + level * 4).toFixed(1)}px rgba(244,208,134,${(0.36 + level * 0.32).toFixed(2)}), 0 0 ${(10 + level * 22).toFixed(0)}px ${(3 + level * 6).toFixed(0)}px rgba(255,233,194,${(0.2 + level * 0.34).toFixed(2)})`;
+                glow.style.boxShadow = `0 0 0 ${(2 + level * 4.5).toFixed(1)}px rgba(244,208,134,${(0.45 + level * 0.4).toFixed(2)}), 0 0 ${(11 + level * 27).toFixed(0)}px ${(4 + level * 8).toFixed(0)}px rgba(255,233,194,${(0.25 + level * 0.45).toFixed(2)})`;
               // G 2026-06-13: face HOLDS STILL — no zoom. Only the gold glow
               // pulses. 1.7 = the class base scale, pinned.
               if (circle) circle.style.transform = "scale(1.7)";
@@ -10854,10 +10854,10 @@ const LiveAvatarSessionComponent: React.FC<{
                         voicePresence === "returning"
                           ? {
                               boxShadow:
-                                "0 0 0 4px rgba(215,160,90,0.4), 0 0 26px 9px rgba(244,208,134,0.52)",
+                                "0 0 0 5px rgba(215,160,90,0.46), 0 0 31px 11px rgba(244,208,134,0.64)",
                             }
                           : {
-                              boxShadow: "0 0 13px 3px rgba(215,160,90,0.32)",
+                              boxShadow: "0 0 15px 4px rgba(215,160,90,0.38)",
                             }
                       }
                     />
