@@ -4249,7 +4249,12 @@ const LiveAvatarSessionComponent: React.FC<{
         (list) => list.title.toLowerCase() === normalizedTitle.toLowerCase(),
       );
 
-      if (existing && !options.preferFresh) {
+      // G 2026-06-14 critic: "make a Walmart list" forces preferFresh, which used
+      // to SKIP an existing same-name list and mint a DUPLICATE empty one (the
+      // root of "where's my old Walmart list?"). Reuse the existing list when it
+      // is EMPTY (a fresh empty list is identical anyway); only mint a new one
+      // when the same-name list already holds items the user might want kept.
+      if (existing && (!options.preferFresh || existing.items.length === 0)) {
         lastEnsuredListRef.current = {
           id: existing.id,
           title: existing.title,
@@ -8590,7 +8595,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // do you see on the list" must RELIABLY read it back (it only worked once,
         // by accident, when the brain happened to know). Dedicated handler now.
         const _wantsReadback =
-          /\bread\s+(?:me\s+|back\s+|out\s+|it\s+|the\s+|my\s+|them\s+)*(?:list|back|it|them)\b|\bwhat(?:'?s| is| do you see| do you have| have you got)?\s+(?:on|in)\s+(?:the|my|this)\s+list\b|\bwhat do you see on (?:the|my)\b|\bwhat did (?:you|i) (?:say (?:you )?)?add(?:ed)?\b|\bgo (?:through|over) (?:the|my)\s+list\b/i.test(
+          /\bread\s+(?:me\s+|back\s+|out\s+|it\s+|the\s+|my\s+|them\s+)*(?:list|back|it|them)\b|\bwhat(?:'?s| is| do you see| do you have| have you got)?\s+(?:on|in)\s+(?:the|my|this)\s+list\b|\bwhat do you see on (?:the|my)\b|\bwhat did (?:you|i) (?:say (?:you )?)?add(?:ed)?\b|\bwhat(?:'?s| is)\s+(?:the|my)\s+[a-z]+\s+list\b|\bwhat(?:'?s| is)\s+on\s+it\b|\bgo (?:through|over) (?:the|my)\s+list\b/i.test(
             userText,
           );
         if (_wantsReadback && targetListId) {
