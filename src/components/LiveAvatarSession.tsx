@@ -3386,6 +3386,14 @@ const LiveAvatarSessionComponent: React.FC<{
   const activeListUsesBlackTheme =
     activeListTheme.label.toLowerCase().includes("black") ||
     activeListTheme.foreground.toLowerCase() === "#050505";
+  // G 2026-06-14 (chose "brown base + strong color wash"): when the list has a
+  // NON-default accent (blue/green/rose/purple or a darkened/lightened shade),
+  // wash that color visibly over the brand-brown card so "make it blue" actually
+  // reads blue. The DEFAULT amber list keeps its LOCKED gold-standard look (gate
+  // off #e8b46b), so the brown card G locked in r35 is untouched.
+  const accentIsCustomColor =
+    !activeListUsesBlackTheme &&
+    activeListTheme.foreground.toLowerCase() !== "#e8b46b";
   const compactListPanelStyle = useMemo<React.CSSProperties>(
     () => ({
       color: activeListTheme.foreground,
@@ -3394,12 +3402,14 @@ const LiveAvatarSessionComponent: React.FC<{
         : softFromHex(activeListTheme.foreground, 0.56),
       background: activeListUsesBlackTheme
         ? "linear-gradient(180deg, rgba(246,241,231,0.88), rgba(210,200,184,0.76))"
-        : `radial-gradient(circle at 18% 0%, ${softFromHex(activeListTheme.foreground, 0.28)}, transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))`,
+        : accentIsCustomColor
+          ? `radial-gradient(circle at 18% 0%, ${softFromHex(activeListTheme.foreground, 0.55)}, transparent 52%), linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.16)}, transparent 60%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))`
+          : `radial-gradient(circle at 18% 0%, ${softFromHex(activeListTheme.foreground, 0.28)}, transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))`,
       boxShadow: activeListUsesBlackTheme
         ? "inset 0 1px 20px rgba(255,255,255,0.36), 0 18px 42px rgba(0,0,0,0.42)"
         : `inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px ${softFromHex(activeListTheme.foreground, 0.18)}`,
     }),
-    [activeListTheme, activeListUsesBlackTheme],
+    [activeListTheme, activeListUsesBlackTheme, accentIsCustomColor],
   );
   const compactListMutedStyle = useMemo<React.CSSProperties>(
     () => ({
@@ -3413,15 +3423,15 @@ const LiveAvatarSessionComponent: React.FC<{
     () => ({
       background: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.48)"
-        : `linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.08)}, rgba(0,0,0,0.24))`,
+        : `linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, accentIsCustomColor ? 0.18 : 0.08)}, rgba(0,0,0,0.24))`,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.12)"
-        : softFromHex(activeListTheme.foreground, 0.28),
+        : softFromHex(activeListTheme.foreground, accentIsCustomColor ? 0.45 : 0.28),
       boxShadow: activeListUsesBlackTheme
         ? "0 10px 24px rgba(0,0,0,0.12)"
         : "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
     }),
-    [activeListTheme.foreground, activeListUsesBlackTheme],
+    [activeListTheme.foreground, activeListUsesBlackTheme, accentIsCustomColor],
   );
   const compactListBadgeStyle = useMemo<React.CSSProperties>(
     () => ({
@@ -10775,6 +10785,8 @@ const LiveAvatarSessionComponent: React.FC<{
                   // should be nicer and more brown in the center, not this
                   // hard color. that is not a brand color"): warm brand
                   // browns — center rides #3a2108, no near-black.
+                  : accentIsCustomColor
+                  ? `radial-gradient(circle at 18% 8%, ${softFromHex(activeListTheme.foreground, 0.5)}, transparent 55%), linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.14)}, transparent 65%), linear-gradient(145deg, #34200d 0%, #3a2108 50%, #241406 100%)`
                   : `radial-gradient(circle at 18% 8%, ${activeListTheme.soft}, transparent 34%), linear-gradient(145deg, #34200d 0%, #3a2108 50%, #241406 100%)`,
                 color: activeListTheme.foreground,
                 colorScheme: activeListUsesBlackTheme ? "light" : "dark",
