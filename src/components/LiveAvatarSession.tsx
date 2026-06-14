@@ -2396,8 +2396,8 @@ const LiveAvatarSessionComponent: React.FC<{
     let ctx: AudioContext | null = null;
     let poll: ReturnType<typeof setInterval> | null = null;
     const POLL_MS = 60;
-    const BARGE_RMS = 0.055; // ~2.5x the ears' 0.022 voice-onset floor
-    const BARGE_HOLD_MS = 350; // sustained, so a stray echo blip can't cut him
+    const BARGE_RMS = 0.05; // ~2.3x the ears' 0.022 voice-onset floor
+    const BARGE_HOLD_MS = 240; // snappier cut; AEC + this hold still reject echo
     let bargeMs = 0;
     void (async () => {
       try {
@@ -8035,6 +8035,16 @@ const LiveAvatarSessionComponent: React.FC<{
           heard: userText.slice(0, 200),
         });
         return;
+      }
+      // BARGE-IN ON A REAL USER LINE (G 2026-06-14, "stop him talking over the
+      // user 100%"): now that this is a CONFIRMED genuine user utterance (not 6's
+      // own echo, not a duplicate), cut whatever 6 is still saying BEFORE routing
+      // or replying — a finished user phrase must always silence him, even if the
+      // independent mic-level barge didn't trip. No-op when 6 is already quiet.
+      // (Complements the always-on mic listener that cuts him mid-speech.)
+      if (mode === "CUSTOM") {
+        voiceCutSpeech();
+        void sessionInterrupt();
       }
       // Snapshot the previous fragment BEFORE overwriting, so the close check
       // below can stitch same-utterance STT chunks together.
