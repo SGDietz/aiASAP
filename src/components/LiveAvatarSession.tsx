@@ -2375,6 +2375,82 @@ const LiveAvatarSessionComponent: React.FC<{
     }
     return sessionInterrupt();
   }, [sessionInterrupt, voiceCutSpeech]);
+
+  // CATASTROPHIC BARGE-IN FIX (G 2026-06-14, said it 4x across the ride +
+  // "this is catastrophic... stop him from talking over the user 100% of the
+  // time"): in CUSTOM/avatar mode 6 speaks through the WebAudio fallback and the
+  // SDK MUTES its own mic track while he talks (echo armor) -- so the SDK never
+  // hears the user and can't interrupt him, and the only client-side barge-in
+  // (startVoiceEars) was gated to the now-dormant voice mode. This is an
+  // INDEPENDENT mic stream (a separate track the SDK can't mute, echoCancellation
+  // on) that listens WHILE 6 is speaking; a sustained, clearly-louder-than-echo
+  // user voice cuts him off instantly -- voiceCutSpeech() drops the queue + the
+  // WebAudio fallback, sessionInterrupt() stops the avatar pipe. The 2.5x bar +
+  // 350ms hold + browser echo cancellation keep 6's own speaker audio from
+  // tripping it. Runs only while 6's full face is up (the single live mode now).
+  useEffect(() => {
+    if (mode !== "CUSTOM") return;
+    if (sessionState !== SessionState.CONNECTED || !isStreamReady) return;
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    const POLL_MS = 60;
+    const BARGE_RMS = 0.055; // ~2.5x the ears' 0.022 voice-onset floor
+    const BARGE_HOLD_MS = 350; // sustained, so a stray echo blip can't cut him
+    let bargeMs = 0;
+    void (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        ctx = new AudioContext();
+        const src = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        src.connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        poll = setInterval(() => {
+          // Only watch while 6 is actually speaking (WebAudio fallback queue or
+          // the voiceSay TTS path). Idle -> reset the hold so nothing lingers.
+          if (!(isCustomVoiceFallbackBusy() || voiceTtsBusyRef.current)) {
+            bargeMs = 0;
+            return;
+          }
+          analyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / data.length);
+          if (rms > BARGE_RMS) {
+            bargeMs += POLL_MS;
+            if (bargeMs >= BARGE_HOLD_MS) {
+              bargeMs = 0;
+              voiceCutSpeech();
+              void sessionInterrupt();
+              logAppEvent("barge_in", { where: "avatar", rms: Number(rms.toFixed(3)) });
+            }
+          } else {
+            bargeMs = 0;
+          }
+        }, POLL_MS);
+      } catch {
+        // mic unavailable -> barge-in simply won't fire; never break the session
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (poll) clearInterval(poll);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (ctx) void ctx.close();
+    };
+  }, [mode, sessionState, isStreamReady, voiceCutSpeech, sessionInterrupt]);
   const startListening = useCallback(() => {
     if (voicePresenceRef.current !== "avatar") return;
     return sessionStartListening();
@@ -3423,8 +3499,8 @@ const LiveAvatarSessionComponent: React.FC<{
       background: activeListUsesBlackTheme
         ? "linear-gradient(180deg, rgba(246,241,231,0.88), rgba(210,200,184,0.76))"
         : accentIsCustomColor
-          ? `radial-gradient(circle at 18% 0%, ${softFromHex(activeListTheme.foreground, 0.55)}, transparent 52%), linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.16)}, transparent 60%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))`
-          : `radial-gradient(circle at 18% 0%, ${softFromHex(activeListTheme.foreground, 0.28)}, transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))`,
+          ? `radial-gradient(circle at 32% 8%, ${softFromHex(activeListTheme.foreground, 0.22)}, transparent 62%), linear-gradient(160deg, rgba(58,33,8,0.93) 0%, rgba(46,26,8,0.94) 55%, rgba(34,20,10,0.95) 100%)`
+          : `radial-gradient(circle at 32% 8%, ${softFromHex(activeListTheme.foreground, 0.14)}, transparent 60%), linear-gradient(160deg, rgba(58,33,8,0.93) 0%, rgba(46,26,8,0.94) 55%, rgba(34,20,10,0.95) 100%)`,
       boxShadow: activeListUsesBlackTheme
         ? "inset 0 1px 20px rgba(255,255,255,0.36), 0 18px 42px rgba(0,0,0,0.42)"
         : `inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px ${softFromHex(activeListTheme.foreground, 0.18)}`,
@@ -8872,6 +8948,20 @@ const LiveAvatarSessionComponent: React.FC<{
                 it,
               ),
           )
+          // G 2026-06-14 ride: conversational fragments kept becoming items while
+          // a list was open — "I need HIM up and running" -> "Him up and Running",
+          // "I want the FULL PAGE list when I" -> "Full page when I", "THEY need to
+          // be the normal" -> "They to be the normal", "Page 1A", "For the next".
+          // A real list item is never a sentence about a person or the app itself.
+          // Reject items carrying subject/object pronouns, "to be", "when i", app
+          // mechanics, or a leading "page"/"for". Kept narrow so real items
+          // ("half and half", "paper towels", "ground beef") still add fine.
+          .filter(
+            (it) =>
+              !/\b(?:he|she|him|her|they|them|to be|when i|full ?page|the normal)\b/i.test(
+                it,
+              ) && !/^(?:page|for)\b/i.test(it),
+          )
           // r26 (G live 2026-06-12 08:37: "number three says, all right" — his
           // "All right, so I also need..." lead-in became a grocery): pure
           // acknowledgments are never items.
@@ -10339,7 +10429,7 @@ const LiveAvatarSessionComponent: React.FC<{
         <div
           className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border px-4 py-4 text-[#f1c477] backdrop-blur-md"
           style={{
-            top: "calc(var(--stage-top) + var(--stage-height) * 0.38)",
+            top: "calc(var(--stage-top) + var(--stage-height) * 0.47)",
             maxHeight: "calc(var(--stage-height) * 0.30)",
             borderColor: "rgba(232,180,107,0.56)",
             background:
@@ -10406,7 +10496,7 @@ const LiveAvatarSessionComponent: React.FC<{
         <div
           className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border px-4 py-4 text-[#f1c477] backdrop-blur-md"
           style={{
-            top: "calc(var(--stage-top) + var(--stage-height) * 0.38)",
+            top: "calc(var(--stage-top) + var(--stage-height) * 0.47)",
             maxHeight: "calc(var(--stage-height) * 0.30)",
             borderColor: "rgba(232,180,107,0.56)",
             background:
@@ -11036,8 +11126,8 @@ const LiveAvatarSessionComponent: React.FC<{
                 className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
                 style={{
                   ...compactListPanelStyle,
-                  top: "calc(var(--stage-top) + var(--stage-height) * 0.38)",
-                  height: "calc(var(--stage-height) * 0.32)",
+                  top: "calc(var(--stage-top) + var(--stage-height) * 0.47)",
+                  height: "calc(var(--stage-height) * 0.30)",
                 }}
               >
                 <div
@@ -11197,14 +11287,14 @@ const LiveAvatarSessionComponent: React.FC<{
               <div
                 className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
                   chestGrid
-                    ? "top-[calc(var(--stage-top)+var(--stage-height)*0.72)] grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
+                    ? "top-[calc(var(--stage-top)+var(--stage-height)*0.79)] grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
                     : "bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.12)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] flex w-[94%] flex-col items-center gap-[calc(var(--stage-height)*0.010)]"
                 }`}
                 style={
                   chestGrid
                     ? ({
                         "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                        height: "calc(var(--stage-height) * 0.20)",
+                        height: "calc(var(--stage-height) * 0.10)",
                         maxWidth: "min(32rem, calc(var(--stage-width) * 0.95))",
                       } as React.CSSProperties)
                     : ({
@@ -11264,7 +11354,7 @@ const LiveAvatarSessionComponent: React.FC<{
                           : "border-[#e0aa62]/55 bg-[#3a2108]/30"
                       } ${
                         chestGrid
-                          ? "h-full w-full px-2 py-1.5 md:px-3 md:py-2 text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.05rem)] whitespace-normal break-words"
+                          ? "h-full w-full px-2 py-0.5 md:px-3 md:py-1 text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.05rem)] whitespace-normal break-words leading-[1.05]"
                           : "flex items-center justify-center w-full px-4 whitespace-nowrap"
                       } ${
                         isDissolving
