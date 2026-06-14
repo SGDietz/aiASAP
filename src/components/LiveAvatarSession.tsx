@@ -102,6 +102,7 @@ import {
   END_SESSION_CONFIRM_RE,
   END_SESSION_CANCEL_RE,
   END_SESSION_BLOCK_RE,
+  isStitchedSessionClose,
   ONLINE_LOOKUP_CLOSE_RE,
   SHOPPING_MODE_CLOSE_RE,
   isInternalSignal,
@@ -2435,6 +2436,9 @@ const LiveAvatarSessionComponent: React.FC<{
         ) {
           return;
         }
+        // Snapshot the prior fragment BEFORE overwriting, so the close-stitch
+        // below can join STT chunks of the same utterance (G 2026-06-14).
+        const priorListHeard = lastListHeardRef.current;
         lastListHeardRef.current = { text: heard, at: Date.now() };
         // G 2026-06-13 HARD STOP (list/voice mode): if the whole utterance is a
         // stop command, go silent NOW — cut the TTS queue AND the WebAudio
@@ -2490,6 +2494,17 @@ const LiveAvatarSessionComponent: React.FC<{
         // is narrow — it fires on session/conversation/app/avatar close, and is
         // FALSE for list-close phrases ("close the list", "take it down") and bare
         // "stop"/"done", so legit list closes still fall through to wantsAvatarBack.
+        // STT-SHARD CLOSE STITCH (G 2026-06-14): same split-close fix as the
+        // avatar path — a bare "session" tail that follows a recent close-verb
+        // head ends the session instead of waking the brain in list mode.
+        if (
+          priorListHeard?.text &&
+          Date.now() - priorListHeard.at < 6000 &&
+          isStitchedSessionClose(priorListHeard.text, heard)
+        ) {
+          void handleEndSessionRef.current?.();
+          return;
+        }
         if (hasEndSessionIntent(heard) && !END_SESSION_BLOCK_RE.test(heard)) {
           void handleEndSessionRef.current?.();
           return;
@@ -8156,6 +8171,25 @@ const LiveAvatarSessionComponent: React.FC<{
         // NO prompt-brain on sizing turns (G 23:37: pills started saying
         // "Adjust Text Size" / "Try Different Fonts" — label churn from the
         // sizing chatter). Labels hold their normal topics through a resize.
+        return;
+      }
+
+      // STT-SHARD CLOSE STITCH (G 2026-06-14): STT split "close the session"
+      // into "close the" then a bare "session" — neither shard matched, so the
+      // tail woke the brain. If THIS bare close-object tail directly follows a
+      // recent close-verb head (same ~6s utterance window the block re-check
+      // uses), finish the close instead of routing it to the brain. The helper
+      // re-checks END_SESSION_BLOCK_RE on the stitched phrase, so a stitched
+      // question ("how do I close" + "the session") still never closes.
+      if (
+        priorUserSpeech.text &&
+        Date.now() - priorUserSpeech.at < 6000 &&
+        isStitchedSessionClose(priorUserSpeech.text, userText)
+      ) {
+        endSessionConfirmationPendingRef.current = false;
+        endSessionConfirmationAskedAtRef.current = 0;
+        await interrupt();
+        void handleEndSession();
         return;
       }
 

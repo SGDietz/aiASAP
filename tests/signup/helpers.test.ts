@@ -10,6 +10,7 @@ import {
   hasEndSessionIntent,
   isAccountConsentYes,
   isInternalSignal,
+  isStitchedSessionClose,
   isJunkPersonName,
   mergeEmailDomainCorrection,
   parseEmailFromAvatarReadback,
@@ -99,6 +100,31 @@ describe("confirmsEndSession — confirm prompt hardening (closed G's session tw
     expect(confirmsEndSession("I think that's right about the weather")).toBe(
       false,
     );
+  });
+});
+
+describe("isStitchedSessionClose — bare 'session' shard finishes a split close (G 2026-06-14)", () => {
+  it("stitches a dangling verb head + bare object tail into a close", () => {
+    expect(isStitchedSessionClose("close the", "session")).toBe(true);
+    expect(isStitchedSessionClose("close the", "the session")).toBe(true);
+    expect(isStitchedSessionClose("end the", "conversation")).toBe(true);
+    expect(isStitchedSessionClose("shut down", "the app")).toBe(true);
+    expect(isStitchedSessionClose("close this", "chat")).toBe(true);
+  });
+  it("a standalone bare object never closes (no close-verb predecessor)", () => {
+    expect(isStitchedSessionClose("tell me about this", "session")).toBe(false);
+    expect(isStitchedSessionClose("how was your", "session")).toBe(false);
+    expect(isStitchedSessionClose("", "session")).toBe(false);
+    expect(isStitchedSessionClose("add eggs to the", "list")).toBe(false);
+  });
+  it("a stitched QUESTION/negation still never closes", () => {
+    expect(isStitchedSessionClose("how do I close the", "session")).toBe(false);
+    expect(isStitchedSessionClose("don't close the", "session")).toBe(false);
+    expect(isStitchedSessionClose("if I close this", "site")).toBe(false);
+  });
+  it("a non-object tail after a close head does not over-trigger", () => {
+    expect(isStitchedSessionClose("close the", "grocery list")).toBe(false);
+    expect(isStitchedSessionClose("close the", "window please")).toBe(false);
   });
 });
 

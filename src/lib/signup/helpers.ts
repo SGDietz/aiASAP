@@ -96,6 +96,40 @@ export const END_SESSION_AFFIRM_ONLY_RE =
 export const END_SESSION_BLOCK_RE =
   /\b(?:don'?t|do\s+not|won'?t|will\s+not|can'?t|cannot|how\s+(?:do|can|to|would)|what\s+(?:if|happens)|why|maybe|might|if\s+i|if\s+you|when\s+i|let\s+me\s+ask|remember\s+me|next\s+time|would\s+you\s+remember|not\s+(?:yet|now|sure|really))\b/i;
 
+// --- STT-SHARD CLOSE STITCH (G 2026-06-14) ----------------------------------
+// STT sometimes splits "close the session" into TWO utterances: a dangling
+// verb head ("close the") then a bare object tail ("session"). Neither shard
+// matches END_CONVERSATION_RE alone, so the bare tail fell through to the
+// brain (6 answered "session" as conversation). We stitch the two ONLY when
+// the prior fragment is a genuine close-verb head AND the current fragment is
+// a bare close-object tail. A standalone "session" with no close-ish
+// predecessor never closes.
+export const END_SESSION_TAIL_RE =
+  /^[\s,.!'-]*(?:the\s+|this\s+|that\s+|my\s+)?(?:session|conversation|chat|talk|app|site|avatar)\b[\s,.!?'-]*$/i;
+export const END_SESSION_VERB_TAIL_RE =
+  /\b(?:close|end|stop|quit|exit|finish|wrap\s+up|hang\s+up|shut\s+(?:it\s+)?down)(?:\s+(?:the|this|that|my))?[\s,.!'-]*$/i;
+
+// Stitch a bare close-object tail onto a recent dangling close-verb head.
+// True ONLY when the prior fragment ended with a close verb (+optional
+// article), the current fragment is a bare close object, the joined phrase is
+// a real close, and the joined phrase is not a question/negation.
+export function isStitchedSessionClose(
+  priorText: string,
+  currentText: string,
+): boolean {
+  if (!END_SESSION_TAIL_RE.test(currentText)) return false;
+  if (!END_SESSION_VERB_TAIL_RE.test(priorText)) return false;
+  // STT often re-emits the article across the split ("close the" + "the
+  // session" => "close the the session"), which would fail the intent test.
+  // Collapse a doubled boundary article before the check.
+  const stitched = `${priorText} ${currentText}`.replace(
+    /\b(the|this|that|my)\s+(?:the|this|that|my)\b/i,
+    "$1",
+  );
+  if (END_SESSION_BLOCK_RE.test(stitched)) return false;
+  return hasEndSessionIntent(stitched);
+}
+
 export const ONLINE_LOOKUP_CLOSE_RE =
   /\b(?:close|hide|dismiss|clear|stop|end|remove|take\s+(?:off|away|down)|get\s+rid\s+of)\s+(?:the|this|that|my|a|an)?\s*(?:search|results?|sources?|lookup|online\s+search|events?|pill\s*boxes?|pills?|location(?:\s+(?:box|popup|pop\s*up|panel|window))?|box|popup|pop\s*up|panel|window|things\s+that\s+came\s+up)(?:\s+(?:from|off)\s+(?:the\s+)?screen)?\b|\bmake\s+(?:the|this|that|my)?\s*(?:events?|search|results?|box|popup|pop\s*up|panel|pill\s*boxes?|pills?)\s+go\s+away\b/i;
 
