@@ -10035,10 +10035,6 @@ const LiveAvatarSessionComponent: React.FC<{
   };
 
   // v1 dormant: LOOKUP_UI_DORMANT hides the popup. Logic still runs so 6 answers verbally.
-  const lookupPanelVisible = !LOOKUP_UI_DORMANT && Boolean(
-    onlineLookupNotice || onlineLookupResultLines.length > 0,
-  );
-  const visiblePromptLimit = lookupPanelVisible ? 3 : 4;
   // r29 telemetry (G 2026-06-12: "there are no pill boxes on screen" must be
   // visible in sup): log every pillbox show/hide flip WITH the gate values,
   // so the one that went false is named in the row.
@@ -10162,14 +10158,11 @@ const LiveAvatarSessionComponent: React.FC<{
     Boolean(showActiveList) ||
     lookupResultsOnChest ||
     Boolean(listIndexOnChest && listIndexOnChest.length > 0);
-  // G 2026-06-13 waterfall bug: when lookup RESULTS own the chest, the 2x2 boxes
-  // must show the RESULT lines (Cunningham Falls, Great Falls, Billy Goat Trail) —
-  // NOT the default idea pills. Render them VERBATIM (do NOT route through
-  // normalizeThoughtPrompts — its 18-char filter drops real place names and
-  // backfills the defaults). Otherwise the boxes keep the normal thought prompts.
-  const chestPrompts = lookupResultsOnChest
-    ? onlineLookupResultLines.slice(0, 4)
-    : visibleThoughtPrompts.slice(0, visiblePromptLimit);
+  // G 2026-06-14 (screenshots): the 2x2 pills are ALWAYS forward-moving suggestion
+  // chips — NEVER an echo of the card's result/notice text (the "never see" state
+  // was the lookup notice duplicated into a single pill). Lookup RESULTS live in
+  // the chest CARD; the 4 pills stay forward suggestions. Always 4 for a full 2x2.
+  const chestPrompts = visibleThoughtPrompts.slice(0, 4);
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] flex flex-col">
@@ -11199,9 +11192,10 @@ const LiveAvatarSessionComponent: React.FC<{
                         // level never reached them. Both the text AND the box
                         // (minHeight) now ride UI_CARD_SCALE; level 2 is
                         // byte-identical to the old values.
-                        "--prompt-font-size": chestGrid
-                          ? `${(0.9 * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem`
-                          : `${((_tierBase + 0.2) * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem`,
+                        // G 2026-06-14: chest 2x2 pill TEXT matches the home-stage
+                        // sizes (was a fixed small 0.9rem). Same _tierBase budget as
+                        // the bottom stack so the labels fill the boxes.
+                        "--prompt-font-size": `${((_tierBase + 0.2) * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem`,
                         ...(chestGrid
                           ? {}
                           : {
