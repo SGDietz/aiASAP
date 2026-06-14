@@ -102,6 +102,12 @@ import {
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
 import {
+  LIST_INDEX_RE,
+  buildListIndexReply,
+  resolveListPick,
+  type ListIndexEntry,
+} from "../lib/lists/listIndex";
+import {
   LIST_CLOSE_RE,
   ACCOUNT_SETUP_TRIGGER_RE,
   ACCOUNT_READY_YES_RE,
@@ -3071,6 +3077,13 @@ const LiveAvatarSessionComponent: React.FC<{
   const [assistantLists, setAssistantLists] =
     useState<AssistantList[]>(loadAssistantLists);
   const [activeListIdRaw, setActiveListId] = useState<string | null>(null);
+  // ITEM 5 (2026-06-14, G asked twice): the "list of lists" index on 6's chest.
+  // listIndexOnChest drives the render; listIndexPickRef makes the next-turn pick
+  // ("the first one" / "Walmart") staleness-proof regardless of the effect deps.
+  const [listIndexOnChest, setListIndexOnChest] = useState<
+    ListIndexEntry[] | null
+  >(null);
+  const listIndexPickRef = useRef<ListIndexEntry[] | null>(null);
   // v1 LIST_UI_DORMANT: force activeListId to null so even if code paths set it
   // (e.g., LIST_TRIGGER_RE matched on user text), nothing downstream sees a list,
   // 6 doesn't narrate a phantom list, and pillboxes stay in their narrow layout.
@@ -8338,6 +8351,59 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       }
 
+      // ITEM 5 (2026-06-14, G asked twice): REAL "list of lists". When the user
+      // asks for the menu/index of their saved lists, read the NAMES back and
+      // show them as a card on 6's CHEST (avatar stays — same chest pattern as
+      // lookup results). Runs BEFORE the singular "show me the list" opener
+      // (LIST_INDEX_RE is plural-only so it never steals that) and BEFORE the
+      // online lookup, so the brain can never fake a menu again.
+      if (LIST_INDEX_RE.test(userText) && !activeListId && !isShoppingMode) {
+        const entries: ListIndexEntry[] = assistantLists.map((l) => ({
+          id: l.id,
+          title: l.title,
+        }));
+        // clear any lookup card so only one chest card shows
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        setOnlineLookupNotice(null);
+        setOnlineLookupResultLines([]);
+        setListIndexOnChest(entries.length > 0 ? entries : null);
+        listIndexPickRef.current = entries.length > 0 ? entries : null;
+        const spoken = buildListIndexReply(entries.map((e) => e.title));
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        logAppEvent("list_index_shown", { count: entries.length });
+        return;
+      }
+      // PICK from the index by voice ("the first one" / "the grocery one" /
+      // "Walmart"). Only active right after the index was shown; resolveListPick
+      // returns null on no clear match so ordinary speech is never hijacked.
+      if (
+        listIndexPickRef.current &&
+        listIndexPickRef.current.length > 0 &&
+        !activeListId &&
+        !isShoppingMode
+      ) {
+        const picked = resolveListPick(userText, listIndexPickRef.current);
+        if (picked) {
+          listIndexPickRef.current = null;
+          setListIndexOnChest(null);
+          setActiveListId(picked.id);
+          setIsShoppingMode(false);
+          const spoken = `I opened the ${picked.title}.`;
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          logAppEvent("list_index_pick", { id: picked.id });
+          return;
+        }
+      }
+
       // r32 (G live 2026-06-12 20:49: "show me the list" → "Tell me your
       // five-digit ZIP code" — the lookup ate it): showing a list always
       // wins over searching the internet.
@@ -8571,6 +8637,11 @@ const LiveAvatarSessionComponent: React.FC<{
 
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
         logAppEvent("t6", { p: "ht_list_enter", pres: voicePresenceRef.current, shop: isShoppingMode });
+        // ITEM 5: opening/creating a list any other way dismisses the index card.
+        if (listIndexPickRef.current) {
+          listIndexPickRef.current = null;
+          setListIndexOnChest(null);
+        }
         // CHEST-CARD LISTS (2026-06-14, G 6+ times: "on his chest", "I need to
         // see it on your chest", "the grocery list is still open and you're not
         // on the screen, Six"): a NORMAL list rides a card on 6's CHEST while he
@@ -10137,6 +10208,79 @@ const LiveAvatarSessionComponent: React.FC<{
         </form>
       )}
 
+      {listIndexOnChest &&
+        listIndexOnChest.length > 0 &&
+        voiceIsActive &&
+        !isShoppingMode &&
+        !showActiveList &&
+        !lookupResultsOnChest &&
+        !emailEntryOpen && (
+        <div
+          className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border px-4 py-4 text-[#f1c477] backdrop-blur-md"
+          style={{
+            top: "calc(var(--stage-top) + var(--stage-height) * 0.38)",
+            maxHeight: "calc(var(--stage-height) * 0.30)",
+            borderColor: "rgba(232,180,107,0.56)",
+            background:
+              "radial-gradient(circle at 18% 0%, rgba(232,180,107,0.28), transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))",
+            boxShadow:
+              "inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px rgba(232,180,107,0.18)",
+          }}
+        >
+          <div
+            className="absolute inset-x-6 top-0 h-1 rounded-b-full"
+            style={{ backgroundColor: "#e0aa62" }}
+          />
+          <div className="flex items-start justify-between gap-3 pt-1">
+            <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
+              <p className="text-[1.2rem] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
+                Your Lists
+              </p>
+              <div className="mt-2 grid gap-2">
+                {listIndexOnChest.map((entry, index) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => {
+                      listIndexPickRef.current = null;
+                      setListIndexOnChest(null);
+                      setActiveListId(entry.id);
+                      setIsShoppingMode(false);
+                    }}
+                    className="w-full rounded-[0.95rem] border px-3 py-2 text-left text-[0.9rem] font-black leading-snug md:text-[0.95rem]"
+                    style={{
+                      background:
+                        "linear-gradient(180deg, rgba(255,226,176,0.08), rgba(0,0,0,0.24))",
+                      borderColor: "rgba(232,180,107,0.28)",
+                      boxShadow:
+                        "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    <span className="bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                      {index + 1}. {entry.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                aria-label="Dismiss list menu"
+                title="Dismiss list menu"
+                onClick={() => {
+                  listIndexPickRef.current = null;
+                  setListIndexOnChest(null);
+                }}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[#e0aa62]/55 bg-gradient-to-b from-[#4a2a0c]/92 to-[#241406]/92 text-[#f1c477] transition hover:scale-105"
+              >
+                <X className="h-6 w-6" aria-hidden />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {lookupResultsOnChest && !emailEntryOpen && (
         <div
           className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border px-4 py-4 text-[#f1c477] backdrop-blur-md"
@@ -10738,6 +10882,7 @@ const LiveAvatarSessionComponent: React.FC<{
             voiceIsActive &&
             !isShoppingMode &&
             !lookupResultsOnChest &&
+            !listIndexOnChest &&
             showActiveList && (
               <div
                 className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
