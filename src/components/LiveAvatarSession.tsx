@@ -1618,7 +1618,7 @@ function formatOnlineLookupSpeech(lines: string[], query: string): string {
   // G 2026-06-13 critic: these are PLACES, not "ideas" — say "spots" so 6 never
   // sounds like the coaching idea-cards (and "3 ideas for you" stops reading as
   // a non-sequitur when a lookup resolves).
-  return `I found ${lines.length} spots near you. Want me to run through them?`;
+  return `I found ${lines.length} ${lines.length === 1 ? "spot" : "spots"} near you. Want me to run through ${lines.length === 1 ? "it" : "them"}?`;
 }
 
 // G 2026-06-13 dogfood (21:51:16 "watermelon and half and half" -> lost "half
