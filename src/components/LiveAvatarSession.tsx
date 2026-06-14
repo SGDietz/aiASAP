@@ -104,6 +104,7 @@ import {
 } from "../lib/listAddOffer";
 import { isClearAllCommand } from "../lib/listClear";
 import { parseReorderCommand } from "../lib/listReorder";
+import { detectColorTarget } from "../lib/listColorTarget";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
 import {
@@ -764,6 +765,10 @@ type AssistantList = {
   accentColor: ListAccentColor;
   accentHex?: string;
   accentLabel?: string;
+  // G 2026-06-14: the list TEXT color, set separately from the box accent
+  // ("make the text blue", "make the words darker"). Undefined = inherit accent.
+  textHex?: string;
+  textLabel?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -1129,7 +1134,9 @@ function isAssistantList(value: unknown): value is AssistantList {
     Array.isArray(maybe.items) &&
     maybe.items.every((item) => typeof item === "string") &&
     (!maybe.accentHex || typeof maybe.accentHex === "string") &&
-    (!maybe.accentLabel || typeof maybe.accentLabel === "string")
+    (!maybe.accentLabel || typeof maybe.accentLabel === "string") &&
+    (!maybe.textHex || typeof maybe.textHex === "string") &&
+    (!maybe.textLabel || typeof maybe.textLabel === "string")
   );
 }
 
@@ -3546,6 +3553,13 @@ const LiveAvatarSessionComponent: React.FC<{
     );
   }, [activeList, isShoppingMode, thoughtPrompts]);
   const activeListTheme = listColorThemeFor(activeList);
+  // G 2026-06-14: list TEXT color is separate from the box accent. textHex (if a
+  // valid hex was set by voice) drives the words; otherwise text inherits the
+  // accent foreground (byte-identical to before for every existing list).
+  const activeListTextColor =
+    activeList?.textHex && hexToRgb(activeList.textHex)
+      ? activeList.textHex
+      : activeListTheme.foreground;
   const activeListUsesBlackTheme =
     activeListTheme.label.toLowerCase().includes("black") ||
     activeListTheme.foreground.toLowerCase() === "#050505";
@@ -3559,7 +3573,7 @@ const LiveAvatarSessionComponent: React.FC<{
     activeListTheme.foreground.toLowerCase() !== "#e8b46b";
   const compactListPanelStyle = useMemo<React.CSSProperties>(
     () => ({
-      color: activeListTheme.foreground,
+      color: activeListTextColor,
       borderColor: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.42)"
         : softFromHex(activeListTheme.foreground, 0.56),
@@ -3572,7 +3586,7 @@ const LiveAvatarSessionComponent: React.FC<{
         ? "inset 0 1px 20px rgba(255,255,255,0.36), 0 18px 42px rgba(0,0,0,0.42)"
         : `inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px ${softFromHex(activeListTheme.foreground, 0.18)}`,
     }),
-    [activeListTheme, activeListUsesBlackTheme, accentIsCustomColor],
+    [activeListTheme, activeListTextColor, activeListUsesBlackTheme, accentIsCustomColor],
   );
   const compactListMutedStyle = useMemo<React.CSSProperties>(
     () => ({
@@ -4786,6 +4800,22 @@ const LiveAvatarSessionComponent: React.FC<{
                 accentLabel: update.accentLabel,
                 updatedAt: Date.now(),
               }
+            : list,
+        ),
+      );
+    },
+    [],
+  );
+
+  // G 2026-06-14: set the list TEXT color separately from the box accent
+  // ("make the text blue", "make the words darker"). Reuses the accent color +
+  // shade engine; only the target (text vs box) differs.
+  const setListTextColor = useCallback(
+    (listId: string, textHex: string, textLabel?: string) => {
+      setAssistantLists((currentLists) =>
+        currentLists.map((list) =>
+          list.id === listId
+            ? { ...list, textHex, textLabel, updatedAt: Date.now() }
             : list,
         ),
       );
@@ -8965,10 +8995,33 @@ const LiveAvatarSessionComponent: React.FC<{
 
         const targetListBeforeChange =
           assistantLists.find((list) => list.id === targetListId) ?? activeList;
-        const accentUpdate = detectListAccentUpdate(userText, targetListBeforeChange);
+        // G 2026-06-14: color the BOX or the TEXT, plus brighter/darker shades,
+        // all by voice. detectColorTarget picks the surface; detectListAccent-
+        // Update does the color + shade math (reused for both). For TEXT, the
+        // shade base is the current textHex so "make the text darker" darkens the
+        // text, not the box.
+        const _colorTarget = detectColorTarget(userText);
+        const _colorBaseList =
+          _colorTarget === "text" && targetListBeforeChange
+            ? {
+                ...targetListBeforeChange,
+                accentHex:
+                  targetListBeforeChange.textHex ??
+                  targetListBeforeChange.accentHex,
+              }
+            : targetListBeforeChange;
+        const accentUpdate = detectListAccentUpdate(userText, _colorBaseList);
         if (accentUpdate) {
-          setListAccentColor(targetListId, accentUpdate);
-          listActionSpoken = `Done. I made it ${accentUpdate.accentLabel?.toLowerCase() ?? "that color"}.`;
+          if (_colorTarget === "text") {
+            const _textHex =
+              accentUpdate.accentHex ??
+              LIST_ACCENT_COLORS[accentUpdate.accentColor].solid;
+            setListTextColor(targetListId, _textHex, accentUpdate.accentLabel);
+            listActionSpoken = `Done. I made the text ${accentUpdate.accentLabel?.toLowerCase() ?? "that color"}.`;
+          } else {
+            setListAccentColor(targetListId, accentUpdate);
+            listActionSpoken = `Done. I made it ${accentUpdate.accentLabel?.toLowerCase() ?? "that color"}.`;
+          }
         }
 
         // r19 (G live 21:05: his coaching sentences became list items — "Number
@@ -9789,6 +9842,7 @@ const LiveAvatarSessionComponent: React.FC<{
     savePendingAccountState,
     sendMessage,
     setListAccentColor,
+    setListTextColor,
     setListDisplayStyle,
     stopListening,
     hasUserPressedVoiceStart,
@@ -11221,7 +11275,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   : accentIsCustomColor
                   ? `radial-gradient(circle at 18% 8%, ${softFromHex(activeListTheme.foreground, 0.5)}, transparent 55%), linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.14)}, transparent 65%), linear-gradient(145deg, #34200d 0%, #3a2108 50%, #241406 100%)`
                   : `radial-gradient(circle at 18% 8%, ${activeListTheme.soft}, transparent 34%), linear-gradient(145deg, #34200d 0%, #3a2108 50%, #241406 100%)`,
-                color: activeListTheme.foreground,
+                color: activeListTextColor,
                 colorScheme: activeListUsesBlackTheme ? "light" : "dark",
               }}
             >
