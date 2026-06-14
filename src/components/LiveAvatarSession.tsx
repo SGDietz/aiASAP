@@ -3013,6 +3013,14 @@ const LiveAvatarSessionComponent: React.FC<{
   const greetingInFlightRef = useRef<boolean>(false);
   const greetingInterruptedRef = useRef<boolean>(false);
   const greetingCompletionPendingRef = useRef<boolean>(false);
+  // G 2026-06-14 DOUBLE-GREET FIX: the live begin surface (shouldShowBeginSurface)
+  // has NO disabled attribute, so a second tap during the ~2.5s
+  // ensureAudioOutputReady() await re-enters handleVoiceStartStop before the
+  // first run claims postVerifyGreetingSpokenRef (set only AFTER
+  // pickReturningGreeting returns) -> two returning greetings. This synchronous
+  // ref blocks re-entry into the start+greeting sequence until the first tap
+  // finishes.
+  const voiceStartInProgressRef = useRef<boolean>(false);
   // Latest spoken text from 6 (AVATAR_TRANSCRIPTION). Used to skip the
   // completion injection when the LLM already re-delivered the greeting on
   // its own (e.g., user said "What did you just say?" and LLM repeats it).
@@ -6890,6 +6898,12 @@ const LiveAvatarSessionComponent: React.FC<{
     ) {
       return;
     }
+    // G 2026-06-14: block a second tap from re-entering while the first tap is
+    // still mid-await (audio unlock / start). Without this, two greetings fire.
+    if (voiceStartInProgressRef.current) {
+      return;
+    }
+    voiceStartInProgressRef.current = true;
     // G 2026-06-01: a returning, signed-in user must NEVER get the first-timer
     // hard-coded intro. resetAnonymousSessionState() wipes the returning state
     // (name, memory snapshot, postVerifyGreeting), so only run it for genuinely
@@ -6947,6 +6961,7 @@ const LiveAvatarSessionComponent: React.FC<{
       }, 900);
       setHasUserPressedVoiceStart(true);
     } finally {
+      voiceStartInProgressRef.current = false;
       setVoiceStartAwaitingReady(false);
     }
   }, [
@@ -8082,9 +8097,22 @@ const LiveAvatarSessionComponent: React.FC<{
         setListFocusNonce((value) => value + 1);
         const spoken = "I closed the list.";
         await interrupt();
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        // DOUBLE-CLOSE FIX (2026-06-14): in voice/shopping mode the avatar is
+        // stopped, so clearing activeListId above trips the belt-and-suspenders
+        // return effect, which already speaks "You got it - one sec, bringing
+        // myself back." Speaking "I closed the list." here too made a close say
+        // TWO lines. Only voice the close-confirm when 6 is on screen; in voice
+        // mode the belt return line carries it. We STILL bump the spoken counter
+        // in voice mode so the post-dispatch bulletproof guard (which checks
+        // `voiceSpokenCounterRef.current === before`) treats this turn as handled
+        // and does NOT fire an extra brain reply after the close.
+        if (voicePresenceRef.current === "avatar") {
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+        } else {
+          voiceSpokenCounterRef.current += 1;
+        }
         schedulePromptBrain(userText);
         return;
       }
