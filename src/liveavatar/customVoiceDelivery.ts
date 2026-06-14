@@ -62,6 +62,17 @@ export function reportCustomVoiceDiag(message: string): void {
 
 const recentSixLines: { text: string; until: number }[] = [];
 
+// Filler words 6 says in every coaching/confirm line. They must NOT count
+// toward echo overlap, or a genuine user command that merely reuses 6's words
+// ("add to the Wegmans list" vs 6's "...switch to the Wegmans list now") is
+// mistaken for 6's own voice and the real item is dropped (G 2026-06-13:
+// "Toothbrush."/"Blow dryer."/"Add to the Wegmans list." all echo_dropped).
+const ECHO_FILLER_WORDS = new Set(
+  "a an the to of and or but in on at for is are was were be been i you he she it we they me him her them my your his our their this that these those do does did so now then just want add list".split(
+    " ",
+  ),
+);
+
 function normalizeForEcho(s: string): string {
   return s
     .toLowerCase()
@@ -93,15 +104,23 @@ export function wasRecentlySpokenBySix(userText: string): boolean {
   if (heard.length < 8) return false; // too short to attribute either way
   const now = Date.now();
   const heardTokens = heard.split(" ");
+  // Only content words count toward overlap — filler 6 repeats in every coach
+  // line would otherwise inflate the match on a genuine user command.
+  const heardContent = heardTokens.filter((t) => !ECHO_FILLER_WORDS.has(t));
   for (const line of recentSixLines) {
     if (line.until < now) continue;
-    if (line.text.includes(heard)) return true;
+    // Substring is a real echo only when the heard line is MOST of what 6 said
+    // (the mic bled back his whole phrase). A user echoing one coached item
+    // ("toothbrush") back is a tiny fragment of a long coaching line — not echo.
+    if (line.text.includes(heard) && heard.length >= line.text.length * 0.6) {
+      return true;
+    }
     const lineTokens = new Set(line.text.split(" "));
     let hits = 0;
-    for (const token of heardTokens) {
+    for (const token of heardContent) {
       if (lineTokens.has(token)) hits++;
     }
-    if (heardTokens.length >= 3 && hits / heardTokens.length >= 0.75) {
+    if (heardContent.length >= 3 && hits / heardContent.length >= 0.75) {
       return true;
     }
   }

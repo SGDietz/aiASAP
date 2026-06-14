@@ -58,7 +58,7 @@ const ACCOUNT_SIGNOUT_LINE =
 const META_TALK_RE =
   // G 2026-06-13: also block UI/visual descriptions ("screenshot of my face",
   // "a haze that pulses around 6's face") from becoming list items or lists.
-  /\b(?:not|don'?t|doesn'?t|didn'?t|isn'?t|wasn'?t|can'?t|never|you (?:just )?sa(?:y|id)|he said|she said|it says?|says|said|saying|talking to|i had|reality|issue|problem|wrong|mistake|supposed|screenshot|haze|puls(?:e|es|ed|ing)|zoom|glow|halo|avatar|(?:my|your|his|her|six'?s|6'?s) face|the (?:screen|thread))\b/i;
+  /\b(?:not|don'?t|doesn'?t|didn'?t|isn'?t|wasn'?t|can'?t|never|you (?:just )?sa(?:y|id)|he said|she said|it says?|says|said|saying|talking to|reality|issue|problem|wrong|mistake|supposed|screenshot|haze|puls(?:e|es|ed|ing)|zoom|glow|halo|avatar|(?:my|your|his|her|six'?s|6'?s) face|the (?:screen|thread))\b/i;
 import {
   fmtReminderDue,
   parseReminder,
@@ -685,7 +685,11 @@ function endsOnDanglingWord(text: string): boolean {
   ) {
     return true;
   }
-  if (wordCount <= 4 && /\b(?:they|he|she|we|you)\s*$/i.test(t)) {
+  // "you" deliberately EXCLUDED: short finished banter ends on it constantly
+  // ("how are you", "thank you", "who are you", "is that you") and must reach
+  // the brain so 6 still answers a greeting — suppressing it would re-create the
+  // SILENT-6 bug class. Only the truly-trailing pronouns are treated as cut off.
+  if (wordCount <= 4 && /\b(?:they|he|she|we)\s*$/i.test(t)) {
     return true;
   }
   // (C) a trailing bare "I" is a trail-off at ANY length ("can you help oh I",
@@ -856,7 +860,7 @@ const ZIP_RECALL_RE =
 const SHOPPING_MODE_OPEN_RE =
   /\b(?:shopping mode|store mode|in the store|at the store|in the grocery store|at the grocery store|at walmart|in walmart|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
 const LIST_MUTATION_SIGNAL_RE =
-  /\b(?:need|want|have to get|gotta get|should get|i have|i'?ve got|i got|add|put|grab|buy|pick up|also|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|tambien|tambi\u00e9n|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|aussi|ich brauche|ich will|fuege|f\u00fcge|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen|auch)\b/i;
+  /\b(?:need|want|have to get|gotta get|should get|i have|i'?ve had|i have had|i had|i'?ve got|i got|add|put|grab|buy|pick up|also|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|tambien|tambi\u00e9n|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|aussi|ich brauche|ich will|fuege|f\u00fcge|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen|auch)\b/i;
 const LIST_START_WITH_REFERENCED_ITEMS_RE =
   /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
@@ -1332,7 +1336,7 @@ function cleanListItem(
     // we have / I had X" so "I have toothbrush" cleans to "toothbrush" (was
     // leaking the malformed item "I have toothbrush"). The (?!\s+to\b) guard
     // leaves "have to get" for the existing need/want/have-to-get prefix strip.
-    .replace(/\b(?:i|we)\s+(?:'?ve\s+got|have\s+got|have(?!\s+to\b)|had|got)\s+/gi, " ")
+    .replace(/\b(?:i|we)\s+(?:'?ve\s+(?:got|had)|have\s+(?:got|had)|have(?!\s+to\b)|had|got)\s+/gi, " ")
     .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
     .replace(/\b(?:just\s+)?put\s+some\s+on\s+there\b/gi, " ")
@@ -1852,6 +1856,20 @@ function findMentionedListItem(
   // go to the brain.
   if (
     /\bnot\s+(?:just\s+)?(?:one|1)\s+more\b|\bis\s+number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(
+      text,
+    )
+  ) {
+    return null;
+  }
+  // G 2026-06-14 ride: narrating list POSITIONS is not an item lookup. "You got
+  // number one, toothbrush. Okay, number two, toothpaste." was G reading the list
+  // back to confirm it, but "toothbrush" matched and we said "I found Toothbrush on
+  // the list." The shapes "you got number N, X" / "number N, X" / "that's number N"
+  // mean the user is reading positions aloud, not asking us to find an item. The
+  // delimiter (comma/colon/dash) after the number keeps a real item that merely
+  // contains a digit ("aisle 7 toothbrush") from matching.
+  if (
+    /\b(?:you(?:['’]?ve)?\s+(?:got|have)\s+)?number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*[,:–—-]|\bthat['’]?s\s+number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(
       text,
     )
   ) {
@@ -8197,6 +8215,97 @@ const LiveAvatarSessionComponent: React.FC<{
       // NOT key on the word "list" (verb or noun) — "start a grocery list" / "add X
       // to the list" would be hijacked into a readback while results are up. Gated
       // on box/order/them/these/those/results/options instead.
+      // G live 2026-06-13/14: when RESULTS are on 6's chest, G wants to control
+      // the spoken order. Two new shapes, checked BEFORE the read-all block:
+      //  (1) PICK one by position — "say the first one", "what's the second one",
+      //      "read the third one", "the first one".
+      //  (2) REORDER by name — "start with X", "say X first then Y". Names are
+      //      resolved against the result lines; if none match (e.g. "say that
+      //      first"), we fall through to the read-all block, never reorder noise.
+      // Same guards as read-all so a real list / shopping mode never gets hijacked,
+      // and we return BEFORE handleOnlineLookupSpeech (which would re-run a search
+      // because onlineLookupLocationRef is still set after a lookup).
+      if (
+        onlineLookupResultLines.length > 0 &&
+        !activeListId &&
+        !isShoppingMode
+      ) {
+        const _RESULT_ORDINALS: Record<string, number> = {
+          first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+          "1st": 1, "2nd": 2, "3rd": 3,
+        };
+        const _pickMatch = userText.match(
+          /\b(?:the\s+)?(first|second|third|fourth|fifth|1st|2nd|3rd)\s+(?:one|option|spot|place|result)\b/i,
+        );
+        if (_pickMatch) {
+          const _pos = _RESULT_ORDINALS[_pickMatch[1].toLowerCase()] ?? 0;
+          const _picked =
+            _pos >= 1 ? onlineLookupResultLines[_pos - 1] : undefined;
+          const spoken = _picked
+            ? `The ${_pickMatch[1].toLowerCase()} one is ${_picked}.`
+            : `I only have ${onlineLookupResultLines.length} for you. Want me to read them all?`;
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          return;
+        }
+        const _reorderGate =
+          /\b(?:start (?:with|on)\b|say\b[^.]*\bfirst\b|read\b[^.]*\bfirst\b|do\b[^.]*\bfirst\b|first\b[^.]*\bthen\b)/i.test(
+            userText,
+          );
+        if (_reorderGate) {
+          const _lower = userText.toLowerCase();
+          const _stop =
+            /^(?:the|club|comedy|reservoir|valley|lake|park|hall|house|center|centre|theater|theatre|zone|spot|spots|near|city)$/i;
+          const _hits: { line: string; idx: number }[] = [];
+          for (const _ln of onlineLookupResultLines) {
+            const _probes = [
+              _ln,
+              ..._ln
+                .split(/\s+/)
+                .filter((w) => w.length >= 4 && !_stop.test(w)),
+            ];
+            for (const _p of _probes) {
+              const _idx = _lower.indexOf(_p.toLowerCase());
+              if (_idx >= 0) {
+                _hits.push({ line: _ln, idx: _idx });
+                break;
+              }
+            }
+          }
+          _hits.sort((a, b) => a.idx - b.idx);
+          const _ordered = [...new Set(_hits.map((h) => h.line))];
+          for (const _ln of onlineLookupResultLines) {
+            if (!_ordered.includes(_ln)) _ordered.push(_ln);
+          }
+          // Only act when a named result actually moved to the front; otherwise
+          // ("say that first" with no name) fall through to the read-all block.
+          if (
+            _ordered.length > 0 &&
+            _ordered[0] !== onlineLookupResultLines[0]
+          ) {
+            const spoken = `In order: ${formatListItemsForSpeech(_ordered)}.`;
+            await interrupt();
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            rememberConversationLine("assistant", spoken);
+            lastVisionResponseTimeRef.current = Date.now();
+            return;
+          }
+        }
+      }
+
+      // G 2026-06-13 waterfall bug: when lookup RESULTS are on 6's chest and G asks
+      // to read "what's in these boxes" / "say them in order" / "read them back",
+      // read the RESULT lines in order — NOT the default idea pills, and never the
+      // online-search pipeline (handleOnlineLookupSpeech would re-run a search
+      // because onlineLookupLocationRef is still set after a lookup). Runs only when
+      // results are showing and no real list owns the screen. NOTE: the regex must
+      // NOT key on the word "list" (verb or noun) — "start a grocery list" / "add X
+      // to the list" would be hijacked into a readback while results are up. Gated
+      // on box/order/them/these/those/results/options instead.
       if (
         onlineLookupResultLines.length > 0 &&
         !activeListId &&
@@ -8350,7 +8459,7 @@ const LiveAvatarSessionComponent: React.FC<{
         const _LIST_REMOVE_VERB_RE = /\b(?:take|remove|delete|cross|scratch|clear)\b/i;
         // r32 (G 20:46: "List toothbrush and toothpaste and a blow dryer"
         // missed every verb and the brain faked the add): "list" is a verb.
-        const _LIST_ADD_VERB_RE = /\b(?:add|put|list|i (?:want|need|have)|i'?ve got|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
+        const _LIST_ADD_VERB_RE = /\b(?:add|put|list|i (?:want|need|have|had)|i'?ve (?:got|had)|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
         const _clauses = userText.split(/(?<=[.!?])\s+/).filter(Boolean);
         const _removeSource = _clauses.find((c) => _LIST_REMOVE_VERB_RE.test(c)) ?? "";
         // r33 (G copilot 2026-06-14 03:14: a 5-item batch add spoken in ONE
