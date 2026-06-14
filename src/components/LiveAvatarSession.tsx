@@ -8792,6 +8792,19 @@ const LiveAvatarSessionComponent: React.FC<{
                 it,
               ),
           )
+          // G 2026-06-14 copilot: app/UI words the user says while DISCUSSING the
+          // app (not dictating groceries) must never become list items - "I need
+          // a zip" added "Zip", "search results" added "Search results". Reject
+          // the app-mechanic terms outright.
+          .filter(
+            (it) =>
+              !/^(?:zips?|zip ?codes?|searches?|results?|boxes?|cards?|screens?)$/i.test(
+                it,
+              ) &&
+              !/\b(?:pill ?box(?:es)?|pillbox(?:es)?|search ?results?|zip ?code)\b/i.test(
+                it,
+              ),
+          )
           // r26 (G live 2026-06-12 08:37: "number three says, all right" — his
           // "All right, so I also need..." lead-in became a grocery): pure
           // acknowledgments are never items.
@@ -10594,7 +10607,15 @@ const LiveAvatarSessionComponent: React.FC<{
       {shouldShowLoadingSurface && (
         <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none top-[calc(var(--stage-top)+var(--stage-height)*0.55)]">
           <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
-            <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+            {/* G 2026-06-14: "a much nicer font." Swapped the blocky font-black
+                caps for the brand's elegant Lora serif (italic, the same family
+                feel as the italic aiASAP wordmark). SIZE / gold gradient / thin
+                sweep bar are LOCKED and unchanged ([[feedback_loading_screen_locked]]);
+                only the font changed, per G's explicit spec. */}
+            <p
+              className="text-[1.35rem] sm:text-[1.6rem] italic tracking-[0.01em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]"
+              style={{ fontFamily: "'Lora', Georgia, serif", fontWeight: 700 }}
+            >
               Loading
             </p>
             <div className="mx-auto mt-3 h-1.5 w-36 overflow-hidden rounded-full bg-white/10">
