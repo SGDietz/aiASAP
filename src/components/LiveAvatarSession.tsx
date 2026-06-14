@@ -3286,6 +3286,19 @@ const LiveAvatarSessionComponent: React.FC<{
   useEffect(() => {
     accountEmailRef.current = accountEmail;
   }, [accountEmail]);
+
+  // G 2026-06-14: the signed-in email badge shows top-center for ~2.5s at the
+  // start (so you know which account you're in), then fades out to stay clean.
+  const [signedInBadgeShown, setSignedInBadgeShown] = useState(false);
+  useEffect(() => {
+    if (!accountEmail) {
+      setSignedInBadgeShown(false);
+      return;
+    }
+    setSignedInBadgeShown(true);
+    const t = setTimeout(() => setSignedInBadgeShown(false), 2600);
+    return () => clearTimeout(t);
+  }, [accountEmail]);
   const [accountAuthChecked, setAccountAuthChecked] = useState(true);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
@@ -11561,11 +11574,16 @@ const LiveAvatarSessionComponent: React.FC<{
               </div>
             )}
 
-          {/* r30 (G 2026-06-12): always know WHICH account this is — tiny
-              signed-in badge, brand gold, bottom-left, never interactive.
-              Shows in avatar AND list modes; absent = anonymous/guest. */}
+          {/* G 2026-06-14: signed-in email badge — TOP-center under "Take the
+              Leap", shown ~2.5s at the start then fades out (so you know which
+              account you're in without it cluttering the screen). */}
           {accountEmail && sessionState !== SessionState.DISCONNECTED && (
-            <div className="fixed bottom-2 left-3 z-40 pointer-events-none rounded-full border border-[#e0aa62]/40 bg-[#241608]/70 px-3 py-1 backdrop-blur-[2px]">
+            <div
+              className={`fixed left-1/2 z-40 -translate-x-1/2 pointer-events-none rounded-full border border-[#e0aa62]/40 bg-[#241608]/70 px-3 py-1 backdrop-blur-[2px] transition-opacity duration-700 ${
+                signedInBadgeShown ? "opacity-100" : "opacity-0"
+              }`}
+              style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.13)" }}
+            >
               <span className="text-[11px] font-semibold tracking-wide bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#b97f3e] bg-clip-text text-transparent">
                 Signed in: {accountEmail}
               </span>
