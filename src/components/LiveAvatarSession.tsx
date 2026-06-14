@@ -8969,9 +8969,18 @@ const LiveAvatarSessionComponent: React.FC<{
           // should say toothpaste"; "Added Instead of" / "Two could say a
           // toothbrush" = commentary): strip spoken lead-ins, and bare items
           // carrying speech words are never groceries.
-          .map((it) =>
-            it.replace(/^(?:on|in|at|the|some|of|a|an)\s+/i, "").trim(),
-          )
+          .map((it) => {
+            // r-2026-06-14 ride: strip leading fillers/prepositions REPEATEDLY so
+            // "to on rice" (from "I want to put on rice") collapses to "rice",
+            // not "To on rice". One-pass stripping left the stacked lead-ins.
+            let s = it.trim();
+            let prev = "";
+            while (s !== prev) {
+              prev = s;
+              s = s.replace(/^(?:to|put|on|in|at|the|some|of|a|an)\s+/i, "").trim();
+            }
+            return s;
+          })
           .filter(Boolean)
           .filter(
             (it) =>
@@ -9002,7 +9011,7 @@ const LiveAvatarSessionComponent: React.FC<{
           // ("half and half", "paper towels", "ground beef") still add fine.
           .filter(
             (it) =>
-              !/\b(?:he|she|him|her|they|them|to be|when i|full ?page|the normal)\b/i.test(
+              !/\b(?:he|she|him|her|they|them|to be|when i|full ?page|the normal|keep my|second list|another list|new list|called|rename)\b/i.test(
                 it,
               ) && !/^(?:page|for)\b/i.test(it),
           )
