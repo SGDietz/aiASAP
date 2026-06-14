@@ -326,6 +326,15 @@ const DEFAULT_THOUGHT_PROMPTS = [
 // separation. Lookup popups stay dormant (separate feature, no order yet).
 const LIST_UI_DORMANT = false;
 const LOOKUP_UI_DORMANT = true;
+// FULL-PAGE / SHOPPING MODE DORMANT (G 2026-06-14): "no full page lists, only
+// chest lists -- when 6's face is gone it's just not the same, it does not
+// work." Full-screen "shopping mode" tears the live avatar down so the list
+// fills the whole screen; G killed it. With this TRUE, EVERY list rides the
+// card on 6's CHEST and 6 STAYS on screen. The full-screen machinery
+// (enterVoiceListMode, the isShoppingMode render branch, the "show me 6"
+// comeback, voiceMode/intents.ts) stays in the repo, dormant behind this flag
+// -- flip to false to bring full-page back. [[feedback_dont_change_working_things]]
+const FULL_PAGE_LISTS_DORMANT = true;
 
 function keepExploreAiASAPLow(prompts: string[]): string[] {
   const explore = prompts.find((prompt) => /^explore\s+aiasap$/i.test(prompt));
@@ -2807,6 +2816,11 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const enterVoiceListMode = useCallback(
     async (listTitle: string, wasNew: boolean) => {
+      // FULL_PAGE_LISTS_DORMANT (G 2026-06-14): never tear the avatar down for a
+      // full-screen list -- chest lists only, 6 stays on screen. The sole caller
+      // is already gated on the flag; this guard makes full-page impossible to
+      // reach even if a future path calls in.
+      if (FULL_PAGE_LISTS_DORMANT) return;
       if (voicePresenceRef.current !== "avatar") return;
       setPresence("voice");
       voiceReturnKeepsListRef.current = false;
@@ -8708,7 +8722,13 @@ const LiveAvatarSessionComponent: React.FC<{
             preferFresh: shouldStartFreshList(userText),
           })
         : activeListId;
-      const enteringShoppingMode = SHOPPING_MODE_OPEN_RE.test(userText);
+      // FULL_PAGE_LISTS_DORMANT (G 2026-06-14): full-screen / shopping mode is
+      // dead -- 6's face must never disappear. Forcing this false funnels EVERY
+      // list (even an explicit "shopping mode" / "full screen list" request)
+      // into the chest-card path below, where 6 stays on screen. Flip the flag
+      // at the top of the file to revive full-page.
+      const enteringShoppingMode =
+        !FULL_PAGE_LISTS_DORMANT && SHOPPING_MODE_OPEN_RE.test(userText);
 
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
         logAppEvent("t6", { p: "ht_list_enter", pres: voicePresenceRef.current, shop: isShoppingMode });
