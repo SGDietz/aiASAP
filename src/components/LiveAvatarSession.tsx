@@ -2126,6 +2126,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const localSessionIdRef = useRef<string | null>(null);
   const voiceTtsBusyRef = useRef(false);
   const voiceTtsQueueRef = useRef<string[]>([]);
+  // BARGE-IN P0 (Herm review 2026-06-14): bumped on every cut. A TTS line that
+  // was already fetching/decoding when the user barged has no voiceCurrentSourceRef
+  // to stop yet, so it would start speaking AFTER the cut. voicePlayNext captures
+  // this at line start and abandons the line if it changed across any await.
+  const voiceCutEpochRef = useRef(0);
   // G 2026-06-13 (HARD RULE: 6 must NEVER say the same line twice): a single
   // output chokepoint that drops any line identical to the one just spoken
   // within a short window. This is the last line of defense BEHIND the
@@ -2219,6 +2224,7 @@ const LiveAvatarSessionComponent: React.FC<{
       for (;;) {
         const text = voiceTtsQueueRef.current.shift();
         if (!text) break;
+        const myCutEpoch = voiceCutEpochRef.current;
         // (drives the gold presence ring while 6 speaks via the WebAudio mouth)
         setVoiceSixTalking(true);
         try {
@@ -2227,12 +2233,16 @@ const LiveAvatarSessionComponent: React.FC<{
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
           });
+          // Barged while this line was in flight -> drop it; the queue was cleared
+          // by the cut, so the next shift() breaks the loop.
+          if (voiceCutEpochRef.current !== myCutEpoch) continue;
           if (!res.ok) {
             throw new Error(
               `voice tts ${res.status}: ${(await res.text()).slice(0, 120)}`,
             );
           }
           const { audio } = (await res.json()) as { audio?: string };
+          if (voiceCutEpochRef.current !== myCutEpoch) continue;
           if (typeof audio !== "string" || audio.length < 50) {
             throw new Error("voice tts empty/invalid audio");
           }
@@ -2258,10 +2268,19 @@ const LiveAvatarSessionComponent: React.FC<{
             }
           }
           const buffer = pcm16Base64ToAudioBuffer(ctx, audio);
+          if (voiceCutEpochRef.current !== myCutEpoch) continue;
           await new Promise<void>((resolve) => {
             const src = ctx.createBufferSource();
             voiceCurrentSourceRef.current = src;
             src.buffer = buffer;
+            // Barge landed between decode and start -> don't start; bail clean.
+            if (voiceCutEpochRef.current !== myCutEpoch) {
+              if (voiceCurrentSourceRef.current === src) {
+                voiceCurrentSourceRef.current = null;
+              }
+              resolve();
+              return;
+            }
             // r23b (G: "and YOUR voice too" — the studio meter): meter 6's own
             // audio through an analyser and drive the face circle in real time.
             const analyser = ctx.createAnalyser();
@@ -2292,9 +2311,19 @@ const LiveAvatarSessionComponent: React.FC<{
               clearInterval(meter);
               const circle = document.getElementById("six-voice-circle");
               if (circle) circle.style.transform = "";
+              if (voiceCurrentSourceRef.current === src) {
+                voiceCurrentSourceRef.current = null;
+              }
               resolve();
             };
-            src.start();
+            try {
+              src.start();
+            } catch {
+              if (voiceCurrentSourceRef.current === src) {
+                voiceCurrentSourceRef.current = null;
+              }
+              resolve();
+            }
           });
           voiceCurrentSourceRef.current = null;
         } catch (e) {
@@ -2329,12 +2358,17 @@ const LiveAvatarSessionComponent: React.FC<{
   // r19 barge-in support: cut 6 off mid-sentence — drop the queue AND the
   // line that's already playing (stop() fires onended, the play loop drains).
   const voiceCutSpeech = useCallback(() => {
+    // BARGE-IN P0 (Herm review 2026-06-14): bump FIRST so any TTS line mid
+    // fetch/decode in voicePlayNext sees the change and never starts speaking
+    // after the user took the floor.
+    voiceCutEpochRef.current += 1;
     voiceTtsQueueRef.current = [];
     try {
       voiceCurrentSourceRef.current?.stop();
     } catch {
       // already ended
     }
+    voiceCurrentSourceRef.current = null;
     // G 2026-06-13: also cut the WebAudio FALLBACK path (what 6 uses in list
     // mode after the avatar session stops) — without this, barge-in/interrupt
     // can't stop 6 and he talks over you ("he would not stop").
