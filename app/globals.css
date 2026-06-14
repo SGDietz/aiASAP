@@ -141,3 +141,26 @@
     animation: none !important;
   }
 }
+
+/* Brand-colored scrollbar for the list panels (G, 2026-06-14: the white sidebar
+   scrollbar must be brand colors, not white). Gold-amber gradient thumb on a
+   transparent track; thin on Firefox. Purely visual — no layout change. */
+.brand-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #d7a05a transparent;
+}
+.brand-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.brand-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.brand-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ffe9c2 0%, #d7a05a 55%, #3a2108 100%);
+  border-radius: 999px;
+  border: 1px solid rgba(58, 33, 8, 0.55);
+}
+.brand-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #fff1d6 0%, #e4b06a 55%, #4a2c0e 100%);
+}

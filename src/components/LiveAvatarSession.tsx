@@ -1444,6 +1444,20 @@ function cleanListItem(
     return null;
   }
   if (LIST_COMMAND_ONLY_RE.test(item)) return null;
+  // G 2026-06-14 (regression net): profanity, "talking-about-it" words, bare
+  // numbers, and lone connectives are venting scraps, never grocery items. These
+  // caught today's junk-adds ("Same","Problems","Fucking problems") at the
+  // chokepoint, so BOTH the bare path AND explicit-verb adds ("add the same
+  // problems") are protected — not just a gate-side deny-list.
+  if (
+    /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|same|problem|problems|stuck|nothing|anything|something|everything|people|keep|saying)\b/i.test(
+      item,
+    ) ||
+    /^\d+$/.test(item.trim()) ||
+    /^(?:through|except|up|down|over|under|then|also)$/i.test(item.trim())
+  ) {
+    return null;
+  }
 
   const corrected = correctListItem(item);
   return corrected.charAt(0).toUpperCase() + corrected.slice(1);
@@ -1465,6 +1479,11 @@ function canInferListItems(
   if (LIST_TRIGGER_RE.test(text) && !hasExplicitMutation) return false;
   if (hasExplicitMutation) return true;
   if (!options.allowBareItems) return false;
+  // INTENT-FIRST (G 2026-06-14, regression b5781651): reject meta/"talking-about-
+  // it" speech + banter on the RAW text BEFORE the comma/"and" shortcut, so venting
+  // that happens to contain "and" or a comma ("I keep saying the same things and
+  // nothing works") can't bypass the intent gate via the series early-return.
+  if (META_TALK_RE.test(text) || LIST_BANTER_ITEM_RE.test(text.trim())) return false;
   if (/[,;\n]|\band\b/i.test(text)) return true;
   const cleaned = cleanListItem(text);
   if (!cleaned) return false;
@@ -8951,9 +8970,30 @@ const LiveAvatarSessionComponent: React.FC<{
         // bare dictation — "Hey there, buddy" was being read as items.
         const _BARE_SPEECH_RE =
           /\b(?:i|you|me|my|your|he|she|it|we|they|tell|say|says|said|just|um|uh|okay|so|hey|hi|hello|yo|buddy|bud|pal|friend|dude|man|bro|there|right|see|wait|huh|what|yeah|yep|nope|cool|nice|great|wonderful|perfect)\b/i;
+        // G 2026-06-14 ride: while a list is open, EVERY short turn was treated as
+        // a bare grocery add, so interrupted sentence scraps ("11", "Through", "Up
+        // people", "Except for", "2 second") landed as items. A bare add is now
+        // only trusted when the fragment is NOT a lone/leading number and does NOT
+        // lead with a connective/preposition/subordinator. Real items ("milk",
+        // "paper towels", "half and half") still pass; explicit-verb adds ("add
+        // eggs") are unaffected (they ride _LIST_ADD_VERB_RE below).
+        const _looksLikeFragment =
+          /^\d+\b/.test(userText.trim()) ||
+          /^(?:and|or|but|so|because|except|through|up|down|over|under|with|without|for|from|to|of|at|in|on|then|also|like|as|while|when|if|that|which|who)\b/i.test(
+            userText.trim(),
+          ) ||
+          // G 2026-06-14 ride (STILL junk-adding his venting: "Same", "Problems",
+          // "Fucking problems"): profanity, question words, or "talking-about-it"
+          // verbs mean this turn is CHATTER, not a grocery item — never bare-add it.
+          // Clean items ("milk", "eggs", "paper towels") have none of these.
+          /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|what|why|how|where|when|who|which|keep|saying|said|same|problem|problems|stuck|issue|issues|nothing|anything|something|everything|people)\b/i.test(
+            userText,
+          ) ||
+          /\byou know\b/i.test(userText);
         const _shortBare =
           userText.trim().split(/\s+/).length <= 6 &&
-          !_BARE_SPEECH_RE.test(userText);
+          !_BARE_SPEECH_RE.test(userText) &&
+          !_looksLikeFragment;
         // r23 (G 22:54: "I do not see I'm gonna, A screenshot your face..."):
         // commentary shards can't be remove-items — drop anything long or
         // carrying speech words; cap the batch.
@@ -8969,9 +9009,18 @@ const LiveAvatarSessionComponent: React.FC<{
             : extractListItems(
                 _LIST_ADD_VERB_RE.test(userText) ? _addSource : userText,
                 {
+                  // INTENT-FIRST (G 2026-06-14, root regression b5781651): a bare
+                  // utterance adds ONLY when it reads as a real item — NOT merely
+                  // because a list is open. canInferListItems is the intent test
+                  // (rejects questions/fragments/meta/banter, requires a clean
+                  // <=3-word noun); _shortBare keeps the venting deny-list as a
+                  // second guard. Explicit-verb adds ("add eggs") still ride
+                  // _LIST_ADD_VERB_RE. The old `activeListId || inferredListIntent`
+                  // trust (the hole that junk-added his venting) is gone.
                   allowBareItems:
-                    Boolean(activeListId || inferredListIntent) &&
-                    (_shortBare || _LIST_ADD_VERB_RE.test(userText)),
+                    (_shortBare &&
+                      canInferListItems(userText, { allowBareItems: true })) ||
+                    _LIST_ADD_VERB_RE.test(userText),
                 },
               )
         )
@@ -8994,7 +9043,7 @@ const LiveAvatarSessionComponent: React.FC<{
           .filter(Boolean)
           .filter(
             (it) =>
-              !/\b(?:could|should|would|say|says|saying|instead|okay|so|number|gonna|you|your|i'?m|the x|al?l\s?right|alright|tell|here'?s|list|me|bring|yourself|back)\b/i.test(
+              !/\b(?:could|should|would|say|says|saying|instead|okay|so|number|gonna|you|your|i'?m|the x|al?l\s?right|alright|tell|here'?s|list|me|bring|yourself|back|see|seen|same|problem|problems)\b/i.test(
                 it,
               ),
           )
@@ -9030,6 +9079,17 @@ const LiveAvatarSessionComponent: React.FC<{
           // acknowledgments are never items.
           .filter(
             (it) => !/^(?:yeah|yes|no|nope|sure|well|um|uh|hmm|right)$/i.test(it),
+          )
+          // G 2026-06-14 ride: a bare number ("11", "2") or a lone connective/
+          // preposition/adverb ("Through", "Except for", "Up") is never a grocery
+          // item — it's an interrupted sentence scrap. Real items (with a noun)
+          // are untouched; "half and half" survives (>1 content word).
+          .filter((it) => !/^\d+$/.test(it.trim()))
+          .filter(
+            (it) =>
+              !/^(?:through|except|except for|up|down|over|under|with|without|for|from|to|of|at|in|on|then|also|as|while|when|if|that|which|who|people|second|seconds|minute|minutes)$/i.test(
+                it.trim(),
+              ),
           );
         // r26 (G live 2026-06-12 08:37: "Change toothbrush to be a capital T"
         // got "I found toothbrush on the list" three times — no handler): a
@@ -10506,7 +10566,7 @@ const LiveAvatarSessionComponent: React.FC<{
             style={{ backgroundColor: "#e0aa62" }}
           />
           <div className="flex items-start justify-between gap-3 pt-1">
-            <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
+            <div className="brand-scroll min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
               <p className="text-[1.2rem] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
                 Your Lists
               </p>
@@ -10573,7 +10633,7 @@ const LiveAvatarSessionComponent: React.FC<{
             style={{ backgroundColor: "#e0aa62" }}
           />
           <div className="flex items-start justify-between gap-3 pt-1">
-            <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
+            <div className="brand-scroll min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
               {onlineLookupNotice?.trim() && (
                 <p className="text-[1.2rem] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">{onlineLookupNotice}</p>
               )}
@@ -10644,6 +10704,8 @@ const LiveAvatarSessionComponent: React.FC<{
           <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-semibold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
+          {/* G 2026-06-14 ride: "Signed in as ..." chip removed on G's request
+              (account stays signed in; this only took the on-screen text off). */}
         </div>
         {microphoneWarning && (
           <div className="mt-4 bg-yellow-500 text-black px-4 py-2 rounded-md max-w-2xl text-center">
@@ -11130,7 +11192,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 style={{ backgroundColor: activeListTheme.foreground }}
               />
 
-              <div ref={shoppingListScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+              <div ref={shoppingListScrollRef} className="brand-scroll min-h-0 flex-1 overflow-y-auto">
                 {activeList.items.length > 0 ? (
                   // r24 (G live: "the text is way too big... like half"):
                   // 2xl → lg, and the size level still rides on top.
@@ -11225,7 +11287,7 @@ const LiveAvatarSessionComponent: React.FC<{
                     </button>
                   </div>
                 </div>
-                <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div ref={listScrollRef} className="brand-scroll min-h-0 flex-1 overflow-y-auto pr-1">
                   {activeList.items.length > 0 ? (
                     <ol className="space-y-2 font-bold leading-tight" style={{ fontSize: `${(1.06 * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem` }}>
                       {activeList.items.map((item, index) => (

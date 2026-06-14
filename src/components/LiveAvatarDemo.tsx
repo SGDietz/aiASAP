@@ -8,13 +8,14 @@ import Link from "next/link";
 type LiveAvatarMode = "FULL" | "CUSTOM";
 
 function getRequestedLiveAvatarMode(): LiveAvatarMode {
-  // THE BIG MOVE (2026-06-11, G: "when the avatar is showing... voice is
-  // still straight from 11, not liveavatar. Constant stream 100% of the time
-  // from eleven labs"): CUSTOM is now the DEFAULT. LiveAvatar only renders
-  // the face (half the credits); 6's voice is ElevenLabs everywhere and his
-  // brain (the full CW, now in our code) runs through our own endpoint —
-  // identical in avatar mode and list mode, no reset on avatar returns.
-  // ?mode=full is the escape hatch back to the old LiveAvatar-everything path.
+  // CUSTOM is the DEFAULT again (G, 2026-06-14): CUSTOM keeps OUR brain
+  // (/api/openai-chat-complete) in control — no interrupting, remembers the user,
+  // shows the account, never double-greets. Pure FULL was tried but ran the
+  // LiveAvatar server brain, which brought all those problems back. For 6's MOUTH
+  // to move we no longer switch the component to FULL; instead the CUSTOM mint
+  // (/api/start-custom-session) now mints a room-based session WITH a voice but NO
+  // context_id, so repeat() lip-syncs in 6's voice while our brain still drives.
+  // ?mode=full is the escape hatch to the old LiveAvatar-everything (server-brain) path.
   if (typeof window === "undefined") {
     return "CUSTOM";
   }

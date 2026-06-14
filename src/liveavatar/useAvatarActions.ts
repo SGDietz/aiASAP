@@ -26,25 +26,30 @@ export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
         // crash the speak path — 6 went MUTE. Any ElevenLabs failure now falls
         // back to the session's built-in voice instead of silence.
         registerSixSpokenLine(message); // echo firewall: mark as 6's own words
+        // LIP-SYNC (G 2026-06-14): native TTS via repeat() (room-based CUSTOM
+        // mint, voice, no context_id) moves 6's MOUTH. ElevenLabs + the WebAudio
+        // armor stay as the silent fallback.
         try {
-          const res = await fetch("/api/elevenlabs-text-to-speech", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: message }),
-          });
-          if (!res.ok) {
-            throw new Error(`tts ${res.status}: ${(await res.text()).slice(0, 120)}`);
-          }
-          const { audio } = (await res.json()) as { audio?: string };
-          if (typeof audio !== "string" || audio.length < 50) {
-            throw new Error("tts returned no audio");
-          }
-          // copilot 2026-06-11: repeatAudio can no-op silently (socket gone) —
-          // delivery wrapper adds server-visible diag + WebAudio fallback.
-          return deliverCustomTtsAudio(sessionRef.current, audio, "actions.repeat");
-        } catch (e) {
-          console.error("[custom repeat] ElevenLabs failed, falling back:", e);
           return sessionRef.current.repeat(message);
+        } catch (e) {
+          console.error("[custom repeat] repeat() failed, ElevenLabs fallback:", e);
+          try {
+            const res = await fetch("/api/elevenlabs-text-to-speech", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: message }),
+            });
+            if (!res.ok) {
+              throw new Error(`tts ${res.status}: ${(await res.text()).slice(0, 120)}`);
+            }
+            const { audio } = (await res.json()) as { audio?: string };
+            if (typeof audio !== "string" || audio.length < 50) {
+              throw new Error("tts returned no audio");
+            }
+            return deliverCustomTtsAudio(sessionRef.current, audio, "actions.repeat");
+          } catch (e2) {
+            console.error("[custom repeat] ElevenLabs fallback also failed:", e2);
+          }
         }
       }
     },

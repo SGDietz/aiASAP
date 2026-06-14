@@ -16,3 +16,9 @@ supabase/.temp/
 .hermes-supabase-readonly/
 __scratch__/
 __scratch2__/
+
+# Plaintext-secret artifacts from the 2026-06-14 Codex key-scrub — NEVER commit.
+# (.env* already covers the .env.LEAKED-* backups; this catches the .md doc +
+# any future LEAKED file that holds real keys in cleartext.)
+LEAKED_CREDENTIALS_ROTATION.md
+*LEAKED*

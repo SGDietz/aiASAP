@@ -47,23 +47,31 @@ export const useTextChat = (
           onAssistantText?.(chatResponseText);
           registerSixSpokenLine(chatResponseText); // echo firewall registry
         }
+        // LIP-SYNC (G 2026-06-14): the CUSTOM mint is now a room-based session
+        // with a voice but NO context_id, so repeat() (AVATAR_SPEAK_TEXT) makes
+        // 6's MOUTH move with native TTS in his voice. Our brain produced the
+        // text, so every CUSTOM-mode fix still holds (no interrupt, memory, no
+        // double-greet). ElevenLabs + the WebAudio armor stay as the silent
+        // fallback if repeat() ever no-ops.
         try {
-          const res = await fetch("/api/elevenlabs-text-to-speech", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: chatResponseText }),
-          });
-          if (!res.ok) throw new Error(`tts ${res.status}`);
-          const { audio } = (await res.json()) as { audio?: string };
-          if (typeof audio !== "string" || audio.length < 50) {
-            throw new Error("tts returned no audio");
-          }
-          // Have the avatar repeat the audio — delivery wrapper adds
-          // server-visible diag + WebAudio fallback (copilot 2026-06-11).
-          return deliverCustomTtsAudio(sessionRef.current, audio, "textchat.reply");
-        } catch (e) {
-          console.error("[textchat] ElevenLabs failed, falling back:", e);
           return sessionRef.current.repeat(chatResponseText);
+        } catch (e) {
+          console.error("[textchat] repeat() failed, ElevenLabs fallback:", e);
+          try {
+            const res = await fetch("/api/elevenlabs-text-to-speech", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: chatResponseText }),
+            });
+            if (!res.ok) throw new Error(`tts ${res.status}`);
+            const { audio } = (await res.json()) as { audio?: string };
+            if (typeof audio !== "string" || audio.length < 50) {
+              throw new Error("tts returned no audio");
+            }
+            return deliverCustomTtsAudio(sessionRef.current, audio, "textchat.reply");
+          } catch (e2) {
+            console.error("[textchat] ElevenLabs fallback also failed:", e2);
+          }
         }
       }
     },
