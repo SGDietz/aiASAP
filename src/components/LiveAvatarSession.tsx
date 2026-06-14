@@ -8187,6 +8187,15 @@ const LiveAvatarSessionComponent: React.FC<{
           (LIST_QUESTION_META_RE.test(userText) &&
             !LIST_COMMAND_ONLY_RE.test(userText) &&
             !LIST_MUTATION_SIGNAL_RE.test(userText)) ||
+          // G 2026-06-14 copilot: a HYPOTHETICAL / example sentence ("when we
+          // have a Christmas list, a grocery list, a...", "a list of lists") is
+          // NOT a create order. Block only when no command verb + no add signal,
+          // so real "make a grocery list" / "I want a Walmart list" still pass.
+          (/\b(?:when (?:we|you|i|they) (?:have|get|make|need|want)|such as|like a |for example|for instance|what if|imagine|let'?s say|suppose|list of lists)\b/i.test(
+            userText,
+          ) &&
+            !LIST_COMMAND_ONLY_RE.test(userText) &&
+            !LIST_MUTATION_SIGNAL_RE.test(userText)) ||
           (activeListId &&
             /^(?:blank|empty|new|the|this|that|same|whole|my)\b\s*(?:list)?$/i.test(
               inferredListIntentRaw.title.trim(),

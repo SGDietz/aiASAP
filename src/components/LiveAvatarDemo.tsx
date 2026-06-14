@@ -356,10 +356,16 @@ export const LiveAvatarDemo = () => {
             portrait centered, gold border on desktop, full-cover on mobile). */}
         <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* G 2026-06-14: startscreen.png is 385x830 (0.46), NARROWER than the
+              9:16 frame, so object-contain letterboxed it and md:bg-black/35
+              painted the gaps BLACK ("the black bars shouldn't be there"). Use
+              object-cover so 6 FILLS the gold frame edge-to-edge (object-top keeps
+              his face; the cropped bottom is where the Session-Ended card sits),
+              and drop the black bg. No bars, all 6. */}
           <img
             src="/startscreen.png"
             alt="6, your a-i-buddy"
-            className="h-full w-full object-cover md:object-contain md:object-center md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
           {/* Session-ended message + Restart, overlaid where the tap button sits
               on the start screen. Branded brown scrim (no raw black) for legibility. */}
