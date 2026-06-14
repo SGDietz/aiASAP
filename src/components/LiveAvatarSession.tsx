@@ -4382,6 +4382,14 @@ const LiveAvatarSessionComponent: React.FC<{
         }),
       }).catch((error) => console.warn("Account list save failed:", error));
     }, 900);
+    // A4 fix (2026-06-14): clear the pending save on unmount / dep-change so a
+    // late timer can't POST a stale or empty list array over good data (e.g.
+    // sign-out sets assistantLists=[]). Mirrors the sibling save effect below.
+    return () => {
+      if (accountSaveTimeoutRef.current) {
+        clearTimeout(accountSaveTimeoutRef.current);
+      }
+    };
   }, [accountEmail, assistantLists, buildAccountResumeState]);
 
   useEffect(() => {
@@ -4543,33 +4551,10 @@ const LiveAvatarSessionComponent: React.FC<{
     items = items.map((item) => item.charAt(0).toUpperCase() + item.slice(1));
     const list = assistantLists.find((item) => item.id === listId);
     if (!list) {
-      latestListMutationRef.current = {
-        listId,
-        item: items[items.length - 1] ?? null,
-        action: "add",
-      };
-      setAssistantLists((currentLists) =>
-        currentLists.map((currentList) => {
-          if (currentList.id !== listId) return currentList;
-          const nextItems = [...currentList.items];
-          for (const item of items) {
-            if (
-              !nextItems.some(
-                (existing) => existing.toLowerCase() === item.toLowerCase(),
-              )
-            ) {
-              nextItems.push(item);
-            }
-          }
-          return {
-            ...currentList,
-            items: nextItems.slice(0, MAX_LIST_ITEMS),
-            updatedAt: Date.now(),
-          };
-        }),
-      );
-      setListFocusNonce((value) => value + 1);
-      return true;
+      // A3 fix (2026-06-14): the target list ID doesn't exist, so the old map
+      // matched nothing and added nothing — yet returned true, so 6 said
+      // "Added X" to a list that wasn't there. Report failure, don't fake it.
+      return false;
     }
     const nextItems = [...list.items];
     let changed = false;
