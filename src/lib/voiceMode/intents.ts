@@ -51,6 +51,21 @@ export function wantsAvatarBack(text: string): boolean {
   return false;
 }
 
+/** A GARBLED list-OPEN fragment, not a real command. STT chops a turn and glues
+ * a first-person FUTURE/INTENT clause onto the reflexive imperative "show me":
+ * "I'll show me the list", "I'm gonna show me a list", "let me show me the list".
+ * A person telling 6 to open a list says "show me the list", never "I'll show me
+ * the list" -- that mashup is an ASR artifact of an incomplete utterance and must
+ * NOT open a list. Real opens ("show me the to-do list", "open my grocery list",
+ * "pull up my Walmart list") return false and pass through. (G 2026-06-14 item 3.) */
+export function isGarbledListOpen(text: string): boolean {
+  const t = String(text).trim();
+  if (!t) return false;
+  return /\b(?:i(?:'?ll| will)|i(?:'?m| am)\s+(?:gonna|going\s+to)|let\s+me)\s+show\s+me\b/i.test(
+    t,
+  );
+}
+
 /** Spoken lines for entering list mode — short, the list is the star. */
 export function voiceListEnterLine(listTitle: string, isNew: boolean): string {
   return isNew

@@ -5,6 +5,7 @@ import {
   LIST_DONE_RE,
   wantsAvatarBack,
   voiceListEnterLine,
+  isGarbledListOpen,
 } from "../../src/lib/voiceMode/intents";
 import { pcm16BytesToFloat32 } from "../../src/lib/voiceMode/pcm";
 
@@ -98,5 +99,34 @@ describe("PCM16 -> Float32", () => {
   });
   it("ignores a trailing odd byte", () => {
     expect(pcm16BytesToFloat32(new Uint8Array([0, 0, 7])).length).toBe(1);
+  });
+});
+
+describe("isGarbledListOpen — a chopped 'I'll show me' mashup must not open a list (G 2026-06-14)", () => {
+  it("flags the garbled self-show mashup, not real opens", () => {
+    for (const t of [
+      "I'll show me the list",
+      "I will show me the list",
+      "Ill show me the list",
+      "I'm gonna show me a list",
+      "I am gonna show me a list",
+      "I am going to show me the grocery list",
+      "let me show me the list",
+      "I will show me the",
+    ]) {
+      expect(isGarbledListOpen(t), t).toBe(true);
+    }
+    for (const t of [
+      "show me the list",
+      "show me the to-do list",
+      "open my grocery list",
+      "pull up my Walmart list",
+      "show me the grocery list",
+      "can you show me my todo list",
+      "I want to see my grocery list",
+      "let me see the list",
+    ]) {
+      expect(isGarbledListOpen(t), t).toBe(false);
+    }
   });
 });

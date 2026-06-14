@@ -91,6 +91,7 @@ import {
   LIST_DONE_RE as VOICE_LIST_DONE_RE,
   wantsAvatarBack,
   AVATAR_BACK_LINES,
+  isGarbledListOpen,
 } from "../lib/voiceMode/intents";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
@@ -8266,6 +8267,14 @@ const LiveAvatarSessionComponent: React.FC<{
         /\bshow (?:me )?(?:the |my )?(?:\w+ )?list\b|\bput (?:the |my )?list (?:back )?up\b|\bwhere(?:'s| is) (?:the |my )list\b/i.test(
           userText,
         ) &&
+        // ITEM 3 (G 2026-06-14): a garbled half-sentence ("I'll show me the
+        // list") or a fragment that ends mid-thought ("...show me the") must NOT
+        // open a list. isGarbledListOpen rejects the "[I'll|I'm gonna|let me] show
+        // me" mashup; endsOnDanglingWord rejects copula/modal/cut-off endings.
+        // Real opens ("show me the to-do list") pass both. On reject we fall
+        // through so the next chunk on this turn is handled normally.
+        !isGarbledListOpen(userText) &&
+        !endsOnDanglingWord(userText) &&
         assistantLists.length > 0
       ) {
         const shown = activeList ?? moveActiveList(1);
@@ -8447,6 +8456,11 @@ const LiveAvatarSessionComponent: React.FC<{
         // "Reminders To Do List"): reminder talk is cards, never lists.
         (META_TALK_RE.test(userText) ||
           /\bremind(?:er|ers)?\b/i.test(userText) ||
+          // ITEM 3 (G 2026-06-14): a chopped fragment that ends mid-thought
+          // ("start the grocery...") or the garbled self-show mashup must never
+          // CREATE/open a list either. Real creates end cleanly and pass through.
+          endsOnDanglingWord(userText) ||
+          isGarbledListOpen(userText) ||
           // G 2026-06-13: a QUESTION / "right, Six?" / "is that...correct?" about a
           // list is never a create order. Block ONLY when the turn carries no
           // explicit list command verb and no add/need signal, so real creates
