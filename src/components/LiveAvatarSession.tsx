@@ -840,6 +840,13 @@ const DELETE_CANCEL_RE =
 // DELETE_CONFIRM_RE and "close their account" hit DELETE_DATA_INTENT_RE.
 const DELETE_COACHING_RE =
   /\b(?:you should|you could|you can say|you gotta|you'?ve got to|you have to|you need to|let them|they (?:just )?(?:have to|need to)|they do want|they want to|they don'?t|when (?:someone|somebody|a user|people|they)|for example|instead of|that'?s not well|i mean,? you|say something like|you say|their account)\b/i;
+// A1 fix (G 2026-06-14): "remove the [signed-in text / box / label / line / badge /
+// email address]" is on-SCREEN cleanup, NOT an account delete. G's "remove signed
+// in as sgd@pm.me right now" wrongly armed the 30-day account-delete. Any delete/
+// remove aimed at a UI element short-circuits the data-delete intent (below).
+const DELETE_UI_CLEANUP_RE =
+  /\b(?:text|box|boxes|screen|display|label|banner|button|badge|chip|line|tag|that says|on (?:the )?screen|at the top|the part|the thing|signed[\s-]?in|sign[\s-]?in|email (?:address|line|text))\b/i;
+
 // --- Data export / download (G 2026-06-07): a signed-in user can ask for a copy
 // of everything we hold on them, especially before deleting. DATA_EXPORT_INTENT_RE
 // catches the request; the app does the fetch + browser download. ---
@@ -5323,6 +5330,9 @@ const LiveAvatarSessionComponent: React.FC<{
 
       // --- Intent phase: did they ask to delete their data / close account? ---
       if (!DELETE_DATA_INTENT_RE.test(userText)) return false;
+      // A1 fix (2026-06-14): a "remove/delete the on-screen UI" phrasing (the
+      // signed-in text, a box, a label, a line) is NOT an account delete — bail.
+      if (DELETE_UI_CLEANUP_RE.test(userText)) return false;
       // Never treat COACHING / 3rd-person talk as a real request (G 2026-06-08
       // false-close fix). The user must be asking about THEIR OWN data directly.
       if (DELETE_COACHING_RE.test(userText)) return false;
