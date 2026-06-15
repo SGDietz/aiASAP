@@ -96,3 +96,31 @@ describe("isAddOfferAffirmative: the next user turn", () => {
     expect(ADD_OFFER_NEGATE_RE.test("yes please")).toBe(false);
   });
 });
+
+describe("PATH-2 add-offer hardening (Herm TASK_012, 2026-06-14)", () => {
+  it("does not treat filler-only backchannels as an add-offer yes", () => {
+    for (const t of ["so", "well", "um", "uh"]) {
+      expect(isAddOfferAffirmative(t), t).toBe(false);
+    }
+    for (const t of [
+      "yes",
+      "yeah",
+      "sure",
+      "okay",
+      "alright",
+      "go ahead",
+      "sounds good",
+    ]) {
+      expect(isAddOfferAffirmative(t), t).toBe(true);
+    }
+  });
+
+  it("does not arm junk the brain offered, but keeps clean groceries", () => {
+    expect(parseOfferedAddItems("Want me to add Herm?")).toEqual([]);
+    expect(parseOfferedAddItems("Want me to add there?")).toEqual([]);
+    expect(parseOfferedAddItems("Want me to add milk?")).toEqual(["milk"]);
+    expect(parseOfferedAddItems("Want me to add everything bagels?")).toEqual([
+      "everything bagels",
+    ]);
+  });
+});

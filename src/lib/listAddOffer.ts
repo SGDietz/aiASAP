@@ -16,6 +16,12 @@ export const ADD_OFFER_RE =
 export const ADD_OFFER_AFFIRM_RE =
   /^[\s,.!'-]*(?:(?:well|um|uh|so|okay then|alright|all right|yes|yeah|yea|yep|yup|sure|ok|okay|please|do it|go ahead|go for it|add (?:it|them|that)|put (?:it|them|that) on|sounds good|why not|let'?s do it|absolutely|definitely)[\s,.!'-]*)+$/i;
 
+// G 2026-06-14 (Herm TASK_012; Supabase caught "so" -> Added there): a bare
+// filler ("so", "um", "uh", "well") must NOT count as a yes. Require at least
+// one REAL affirmative token alongside the whole-utterance shape above.
+export const ADD_OFFER_REAL_AFFIRM_RE =
+  /\b(?:yes|yeah|yea|yep|yup|sure|ok|okay|alright|all right|please|do it|go ahead|go for it|add (?:it|them|that)|put (?:it|them|that) on|sounds good|why not|let'?s do it|absolutely|definitely)\b/i;
+
 // Any clear negative clears the slot.
 export const ADD_OFFER_NEGATE_RE =
   /\b(?:no|nope|nah|not now|don'?t|do not|never mind|nevermind|cancel|wait|hold on|stop|leave it|skip it)\b/i;
@@ -24,7 +30,26 @@ export function isAddOfferAffirmative(text: string): boolean {
   const t = text.trim();
   if (!t) return false;
   if (ADD_OFFER_NEGATE_RE.test(t)) return false;
-  return ADD_OFFER_AFFIRM_RE.test(t);
+  return ADD_OFFER_AFFIRM_RE.test(t) && ADD_OFFER_REAL_AFFIRM_RE.test(t);
+}
+
+// G 2026-06-14 (Herm TASK_012): the brain sometimes OFFERS junk ("Want me to
+// add Herm?"). Drop agent/app/chatter words while keeping clean nouns ("milk").
+const OFFERED_ADD_JUNK_RE =
+  /^(?:there|going|caught|we|herm|claude|six|6|buddy|buddies|fix this|look|again|more|vision|been silent|obsession|people get|up people|through|except(?: for)?|same|problems?|changes?(?: here)?|clear goals|set clear goals)$/i;
+
+export function isSafeOfferedAddItem(item: string): boolean {
+  const t = item.replace(/\s+/g, " ").trim();
+  if (t.length < 2 || t.length > 40) return false;
+  if (OFFERED_ADD_JUNK_RE.test(t)) return false;
+  if (
+    /\b(?:you|your|i|me|my|we|they|them|screen|avatar|claude|herm|problem|issue)\b/i.test(
+      t,
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 // Pull the offered item(s) from 6's offer line. Cuts at the question mark / end
@@ -53,6 +78,7 @@ export function parseOfferedAddItems(spoken: string): string[] {
     )
     // Drop bare pronouns ("Want me to add it to the list?" has no real item).
     .filter((s) => !/^(?:it|them|that|those|these|this)$/i.test(s))
+    .filter(isSafeOfferedAddItem)
     .filter((s) => s.length >= 2 && s.length <= 40)
     .slice(0, 5);
 }
