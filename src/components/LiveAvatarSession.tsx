@@ -10886,7 +10886,7 @@ const LiveAvatarSessionComponent: React.FC<{
               aiASAP
             </h1>
           </div>
-          <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-semibold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
+          <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-bold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
             Take the Leap
           </p>
           {/* G 2026-06-14 ride: "Signed in as ..." chip removed on G's request
