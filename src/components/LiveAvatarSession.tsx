@@ -3338,6 +3338,22 @@ const LiveAvatarSessionComponent: React.FC<{
   // these refs hold the in-flight gesture. touch-pan-y keeps vertical scroll.
   const pinchStartRef = useRef<{ dist: number; level: number } | null>(null);
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  // G 2026-06-14 (iPad smoke: "it wants to zoom the entire app"): iOS Safari
+  // ignores the viewport user-scalable lock, so kill its pinch page-zoom gesture
+  // events here. Our own two-finger handler on the list still resizes the list.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prevent = (e: Event) => e.preventDefault();
+    const opts = { passive: false } as AddEventListenerOptions;
+    document.addEventListener("gesturestart", prevent, opts);
+    document.addEventListener("gesturechange", prevent, opts);
+    document.addEventListener("gestureend", prevent, opts);
+    return () => {
+      document.removeEventListener("gesturestart", prevent);
+      document.removeEventListener("gesturechange", prevent);
+      document.removeEventListener("gestureend", prevent);
+    };
+  }, []);
   // Persist the voice-chosen size so older eyes set it ONCE per device — and
   // onto the ACCOUNT for signed-in users so it follows them to any device
   // (G 2026-06-10). Debounced; fire-and-forget.
@@ -5162,7 +5178,7 @@ const LiveAvatarSessionComponent: React.FC<{
       filter.frequency.exponentialRampToValueAtTime(fEnd, now + dur);
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.36, now + 0.06); // G: louder whoosh
       gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
       noise.connect(filter);
       filter.connect(gain);
@@ -9337,6 +9353,14 @@ const LiveAvatarSessionComponent: React.FC<{
               !/^(?:put|add|list|get|grab|buy|throw|need|want|have|had|move|change)$/i.test(
                 it.trim(),
               ),
+          )
+          // G 2026-06-14 iPad smoke: "I want you, Herm and Claude" junk-added
+          // "Herm"/"Claude"; "figure that out also" added "Figure that out".
+          // Agent names + meta verbs are never grocery items.
+          .filter(
+            (it) =>
+              !/^(?:herm|claude)$/i.test(it.trim()) &&
+              !/^(?:figure|investigate)\b/i.test(it.trim()),
           );
         // r26 (G live 2026-06-12 08:37: "Change toothbrush to be a capital T"
         // got "I found toothbrush on the list" three times — no handler): a
