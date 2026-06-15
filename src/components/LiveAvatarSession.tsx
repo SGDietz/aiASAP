@@ -3332,40 +3332,12 @@ const LiveAvatarSessionComponent: React.FC<{
   );
   // v1 2026-05-24 (G): pillbox font 2 sizes larger. Each level = +0.06rem (list mode) or +0.1rem (open mode).
   const [promptSizeLevel, setPromptSizeLevel] = useState(loadUiSizeLevel);
-  // G 2026-06-14 ("very important"): pinch the list with two fingers to resize
-  // it on phones/iPads — drives the SAME size levels as the voice "make it
-  // bigger/smaller". touch-pan-y on the panels lets two-finger pinch fire here
-  // without the browser page-zooming; one-finger vertical scroll still works.
+  // G 2026-06-14: list touch gestures — two-finger pinch-zoom resizes the list
+  // (shared size levels), one-finger horizontal swipe flips between lists. The
+  // handlers live after moveActiveList/playWhoosh (below) so they can use both;
+  // these refs hold the in-flight gesture. touch-pan-y keeps vertical scroll.
   const pinchStartRef = useRef<{ dist: number; level: number } | null>(null);
-  const handleListTouchStart = useCallback(
-    (e: React.TouchEvent) => {
-      if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
-        pinchStartRef.current = {
-          dist: Math.hypot(dx, dy),
-          level: promptSizeLevel,
-        };
-      }
-    },
-    [promptSizeLevel],
-  );
-  const handleListTouchMove = useCallback((e: React.TouchEvent) => {
-    const start = pinchStartRef.current;
-    if (!start || e.touches.length !== 2) return;
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    const ratio = Math.hypot(dx, dy) / (start.dist || 1);
-    const steps = Math.round((ratio - 1) / 0.2);
-    const next = Math.max(
-      0,
-      Math.min(UI_CARD_SCALE.length - 1, start.level + steps),
-    );
-    setPromptSizeLevel((cur) => (cur === next ? cur : next));
-  }, []);
-  const handleListTouchEnd = useCallback(() => {
-    pinchStartRef.current = null;
-  }, []);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
   // Persist the voice-chosen size so older eyes set it ONCE per device — and
   // onto the ACCOUNT for signed-in users so it follows them to any device
   // (G 2026-06-10). Debounced; fire-and-forget.
@@ -5154,6 +5126,112 @@ const LiveAvatarSessionComponent: React.FC<{
       // Audio must never break the reveal.
     }
   }, []);
+
+  // G 2026-06-14: a soft "whoosh" when you swipe/flip between lists. Synthesized
+  // (no asset) through the same UI-sound context as the typewriter click; never
+  // routed through 6's voice. dir sweeps the filter so left/right feel distinct.
+  const playWhoosh = useCallback((dir: 1 | -1 = 1) => {
+    if (typeof window === "undefined") return;
+    try {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return;
+      if (!tickAudioCtxRef.current) tickAudioCtxRef.current = new Ctor();
+      const ctx = tickAudioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+      const now = ctx.currentTime;
+      const dur = 0.26;
+      const frameCount = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buffer = ctx.createBuffer(1, frameCount, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < frameCount; i += 1) {
+        const v = Math.sin((i + 1) * 12.9898) * 43758.5453;
+        data[i] = (v - Math.floor(v)) * 2 - 1;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.Q.value = 0.7;
+      const fStart = dir > 0 ? 600 : 1800;
+      const fEnd = dir > 0 ? 1800 : 600;
+      filter.frequency.setValueAtTime(fStart, now);
+      filter.frequency.exponentialRampToValueAtTime(fEnd, now + dur);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      noise.start(now);
+      noise.stop(now + dur);
+    } catch {
+      // UI sound must never break anything.
+    }
+  }, []);
+
+  // Flip to the prev/next list with the whoosh (shared by swipe + arrow taps).
+  const flipList = useCallback(
+    (dir: 1 | -1) => {
+      if (assistantLists.length <= 1) return;
+      moveActiveList(dir);
+      playWhoosh(dir);
+    },
+    [assistantLists.length, moveActiveList, playWhoosh],
+  );
+
+  const handleListTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchStartRef.current = {
+          dist: Math.hypot(dx, dy),
+          level: promptSizeLevel,
+        };
+        swipeStartRef.current = null;
+      } else if (e.touches.length === 1) {
+        swipeStartRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
+      }
+    },
+    [promptSizeLevel],
+  );
+  const handleListTouchMove = useCallback((e: React.TouchEvent) => {
+    const start = pinchStartRef.current;
+    if (!start || e.touches.length !== 2) return;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const ratio = Math.hypot(dx, dy) / (start.dist || 1);
+    const steps = Math.round((ratio - 1) / 0.2);
+    const next = Math.max(
+      0,
+      Math.min(UI_CARD_SCALE.length - 1, start.level + steps),
+    );
+    setPromptSizeLevel((cur) => (cur === next ? cur : next));
+  }, []);
+  const handleListTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      pinchStartRef.current = null;
+      const swipe = swipeStartRef.current;
+      swipeStartRef.current = null;
+      if (!swipe) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - swipe.x;
+      const dy = t.clientY - swipe.y;
+      // Only a deliberate HORIZONTAL flick flips lists — vertical stays scroll.
+      if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      flipList(dx < 0 ? 1 : -1); // swipe left = next list
+    },
+    [flipList],
+  );
 
   // FIX (2026-06-01): reveal `addedChars` on the chest ONE character at a time,
   // playing a typewriter click per letter. Resolves once the full accumulated
@@ -11458,6 +11536,34 @@ const LiveAvatarSessionComponent: React.FC<{
                   </p>
                 )}
               </div>
+              {/* G 2026-06-14: more than one list -> tap ‹ › (desktop/laptop)
+                  or swipe sideways (touch) to flip between them, with a whoosh.
+                  Shows which list you're on (2 / 3). */}
+              {assistantLists.length > 1 && (
+                <div className="mt-3 flex items-center justify-center gap-3 text-[#f1c87e]">
+                  <button
+                    type="button"
+                    aria-label="Previous list"
+                    title="Previous list"
+                    onClick={() => flipList(-1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e0aa62]/45 bg-[#241608]/75 text-2xl font-black leading-none backdrop-blur-[2px] transition hover:scale-110"
+                  >
+                    ‹
+                  </button>
+                  <span className="text-sm font-black tracking-wide">
+                    {Math.max(1, assistantLists.findIndex((l) => l.id === activeListId) + 1)} / {assistantLists.length}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Next list"
+                    title="Next list"
+                    onClick={() => flipList(1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e0aa62]/45 bg-[#241608]/75 text-2xl font-black leading-none backdrop-blur-[2px] transition hover:scale-110"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
