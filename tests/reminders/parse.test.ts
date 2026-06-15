@@ -181,3 +181,33 @@ describe("parseTimeOnly — the bare answer after 'When should I remind you?'", 
     ).toBe(null);
   });
 });
+
+// G 2026-06-14: "they will be reminded every day until they stop it."
+describe("daily recurring reminders", () => {
+  it("G's trash phrasing repeats daily and keeps a clean title", () => {
+    const r = parseReminder("remind me to take the trash out every day at 10am", NOW);
+    expect(r?.title).toBe("take the trash out");
+    expect(r?.recurrence).toBe("daily");
+    expect(r?.dueAt).toEqual(new Date(2026, 5, 11, 10, 0, 0));
+    expect(r?.whenSpoken).toBe("every day at 10:00 AM");
+  });
+
+  it("morning/night daily phrasing works without an explicit clock", () => {
+    const morning = parseReminder("remind me to take vitamins every morning", NOW);
+    expect(morning?.title).toBe("take vitamins");
+    expect(morning?.recurrence).toBe("daily");
+    expect(morning?.dueAt).toEqual(new Date(2026, 5, 11, 9, 0, 0));
+    expect(morning?.whenSpoken).toBe("every morning at 9:00 AM");
+
+    const night = parseReminder("remind me to lock the door each night", NOW);
+    expect(night?.title).toBe("lock the door");
+    expect(night?.recurrence).toBe("daily");
+    expect(night?.dueAt).toEqual(new Date(2026, 5, 10, 20, 0, 0));
+    expect(night?.whenSpoken).toBe("every night at 8:00 PM");
+  });
+
+  it("one-shot reminders keep recurrence null", () => {
+    const r = parseReminder("remind me to call Bob tomorrow at 9", NOW);
+    expect(r?.recurrence).toBe(null);
+  });
+});

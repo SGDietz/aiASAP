@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getUser, getUserId } from "../../../src/lib/auth/getUser";
 import { getSupabaseAdminConfig } from "../../../src/lib/supabaseAdmin";
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
     dueAtIso?: unknown;
     timezone?: unknown;
     sessionId?: unknown;
+    recurrence?: unknown;
   };
   try {
     body = await request.json();
@@ -50,6 +52,7 @@ export async function POST(request: Request) {
     typeof body.dueAtIso === "string" && !Number.isNaN(Date.parse(body.dueAtIso))
       ? new Date(body.dueAtIso).toISOString()
       : null;
+  const recurrence = body.recurrence === "daily" ? "daily" : null;
 
   const { url, serviceRoleKey } = getSupabaseAdminConfig();
   const user = await getUser();
@@ -77,6 +80,8 @@ export async function POST(request: Request) {
       raw_text: typeof body.rawText === "string" ? body.rawText.slice(0, 500) : null,
       due_at: dueAtIso,
       timezone,
+      recurrence,
+      cancel_token: randomUUID(),
       status: "pending",
     }),
   });

@@ -5720,6 +5720,7 @@ const LiveAvatarSessionComponent: React.FC<{
             title: parsed.title,
             rawText: userText.slice(0, 500),
             dueAtIso: parsed.dueAt ? parsed.dueAt.toISOString() : null,
+            recurrence: parsed.recurrence,
             // Voice-set zone beats the device clock (timezone ladder 2026-06-11).
             timezone:
               sessionTimezoneRef.current ??

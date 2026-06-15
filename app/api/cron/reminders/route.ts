@@ -24,7 +24,47 @@ function authorized(request: Request): boolean {
   return false;
 }
 
-function reminderEmailHtml(title: string, whenText: string): string {
+function escapeHtml(value: string): string {
+  return (
+    value.replace(
+      /[&<>"']/g,
+      (ch) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[ch] ?? ch,
+    )
+  );
+}
+
+function publicBaseUrl(request: Request): string {
+  const configured =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+  return (configured || new URL(request.url).origin).replace(/\/$/, "");
+}
+
+function nextDailyDueAtIso(dueAtIso: string): string {
+  const next = new Date(dueAtIso);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString();
+}
+
+function reminderEmailHtml(
+  title: string,
+  whenText: string,
+  cancelUrl?: string | null,
+): string {
+  const safeTitle = escapeHtml(title);
+  const safeWhenText = escapeHtml(whenText);
+  const safeCancelUrl = cancelUrl ? escapeHtml(cancelUrl) : null;
+  const stopButton = safeCancelUrl
+    ? `<p class="stopwrap"><a class="stopbtn" href="${safeCancelUrl}">Stop these reminders</a></p>`
+    : "";
   // Same skeleton as the G-locked magic-link email (src/lib/magicLinkEmail.ts):
   // dark radial wrap, framed card, wordmark + TAKE THE LEAP, 6's photo, SOLID
   // gold text (never background-clip:text — it goes invisible on Android
@@ -52,6 +92,8 @@ function reminderEmailHtml(title: string, whenText: string): string {
   h1 { font-size:26px; color:#f1c87e; margin:6px 0 10px; font-weight:800; }
   .when { font-size:15px; color:#d9a85e; margin:0 0 8px; }
   .sig { font-size:17px; font-weight:800; color:#f1c87e; margin:24px 0 0; }
+  .stopwrap { margin:24px 0 0; }
+  .stopbtn { display:inline-block; padding:13px 20px; border-radius:999px; background:#d7a05a; background:linear-gradient(135deg,#ffe9c2 0%,#d7a05a 58%,#3a2108 100%); color:#160c04 !important; font-weight:900; text-decoration:none; box-shadow:0 10px 26px rgba(215,160,90,.25); }
   .divider { height:1px; width:70%; margin:30px auto 0; background:#4a2f14; }
   .fine { font-size:13px; line-height:1.55; margin-top:22px; color:#a98a63; }
   .foot { text-align:center; padding:22px 20px 4px; font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif; font-size:12px; line-height:1.7; color:#b39a50; }
@@ -66,9 +108,10 @@ function reminderEmailHtml(title: string, whenText: string): string {
         <div class="tag">Take the Leap</div>
         <span class="sixwrap"><img src="https://wqszxsqzkaatghyrqviv.supabase.co/storage/v1/object/public/email-assets/startscreen_trim.png" alt="6, your a-i-buddy" class="six"></span>
         <p class="lead">6 here &mdash; you asked me not to let you forget:</p>
-        <h1>${title}</h1>
-        <p class="when">${whenText}</p>
+        <h1>${safeTitle}</h1>
+        <p class="when">${safeWhenText}</p>
         <p class="sig">You talked, I remembered. &#129309;</p>
+        ${stopButton}
         <div class="divider"></div>
         <p class="fine">You set this reminder by voice. Want another? Just come talk to me.</p>
       </div>
@@ -93,11 +136,13 @@ export async function GET(request: Request) {
     "Content-Type": "application/json",
   };
 
+  const baseUrl = publicBaseUrl(request);
+
   // Due now (small grace window back 24h so an outage never silently drops one).
   const nowIso = new Date().toISOString();
   const floorIso = new Date(Date.now() - 24 * 3600_000).toISOString();
   const dueRes = await fetch(
-    `${url}/rest/v1/reminders?status=eq.pending&auth_user_id=not.is.null&due_at=lte.${encodeURIComponent(nowIso)}&due_at=gte.${encodeURIComponent(floorIso)}&select=id,auth_user_id,title,due_at,timezone&limit=50`,
+    `${url}/rest/v1/reminders?status=eq.pending&auth_user_id=not.is.null&due_at=lte.${encodeURIComponent(nowIso)}&due_at=gte.${encodeURIComponent(floorIso)}&select=id,auth_user_id,title,due_at,timezone,recurrence,cancel_token&limit=50`,
     { headers },
   );
   if (!dueRes.ok) {
@@ -109,6 +154,8 @@ export async function GET(request: Request) {
     title: string;
     due_at: string;
     timezone: string | null;
+    recurrence: "daily" | null;
+    cancel_token: string | null;
   }>;
 
   let sent = 0;
@@ -139,10 +186,15 @@ export async function GET(request: Request) {
       // until G's number + A2P land); email is the fallback either way.
       let channel: "sms" | "email" | null = null;
       let recipient = "";
+      // Recurring reminders carry a one-click STOP link (G 2026-06-14).
+      const cancelUrl =
+        r.recurrence === "daily" && r.cancel_token
+          ? `${baseUrl}/api/reminders/cancel?token=${encodeURIComponent(r.cancel_token)}`
+          : null;
       if (phone && twilioConfigured()) {
         const smsOk = await sendTwilioSms({
           to: phone,
-          body: `6 here — don't forget: ${r.title} (${whenText}). You talked, I remembered. — aiASAP`,
+          body: `6 here — don't forget: ${r.title} (${whenText}). You talked, I remembered.${cancelUrl ? ` Stop: ${cancelUrl}` : ""} — aiASAP`,
         });
         if (smsOk) { channel = "sms"; recipient = phone; }
       }
@@ -150,8 +202,9 @@ export async function GET(request: Request) {
         const ok = await sendResendEmail({
           to: user.email,
           subject: `Don't forget: ${r.title}`,
-          html: reminderEmailHtml(r.title, whenText),
-          idempotencyKey: `reminder:${r.id}`,
+          html: reminderEmailHtml(r.title, whenText, cancelUrl),
+          // Per-occurrence key so a DAILY reminder isn't suppressed after day 1.
+          idempotencyKey: `reminder:${r.id}:${r.due_at}`,
         });
         if (ok) { channel = "email"; recipient = user.email; }
       }
@@ -165,15 +218,20 @@ export async function GET(request: Request) {
           channel,
           recipient,
           template_id: "reminder",
-          context: { reminder_id: r.id, title: r.title, due_at: r.due_at },
+          context: { reminder_id: r.id, title: r.title, due_at: r.due_at, recurrence: r.recurrence },
           status: "sent",
         }),
       }).catch(() => {});
 
+      // Daily reminders roll forward one day and stay pending; one-shots finish.
+      const reminderPatch =
+        r.recurrence === "daily"
+          ? { due_at: nextDailyDueAtIso(r.due_at), updated_at: new Date().toISOString() }
+          : { status: "done", updated_at: new Date().toISOString() };
       await fetch(`${url}/rest/v1/reminders?id=eq.${encodeURIComponent(r.id)}`, {
         method: "PATCH",
         headers: { ...headers, Prefer: "return=minimal" },
-        body: JSON.stringify({ status: "done", updated_at: new Date().toISOString() }),
+        body: JSON.stringify(reminderPatch),
       });
       sent++;
     } catch (e) {

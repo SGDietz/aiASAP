@@ -29,6 +29,8 @@ export const REMINDER_LIST_RE =
 export const REMINDER_DONE_RE =
   /\b(?:done with|finished|completed?|did|cancel|delete|remove|clear)\b[^.?!]{0,40}\breminder\b|\breminder\b[^.?!]{0,30}\b(?:done|finished|cancel(?:led)?|delete|remove)\b/i;
 
+export type ReminderRecurrence = "daily";
+
 export type ParsedReminder = {
   /** Cleaned task text, e.g. "call the dentist". Empty string = unparseable. */
   title: string;
@@ -40,12 +42,69 @@ export type ParsedReminder = {
    * Anonymous users who ask for email/text need the honest coaching line —
    * 6 promised G an email on 2026-06-11 that could never send. */
   askedChannel: "email" | "sms" | null;
+  /** Repeat rule (G 2026-06-14: "every day until they stop it"). v1 = daily;
+   * null = one-shot. */
+  recurrence: ReminderRecurrence | null;
 };
 
 function detectAskedChannel(text: string): "email" | "sms" | null {
   if (/\b(?:text me|send me (?:a )?(?:text|message)|shoot me a text)\b/i.test(text)) return "sms";
   if (/\b(?:email me|send me (?:an? )?email|shoot me (?:an? )?email)\b/i.test(text)) return "email";
   return null;
+}
+
+// Daily recurrence (G 2026-06-14: "they will be reminded every day until they
+// stop it"). v1 = daily only. A day-part word ("every morning") also sets a
+// default clock so a no-time daily ask still fires.
+type RecurrenceDetection = {
+  recurrence: ReminderRecurrence | null;
+  matched: string[];
+  daypart: "morning" | "afternoon" | "evening" | "night" | null;
+};
+
+const NO_RECURRENCE: RecurrenceDetection = {
+  recurrence: null,
+  matched: [],
+  daypart: null,
+};
+
+const DAILY_RECURRENCE_RE =
+  /\b(?:every(?:\s+single)?\s+day|each\s+day|daily|every\s+morning|each\s+morning|every\s+afternoon|each\s+afternoon|every\s+evening|each\s+evening|every\s+night|each\s+night)\b/i;
+
+function detectReminderRecurrence(text: string): RecurrenceDetection {
+  const m = text.match(DAILY_RECURRENCE_RE);
+  if (!m) return NO_RECURRENCE;
+  const phrase = m[0];
+  const lower = phrase.toLowerCase();
+  const daypart = lower.includes("morning")
+    ? "morning"
+    : lower.includes("afternoon")
+      ? "afternoon"
+      : lower.includes("evening")
+        ? "evening"
+        : lower.includes("night")
+          ? "night"
+          : null;
+  return { recurrence: "daily", matched: [phrase], daypart };
+}
+
+function defaultDailyDaypartClock(
+  daypart: RecurrenceDetection["daypart"],
+): { h: number; m: number; spoken: string } | null {
+  if (daypart === "morning") return { h: 9, m: 0, spoken: "9:00 AM" };
+  if (daypart === "afternoon") return { h: 15, m: 0, spoken: "3:00 PM" };
+  if (daypart === "evening") return { h: 18, m: 0, spoken: "6:00 PM" };
+  if (daypart === "night") return { h: 20, m: 0, spoken: "8:00 PM" };
+  return null;
+}
+
+function recurrenceWhenSpoken(
+  whenSpoken: string | null,
+  recurrence: RecurrenceDetection,
+): string | null {
+  if (recurrence.recurrence !== "daily" || !whenSpoken) return whenSpoken;
+  if (/^every\b/i.test(whenSpoken)) return whenSpoken;
+  return whenSpoken.replace(/^(?:today|tomorrow) at /i, "every day at ");
 }
 
 // r18 (G's 12:48 session): "send me an email SAYING don't forget about 4th of
@@ -167,10 +226,27 @@ function addDays(base: Date, days: number): Date {
 function parseWhen(
   text: string,
   now: Date,
+  recurrence: RecurrenceDetection = NO_RECURRENCE,
 ): { dueAt: Date | null; matched: string[]; whenSpoken: string | null } {
   const matched: string[] = [];
   const clock = parseClock(text);
   if (clock) matched.push(text.match(/\bat\s+[^\s,.]+(?:\s*(?:a\.?m\.?|p\.?m\.?|o'?clock))?/i)?.[0] ?? "");
+
+  // "every morning" / "each night" are real daily reminders even without an
+  // explicit clock — give them a sensible default time.
+  if (recurrence.recurrence === "daily" && recurrence.daypart) {
+    const daypartClock = clock ?? defaultDailyDaypartClock(recurrence.daypart);
+    if (daypartClock) {
+      matched.push(...recurrence.matched);
+      let dueAt = at(now, daypartClock.h, daypartClock.m);
+      if (dueAt <= now) dueAt = at(addDays(now, 1), daypartClock.h, daypartClock.m);
+      return {
+        dueAt,
+        matched,
+        whenSpoken: `every ${recurrence.daypart} at ${daypartClock.spoken}`,
+      };
+    }
+  }
 
   // "in 20 minutes / in two hours / in 3 days / in half an hour"
   const rel = text.match(
@@ -363,18 +439,22 @@ export function fmtReminderDue(iso: string): string {
  */
 export function parseReminder(text: string, now: Date): ParsedReminder | null {
   if (REMINDER_NEGATION_RE.test(text)) return null;
+  const recurrence = detectReminderRecurrence(text);
   const emailMeAsk = EMAIL_ME_TRIGGER_RE.test(text);
   if (!REMINDER_TRIGGER_RE.test(text)) {
     // The email-me form only counts WITH a clear time — "email me your
     // pricing" is a conversation, "email me at 9 to take out the trash" is a
     // reminder.
     if (!emailMeAsk) return null;
-    const when = parseWhen(text, now);
+    const when = parseWhen(text, now, recurrence);
     if (!when.dueAt) return null;
     let title = text
       .replace(EMAIL_ME_TRIGGER_RE, " ")
       .replace(/^[\s\S]*?\b(?:can|could|will|would|please)\s+you\b/i, " ");
     for (const piece of when.matched) {
+      if (piece) title = title.replace(piece, " ");
+    }
+    for (const piece of recurrence.matched) {
       if (piece) title = title.replace(piece, " ");
     }
     title = polishTitle(
@@ -384,16 +464,25 @@ export function parseReminder(text: string, now: Date): ParsedReminder | null {
         .replace(/^[\s,]*(?:to say|that says|saying|reminding me to|reminding me|about|to|that)\b/i, " ")
         .replace(/^[\s,]*(?:please|can you|could you)\b/i, " "),
     );
-    return { title, dueAt: when.dueAt, whenSpoken: when.whenSpoken, askedChannel: detectAskedChannel(text) };
+    return {
+      title,
+      dueAt: when.dueAt,
+      whenSpoken: recurrenceWhenSpoken(when.whenSpoken, recurrence),
+      askedChannel: detectAskedChannel(text),
+      recurrence: recurrence.recurrence,
+    };
   }
 
-  const when = parseWhen(text, now);
+  const when = parseWhen(text, now, recurrence);
 
   // TITLE: text after the trigger, minus the time phrases and lead-in filler.
   let title = text
     .replace(/^[\s\S]*?\b(?:remind me|set (?:a |up a )?reminder|don'?t let me forget|help me remember|remember (?:for me )?)\b/i, "")
     .replace(/^\s*(?:to|about|that|for)\b/i, "");
   for (const piece of when.matched) {
+    if (piece) title = title.replace(piece, " ");
+  }
+  for (const piece of recurrence.matched) {
     if (piece) title = title.replace(piece, " ");
   }
   // The lead-in can reappear once the time phrase is gone ("remind me in an
@@ -405,5 +494,11 @@ export function parseReminder(text: string, now: Date): ParsedReminder | null {
       .replace(/\bon\s*$/i, " "),
   );
 
-  return { title, dueAt: when.dueAt, whenSpoken: when.whenSpoken, askedChannel: detectAskedChannel(text) };
+  return {
+    title,
+    dueAt: when.dueAt,
+    whenSpoken: recurrenceWhenSpoken(when.whenSpoken, recurrence),
+    askedChannel: detectAskedChannel(text),
+    recurrence: recurrence.recurrence,
+  };
 }
