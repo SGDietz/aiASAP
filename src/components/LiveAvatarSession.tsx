@@ -3796,28 +3796,28 @@ const LiveAvatarSessionComponent: React.FC<{
       : listScrollRef.current;
     if (!container) return;
 
+    // G 2026-06-14: ONLY auto-scroll when an item is actually ADDED. Mentions
+    // (6 referencing an existing item) and other re-renders must NOT yank the
+    // list — that was the "it jumped to number 6 and then went back" bug.
     const focus = latestListMutationRef.current;
+    if (focus?.listId !== activeList.id || !focus.item || focus.action !== "add") {
+      return;
+    }
     requestAnimationFrame(() => {
-      if (
-        focus?.listId === activeList.id &&
-        focus.item &&
-        (focus.action === "add" || focus.action === "mention")
-      ) {
-        const itemIndex = activeList.items.findIndex((item) =>
-          itemKeysMatch(item, focus.item ?? ""),
-        );
-        const row =
-          itemIndex >= 0
-            ? container.querySelector<HTMLElement>(
-                `[data-list-index="${itemIndex}"]`,
-              )
-            : null;
-        if (row) {
-          row.scrollIntoView({ block: "center", behavior: "smooth" });
-          return;
-        }
+      const itemIndex = activeList.items.findIndex((item) =>
+        itemKeysMatch(item, focus.item ?? ""),
+      );
+      const row =
+        itemIndex >= 0
+          ? container.querySelector<HTMLElement>(
+              `[data-list-index="${itemIndex}"]`,
+            )
+          : null;
+      if (row) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+      } else {
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
       }
-      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     });
   }, [activeList, isShoppingMode, listFocusNonce]);
 
