@@ -105,6 +105,7 @@ import {
 import { isClearAllCommand } from "../lib/listClear";
 import { parseReorderCommand } from "../lib/listReorder";
 import { detectColorTarget } from "../lib/listColorTarget";
+import { isPlausibleListItem } from "../lib/listItemSanity";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
 import {
@@ -9348,20 +9349,11 @@ const LiveAvatarSessionComponent: React.FC<{
           )
           // G 2026-06-14 ride: a bare command/add verb said alone ("Yeah, put,
           // um" -> "Added Put") is never a grocery item.
-          .filter(
-            (it) =>
-              !/^(?:put|add|list|get|grab|buy|throw|need|want|have|had|move|change)$/i.test(
-                it.trim(),
-              ),
-          )
-          // G 2026-06-14 iPad smoke: "I want you, Herm and Claude" junk-added
-          // "Herm"/"Claude"; "figure that out also" added "Figure that out".
-          // Agent names + meta verbs are never grocery items.
-          .filter(
-            (it) =>
-              !/^(?:herm|claude)$/i.test(it.trim()) &&
-              !/^(?:figure|investigate)\b/i.test(it.trim()),
-          );
+          // G 2026-06-14: ONE tested sanity gate at the chokepoint — a real item
+          // is a short noun-ish thing, never a name/pronoun/meta/app-term/scrap.
+          // This is the answer to "why do non-walmart things keep coming up."
+          // Corpus: tests/lists/itemSanity.test.ts.
+          .filter(isPlausibleListItem);
         // r26 (G live 2026-06-12 08:37: "Change toothbrush to be a capital T"
         // got "I found toothbrush on the list" three times — no handler): a
         // capital-letter ask fixes the whole list. New adds auto-cap now, so
