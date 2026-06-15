@@ -3332,6 +3332,40 @@ const LiveAvatarSessionComponent: React.FC<{
   );
   // v1 2026-05-24 (G): pillbox font 2 sizes larger. Each level = +0.06rem (list mode) or +0.1rem (open mode).
   const [promptSizeLevel, setPromptSizeLevel] = useState(loadUiSizeLevel);
+  // G 2026-06-14 ("very important"): pinch the list with two fingers to resize
+  // it on phones/iPads — drives the SAME size levels as the voice "make it
+  // bigger/smaller". touch-pan-y on the panels lets two-finger pinch fire here
+  // without the browser page-zooming; one-finger vertical scroll still works.
+  const pinchStartRef = useRef<{ dist: number; level: number } | null>(null);
+  const handleListTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchStartRef.current = {
+          dist: Math.hypot(dx, dy),
+          level: promptSizeLevel,
+        };
+      }
+    },
+    [promptSizeLevel],
+  );
+  const handleListTouchMove = useCallback((e: React.TouchEvent) => {
+    const start = pinchStartRef.current;
+    if (!start || e.touches.length !== 2) return;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const ratio = Math.hypot(dx, dy) / (start.dist || 1);
+    const steps = Math.round((ratio - 1) / 0.2);
+    const next = Math.max(
+      0,
+      Math.min(UI_CARD_SCALE.length - 1, start.level + steps),
+    );
+    setPromptSizeLevel((cur) => (cur === next ? cur : next));
+  }, []);
+  const handleListTouchEnd = useCallback(() => {
+    pinchStartRef.current = null;
+  }, []);
   // Persist the voice-chosen size so older eyes set it ONCE per device — and
   // onto the ACCOUNT for signed-in users so it follows them to any device
   // (G 2026-06-10). Debounced; fire-and-forget.
@@ -11270,7 +11304,10 @@ const LiveAvatarSessionComponent: React.FC<{
 
           {showActiveList && isShoppingMode && (
             <div
-              className="fixed left-1/2 z-[80] flex -translate-x-1/2 flex-col overflow-hidden rounded-[2rem] border border-[#e0aa62]/45 px-4 pb-4 pt-4 shadow-[0_0_0_1px_rgba(215,160,90,0.25)]"
+              className="fixed left-1/2 z-[80] flex -translate-x-1/2 flex-col overflow-hidden rounded-[2rem] border border-[#e0aa62]/45 px-4 pb-4 pt-4 shadow-[0_0_0_1px_rgba(215,160,90,0.25)] touch-pan-y"
+              onTouchStart={handleListTouchStart}
+              onTouchMove={handleListTouchMove}
+              onTouchEnd={handleListTouchEnd}
               style={{
                 // r20 (G screenshot: "the list should only be the size of the
                 // avatar, not the whole screen"): the list lives exactly where
@@ -11433,7 +11470,10 @@ const LiveAvatarSessionComponent: React.FC<{
             !listIndexOnChest &&
             showActiveList && (
               <div
-                className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md"
+                className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md touch-pan-y"
+                onTouchStart={handleListTouchStart}
+                onTouchMove={handleListTouchMove}
+                onTouchEnd={handleListTouchEnd}
                 style={{
                   ...compactListPanelStyle,
                   top: "calc(var(--stage-top) + var(--stage-height) * 0.47)",
