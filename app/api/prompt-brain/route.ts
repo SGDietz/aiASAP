@@ -6,6 +6,10 @@ import {
 import { checkRateLimit } from "../../../src/lib/rateLimit";
 import { normalizeTesterLabel } from "../../../src/lib/testerAttribution";
 import { OPENAI_API_KEY } from "../secrets";
+import {
+  getListContextPrompts,
+  normalizeListContext,
+} from "../../../src/lib/promptBrain/listContextPrompts";
 
 const OPENAI_MODEL =
   process.env.OPENAI_PROMPT_BRAIN_MODEL ||
@@ -136,13 +140,6 @@ export async function POST(request: Request) {
   const rateLimitErr = await checkRateLimit(request);
   if (rateLimitErr) return rateLimitErr;
 
-  if (!OPENAI_API_KEY) {
-    return new Response(JSON.stringify({ prompts: FALLBACK_PROMPTS }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
   try {
     const body = await request.json();
     const latestUserText =
@@ -171,6 +168,29 @@ export async function POST(request: Request) {
         ? body.sessionId
         : null;
     const testerLabel = normalizeTesterLabel(body.testerLabel);
+
+    // G 2026-06-14 ("when do prompts become things people NEED on their lists?"):
+    // when a list is on screen, return list-relevant pills (Add Toothpaste/Milk/
+    // Eggs, Find Deals) deterministically — BEFORE any OpenAI call — so they
+    // never fall back to the life-goals. (Herm TASK_013.)
+    const listContext = normalizeListContext(body.listContext);
+    if (listContext) {
+      const prompts = normalizePrompts(getListContextPrompts(listContext));
+      console.log(
+        `[prompt-brain] list-context pills for ${sessionId ? sessionId.substring(0, 8) : "NULL"}: ${prompts.join(" | ")}`,
+      );
+      return new Response(JSON.stringify({ prompts }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (!OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ prompts: FALLBACK_PROMPTS }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (!latestUserText && recentUserTexts.length === 0) {
       return new Response(JSON.stringify({ prompts: FALLBACK_PROMPTS }), {

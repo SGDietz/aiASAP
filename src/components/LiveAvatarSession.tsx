@@ -3525,8 +3525,21 @@ const LiveAvatarSessionComponent: React.FC<{
   // r29 telemetry: ref mirror so fire-and-forget bug reports can snapshot the
   // on-screen list from inside stale-closure callbacks.
   const activeListSnapshotRef = useRef<string[] | null>(null);
+  // G 2026-06-14: prompt-brain list context (title + items) as a ref so the
+  // delayed/stable brain callback always reads the CURRENT visible list (the
+  // pills become list-relevant — "Add Toothpaste" — not the life-goals).
+  const activeListPromptContextRef = useRef<{
+    title: string;
+    items: string[];
+  } | null>(null);
   useEffect(() => {
     activeListSnapshotRef.current = activeList ? [...activeList.items] : null;
+    activeListPromptContextRef.current = activeList
+      ? {
+          title: activeList.title,
+          items: activeList.items.slice(0, MAX_LIST_ITEMS),
+        }
+      : null;
     activeListIdLiveRef.current = activeListId;
     // G 2026-06-13 ("can you see all that are written on the lists, not just what
     // I describe?"): log the FULL list so telemetry always shows the exact items,
@@ -3907,6 +3920,11 @@ const LiveAvatarSessionComponent: React.FC<{
           latestUserText,
           recentUserTexts,
           currentPrompts: fallbackPrompts,
+          // G 2026-06-14: when a list is on screen, send it so the pills become
+          // list-relevant ("Add Toothpaste") instead of the life-goals.
+          ...(activeListPromptContextRef.current
+            ? { listContext: activeListPromptContextRef.current }
+            : {}),
           sessionId: dbSessionIdRef.current,
           testerLabel: testerLabelRef.current,
         }),
