@@ -107,6 +107,12 @@ import { parseReorderCommand } from "../lib/listReorder";
 import { detectColorTarget } from "../lib/listColorTarget";
 import { isPlausibleListItem } from "../lib/listItemSanity";
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
+import {
+  bindSessionListener,
+  isLikelyIncompleteSpeechFragment,
+  resolveTurnIntake,
+  type PendingSpeechFragment,
+} from "../lib/voiceMode/turnIntake";
 import { isDuplicateUtterance } from "../lib/speech/dedupe";
 import {
   LIST_INDEX_RE,
@@ -675,62 +681,10 @@ function getLookupPreferenceQuestion(query: string | null | undefined): string {
   return "Got it. What are the things you really like to do?";
 }
 
-// G 2026-06-13 ("6 talks over me"): LiveAvatar's server STT fires a
-// user-transcription on short mid-sentence pauses even at turn_eagerness
-// "patient" (the API ceiling). When the fragment clearly ends on a DANGLING
-// FUNCTION WORD that almost never ends a real, finished thought (and/but/so/
-// the/a/to/of/with/I'm/I'll/I've/gonna/um/uh), forwarding it to the brain
-// makes 6 answer a half-thought with filler. TRUE = this is an obviously
-// incomplete fragment; suppress the spoken reply and wait for the next chunk
-// (which arrives on the SAME serialized turn chain and is answered normally).
-// Deliberately TIGHT: this/that/it/on/in/for/of/like/need/be/me/you are
-// EXCLUDED because they routinely END complete turns ("what is this", "turn
-// it on", "tell me what you need") — better to let a rare borderline fragment
-// through than to swallow a real turn. Greetings, banter, and every list
-// command ("add milk", "close the list", "switch to grocery list") return
-// false and are unaffected.
+// Compatibility wrapper for list-intent defense-in-depth. The authoritative
+// gate now lives in a pure, regression-tested seam and runs before every intent.
 function endsOnDanglingWord(text: string): boolean {
-  const t = text.trim();
-  if (!t) return false;
-  // (A) the original dangling FUNCTION-word ending (any length).
-  if (
-    /\b(?:and|but|so|because|the|a|an|to|of|with|i'?m|i'?ll|i'?ve|gonna|um|uh|er)\s*$/i.test(
-      t,
-    )
-  ) {
-    return true;
-  }
-  // (B) G 2026-06-14 ("they need to be" → 6 spat "Go ahead."): the STT also
-  // chops musings that end on a COPULA, a modal-to, or a bare pronoun
-  // ("they need to be", "it is", "I want to be", "they need to", "he was").
-  // These are ONLY treated as incomplete when the whole fragment is very short
-  // (<=4 words) — long, finished turns routinely end this way ("tell me who you
-  // are", "leave it the way it was", "I want some shirts and pants") and MUST
-  // still pass through to the brain.
-  const wordCount = t.split(/\s+/).filter(Boolean).length;
-  if (
-    wordCount <= 4 &&
-    /\b(?:is|are|was|were|be|been|being|am|need(?:s|ed)?\s+to(?:\s+be)?|want(?:s|ed)?\s+to(?:\s+be)?|have\s+to|has\s+to|had\s+to|going\s+to|about\s+to|trying\s+to|like\s+to)\s*$/i.test(
-      t,
-    )
-  ) {
-    return true;
-  }
-  // "you" deliberately EXCLUDED: short finished banter ends on it constantly
-  // ("how are you", "thank you", "who are you", "is that you") and must reach
-  // the brain so 6 still answers a greeting — suppressing it would re-create the
-  // SILENT-6 bug class. Only the truly-trailing pronouns are treated as cut off.
-  if (wordCount <= 4 && /\b(?:they|he|she|we)\s*$/i.test(t)) {
-    return true;
-  }
-  // (C) a trailing bare "I" is a trail-off at ANY length ("can you help oh I",
-  // "yeah I'm" is already caught above) — "I" never ends a finished command.
-  // \bi\s*$ requires "i" on its own word boundary, so "chai"/"wifi"/"hawaii"
-  // (which end in the letter i mid-word) are untouched.
-  if (/\bi\s*$/i.test(t)) {
-    return true;
-  }
-  return false;
+  return isLikelyIncompleteSpeechFragment(text);
 }
 
 function isLookupPreferenceFiller(text: string): boolean {
@@ -3175,14 +3129,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const fallbackImageInputRef = useRef<HTMLInputElement>(null);
   const isDebugProcessingRef = useRef<boolean>(false);
   const lastAvatarResponseRef = useRef<string>("");
-  // G 2026-06-14: the last user fragment we SUPPRESSED as a dangling musing
-  // (endsOnDanglingWord), so we never let a filler-shaped half-thought reach the
-  // brain twice in a row. When two incomplete chunks arrive back to back
-  // ("the Okay so" → "there was a"), both are dropped silently; the brain only
-  // ever speaks once the user actually finishes a thought.
-  const lastDanglingSuppressRef = useRef<{ text: string; at: number } | null>(
-    null,
-  );
+  // Partial STT finals are held and stitched before any name/list/brain intent.
+  const pendingSpeechFragmentRef = useRef<PendingSpeechFragment | null>(null);
+  useEffect(() => {
+    pendingSpeechFragmentRef.current = null;
+  }, [sessionEpoch]);
   const lastUserTextRef = useRef<string>("");
   // The immediately-preceding user speech fragment + when it arrived. Used to
   // stitch STT chunks of the SAME utterance back together before deciding a
@@ -8248,7 +8199,8 @@ const LiveAvatarSessionComponent: React.FC<{
 
   // Listen to user transcriptions and handle verbal questions in streaming mode (Go Live)
   useEffect(() => {
-    if (!sessionRef.current) {
+    const listenerSession = sessionRef.current;
+    if (!listenerSession) {
       return;
     }
 
@@ -8294,11 +8246,22 @@ const LiveAvatarSessionComponent: React.FC<{
       return turnChainRef.current;
     };
     const processUserTurn = async (event: { text: string }) => {
-      const userText = event.text.trim();
-      logAppEvent("t6", { p: "ht_pu_start", pres: voicePresenceRef.current, len: userText.length });
-      if (isInternalSignal(userText)) {
+      const rawUserText = event.text.trim();
+      logAppEvent("t6", { p: "ht_pu_start", pres: voicePresenceRef.current, len: rawUserText.length });
+      if (isInternalSignal(rawUserText)) {
         return;
       }
+      const intakeNow = Date.now();
+      const intake = resolveTurnIntake({
+        incoming: rawUserText,
+        pending: pendingSpeechFragmentRef.current,
+        now: intakeNow,
+      });
+      pendingSpeechFragmentRef.current = intake.pending;
+      if (intake.kind === "hold") {
+        return;
+      }
+      const userText = intake.text;
       // STT ECHO DEDUPE (2026-06-11): the pipeline delivers the same utterance
       // twice within a beat. Each echo dispatched twice — one "make it bigger"
       // stepped sizing twice (G's runaway pills), and a duplicated "Perfect."
@@ -9611,23 +9574,6 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       }
       if (mode === "CUSTOM" && visionMode !== "streaming") {
-        // G 2026-06-13 ("6 talks over me"): never answer a half-thought. If
-        // the STT fragment ends on a dangling function word (and/so/the/to/
-        // I'm/um...), DROP the spoken reply and return — the user is still
-        // mid-sentence. The next real chunk arrives on this SAME serialized
-        // turn chain (turnChainRef) and is answered normally, so we never
-        // bypass the queue, never arm an out-of-chain timer, and never leak
-        // an orphan into the list/close/lookup branches above. Banter,
-        // greetings, and list commands return false here and behave exactly
-        // as before.
-        if (endsOnDanglingWord(userText)) {
-          // Record the suppression so back-to-back dangling chunks never reach
-          // the brain (no filler twice in a row); when the user finally lands a
-          // real thought, endsOnDanglingWord returns false and it flows through.
-          lastDanglingSuppressRef.current = { text: userText, at: Date.now() };
-          return;
-        }
-        lastDanglingSuppressRef.current = null;
         schedulePromptBrain(userText);
         await sendMessage(buildMemoryAugmentedMessage(userText));
         return;
@@ -9839,7 +9785,8 @@ const LiveAvatarSessionComponent: React.FC<{
       // via the USER_TRANSCRIPTION event — single link, never deadlocked.)
       await processUserTurn({ text });
     };
-    sessionRef.current.on(
+    const cleanupUserTranscription = bindSessionListener(
+      listenerSession as any,
       AgentEventsEnum.USER_TRANSCRIPTION,
       handleUserTranscription,
     );
@@ -9854,7 +9801,8 @@ const LiveAvatarSessionComponent: React.FC<{
         void interrupt();
       }
     };
-    sessionRef.current.on(
+    const cleanupUserSpeakStarted = bindSessionListener(
+      listenerSession as any,
       AgentEventsEnum.USER_SPEAK_STARTED,
       handleUserSpeakStarted,
     );
@@ -9929,36 +9877,9 @@ const LiveAvatarSessionComponent: React.FC<{
       if (promptBrainTimeoutRef.current) {
         clearTimeout(promptBrainTimeoutRef.current);
       }
-      if (sessionRef.current) {
-        console.log("Cleaning up USER_TRANSCRIPTION listener");
-        // Use removeListener if off is not available
-        if (typeof (sessionRef.current as any).off === "function") {
-          (sessionRef.current as any).off(
-            AgentEventsEnum.USER_TRANSCRIPTION,
-            handleUserTranscription,
-          );
-        } else if (
-          typeof (sessionRef.current as any).removeListener === "function"
-        ) {
-          (sessionRef.current as any).removeListener(
-            AgentEventsEnum.USER_TRANSCRIPTION,
-            handleUserTranscription,
-          );
-        }
-        if (typeof (sessionRef.current as any).off === "function") {
-          (sessionRef.current as any).off(
-            AgentEventsEnum.USER_SPEAK_STARTED,
-            handleUserSpeakStarted,
-          );
-        } else if (
-          typeof (sessionRef.current as any).removeListener === "function"
-        ) {
-          (sessionRef.current as any).removeListener(
-            AgentEventsEnum.USER_SPEAK_STARTED,
-            handleUserSpeakStarted,
-          );
-        }
-      }
+      console.log("Cleaning up USER_TRANSCRIPTION listener");
+      cleanupUserTranscription();
+      cleanupUserSpeakStarted();
     };
   }, [
     sessionRef,
