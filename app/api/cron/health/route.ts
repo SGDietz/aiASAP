@@ -120,7 +120,27 @@ export async function GET(request: Request) {
     });
   }
 
-  // ── 3. interviews somebody walked away from ───────────────────────────────
+  // ── 3. 6 has gone quiet ──────────────────────────────────────────────────
+  // Moved here from the Windows watcher. A silent 6 is the worst failure the
+  // site has - the page looks fine, the person keeps talking, nothing answers -
+  // and it was being watched by a machine that is off most of the time.
+  const mute = await query(
+    `app_events?select=created_at&event_type=eq.voice_avatar_repeat_failed` +
+      `&created_at=gt.${since}&limit=50`,
+  );
+  if (!mute.reachable) blind = true;
+  // One failure is a hiccup and self-heals. A cluster means he is not speaking.
+  if (mute.rows.length >= 3) {
+    findings.push({
+      headline: `6 MAY BE MUTE - ${mute.rows.length} speech failures`,
+      detail:
+        "The avatar failed to speak repeatedly in the last " +
+        `${LOOKBACK_MINUTES} minutes. To the person on the other end the site ` +
+        "looks fine and nothing answers. Check before anything else.",
+    });
+  }
+
+  // ── 4. interviews somebody walked away from ───────────────────────────────
   // Not a failure - a lead. Somebody told 6 about their business and never
   // came back, and nobody would ever know without this.
   const cutoff = new Date(now - ABANDONED_AFTER_MS).toISOString();
@@ -139,7 +159,7 @@ export async function GET(request: Request) {
     });
   }
 
-  // ── 4. the worst state of all: we cannot see ──────────────────────────────
+  // ── 5. the worst state of all: we cannot see ──────────────────────────────
   if (blind) {
     findings.push({
       headline: "CANNOT READ THE DATABASE",
@@ -179,6 +199,34 @@ ${body}`,
         dedupeKey: `health:${new Date().toISOString().slice(0, 13)}`,
       });
     }
+  }
+
+  // HEARTBEAT. This watcher cannot detect its own death - if Vercel stops
+  // running the cron, the silence looks exactly like good news. So it stamps
+  // every run, and a machine OUTSIDE Vercel watches for the stamp going stale.
+  // That is the one job a sometimes-on laptop is genuinely better at than the
+  // cloud: being somewhere else.
+  try {
+    const { url, serviceRoleKey } = getSupabaseAdminConfig();
+    await fetch(`${url}/rest/v1/app_events`, {
+      method: "POST",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        event_type: "cloud_watch_heartbeat",
+        severity: "low",
+        surface: "aiasap",
+        route: "/api/cron/health",
+        outcome: clean ? "clean" : "findings",
+      }),
+    });
+  } catch {
+    // A missed heartbeat is itself the alarm the outside watcher looks for,
+    // so failing to write one needs no handling here.
   }
 
   // Always 200. A non-2xx makes Vercel retry, and a retry storm on a watcher
