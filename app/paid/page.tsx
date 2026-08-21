@@ -15,6 +15,11 @@ import { useEffect, useState } from "react";
 // Scott first, so there is nothing to click.
 //
 // Brand rule: EVERY "aiASAP" is italic.
+//
+// w-full on the root div is LOAD-BEARING. app/layout.tsx makes <body> a column
+// flex with items-center, so a child shrinks to its content width instead of
+// stretching - which left this page's gradient stranded in a ~420px column with
+// flat dark either side. Caught by looking at it; HTTP 200 and tsc both passed.
 
 const Mark = ({ className = "" }: { className?: string }) => (
   <span className={`italic font-semibold ${className}`}>aiASAP</span>
@@ -29,7 +34,7 @@ export default function PaidPage() {
   }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-[#3a2108] via-[#2a1806] to-[#1a0f04] px-5 py-14">
+    <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-b from-[#3a2108] via-[#2a1806] to-[#1a0f04] px-5 py-14">
       <article className="w-full max-w-md text-center">
         <p className="text-sm uppercase tracking-[0.2em] text-[#d7a05a]">
           <Mark className="text-[#f4d9a8]" />
