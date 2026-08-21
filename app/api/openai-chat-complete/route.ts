@@ -25,6 +25,19 @@ import {
 import { SIX_SYSTEM_PROMPT } from "../../../src/lib/brain/sixSystemPrompt";
 import { buildConversationMessages } from "../../../src/lib/brain/conversationMessages";
 
+// THE INTERVIEW LEDGER (wired 2026-08-21). It records what somebody has
+// already told us across the nine parts of the $5,000 build interview, and
+// whispers the next unanswered part into 6's context. 6 is free to ignore the
+// whisper - the machine marks, 6 decides. Nothing here may break the voice:
+// every call is wrapped, and a failure just means no whisper this turn.
+import { newLedger, nextHint, hintLine } from "../../../src/lib/interview/ledger";
+import type { Ledger } from "../../../src/lib/interview/ledger";
+import { loadLedger, saveLedger } from "../../../src/lib/interview/ledgerStore";
+import { extractInterviewSlots } from "../../../src/lib/interview/extractSlots";
+import { applySlots } from "../../../src/lib/interview/applySlots";
+import { hasVoiceConsent, recordVoiceConsent } from "../../../src/lib/interview/consent";
+import { notifyTeam } from "../../../src/lib/teamNotify";
+
 const SYSTEM_PROMPT = SIX_SYSTEM_PROMPT;
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -102,6 +115,14 @@ export async function POST(request: Request) {
       resolvedUserName,
     );
     const memoryBlock = formatRecalledFactsForPrompt(promptFacts);
+
+    // Load the interview ledger for the whisper. Signed-in only: an interview
+    // has to survive a closed tab and a week away, and there is nowhere to
+    // keep it for somebody we cannot name again.
+    let interviewLedger: Ledger | null = null;
+    if (userId) {
+      interviewLedger = await loadLedger(userId, Date.now());
+    }
     const clientSignedInEmail =
       typeof rawSignedInEmail === "string" &&
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawSignedInEmail.trim())
@@ -135,6 +156,20 @@ export async function POST(request: Request) {
     }
     if (memoryBlock) {
       systemSections.push(memoryBlock);
+    }
+    // THE WHISPER. One line, never spoken, never shown, never a question -
+    // it tells 6 which part is still unanswered so he stops re-asking things
+    // they already covered and stops missing things they never did.
+    if (interviewLedger) {
+      // Consent may have been given before this ledger row existed, so the
+      // table is the truth and the flag is only a cache of it. Without this
+      // top-up the whisper would say "notice not accepted" to somebody who
+      // accepted it last week, and the interview would never start.
+      if (!interviewLedger.noticeAccepted && signedInEmail) {
+        interviewLedger.noticeAccepted = await hasVoiceConsent(signedInEmail);
+      }
+      const line = hintLine(nextHint(interviewLedger));
+      if (line) systemSections.push(line);
     }
     // Supabase Auth identity wins. The resolver only falls back to the client
     // profile and then semantic memory when stronger sources are absent.
@@ -242,6 +277,61 @@ export async function POST(request: Request) {
           }
         } catch (e) {
           console.error("[memory:writer] failed", e);
+        }
+      })();
+    }
+
+    // Ledger writer. Deliberately a SEPARATE fire-and-forget block from the
+    // memory writer above: if one extractor fails the other must still run,
+    // and neither may delay the reply that is already on its way out.
+    if (userId) {
+      void (async () => {
+        try {
+          const turn = await extractInterviewSlots({
+            userMessage: message,
+            assistantReply: response,
+          });
+          const now = Date.now();
+          const base = interviewLedger ?? newLedger(now);
+          let noticeChanged = false;
+
+          // THE RECORD NOTICE. Writing this down is what lets the interview
+          // start at all, and a decline is worth keeping as much as an
+          // agreement - it is what stops us publishing somebody by mistake.
+          if (turn.notice !== "none" && signedInEmail) {
+            const granted = turn.notice === "granted";
+            const stored = await recordVoiceConsent({
+              email: signedInEmail,
+              granted,
+              spokenText: message,
+            });
+            // The one silent failure in this path with a real cost. Say so.
+            if (!stored) {
+              console.error("[interview:consent] NOT recorded", { granted });
+            }
+            if (granted) {
+              base.noticeAccepted = true;
+              noticeChanged = true;
+            } else {
+              await notifyTeam({
+                kind: "consent_declined",
+                who: signedInEmail,
+                email: signedInEmail,
+                facts: [["What they said", message.slice(0, 300)]],
+                nextStep:
+                  "Do not record, quote or publish anything from this person until they say otherwise.",
+                dedupeKey: `consent-declined:${signedInEmail}:${new Date().toISOString().slice(0, 10)}`,
+              });
+            }
+          }
+
+          if (turn.slots.length === 0 && !noticeChanged) return;
+          const { ledger, changed } = applySlots(base, turn.slots, now);
+          // No change means the turn repeated what we already had. Writing
+          // anyway would bump lastActivityAt and hide a stalled interview.
+          if (changed > 0 || noticeChanged) await saveLedger(userId, ledger);
+        } catch (e) {
+          console.error("[interview:ledger] failed", e);
         }
       })();
     }
