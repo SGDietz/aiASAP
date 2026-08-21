@@ -3,12 +3,22 @@ import {
   API_URL,
   AVATAR_ID,
   VOICE_ID,
-  CONTEXT_ID,
   LANGUAGE,
 } from "../secrets";
 import { resolveLiveAvatarVoice } from "../liveavatarVoice";
 import { assertCanMintSessionToken } from "../../../src/lib/liveavatarCredits";
+import { assertAllowedOrigin } from "../../../src/lib/apiRouteSecurity";
+import {
+  MINT_HOURLY_LIMIT,
+  MINT_LIMIT,
+  checkLocalLimit,
+} from "../../../src/lib/localRateLimit";
 import { getUser } from "../../../src/lib/auth/getUser";
+import {
+  filterNameFactsForResolvedName,
+  filterResumeSummaryForResolvedName,
+  resolvePersonName,
+} from "../../../src/lib/auth/resolveUserName";
 import { recallFacts, formatRecalledFactsForPrompt } from "../../../src/lib/memory";
 import { getSupabaseAdminConfig } from "../../../src/lib/supabaseAdmin";
 import {
@@ -116,7 +126,6 @@ async function loadResumeMemoryFromLinks(
     const parts: string[] = [
       "You've talked with this user before — use what you know naturally, don't recite it or announce that you remember.",
     ];
-    if (name) parts.push(`Their name is ${name}.`);
     if (lines.length > 0) {
       // Last 20 lines (was 12) so the user's real TOPIC survives a long signup
       // tail in the recalled context (the 950-char cap in buildDynamicVariables
@@ -156,31 +165,37 @@ async function buildDynamicVariables(): Promise<Record<string, string>> {
     // conversation thread when the vector-facts store is empty (2026-06-03).
     const resume = await loadResumeMemoryFromLinks(user.email ?? "");
 
-    const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
-    const name =
-      typeof meta.full_name === "string" && meta.full_name.trim()
-        ? meta.full_name.trim()
-        : typeof meta.name === "string" && meta.name.trim()
-          ? meta.name.trim()
-          : resume.name
-            ? resume.name
-            : user.email
-              ? user.email.split("@")[0]
-              : "";
-    if (name) vars.user_name = name.slice(0, 64);
-
     // Long-term memory = vector facts (when populated) + the resume blob (always
-    // present after a signup). Combine both so 6 picks up the actual thread even
-    // when fact extraction produced nothing — that empty path was the bug.
+    // present after a signup). Resolve identity before formatting memory so a
+    // stale recalled name can never contradict the signed-in account.
     const facts = await recallFacts({
       userId: user.id,
       query: "what I know about this user",
     });
-    const factBlock = formatRecalledFactsForPrompt(facts);
+    const resolvedName = resolvePersonName({
+      authUser: user,
+      accountName: resume.name,
+      memoryFacts: facts,
+    });
+    if (resolvedName.name) vars.user_name = resolvedName.name.slice(0, 64);
+    const promptFacts = filterNameFactsForResolvedName(facts, resolvedName);
+    const factBlock = formatRecalledFactsForPrompt(promptFacts);
+    const safeResumeSummary = filterResumeSummaryForResolvedName(
+      resume.summary,
+      resolvedName,
+      [
+        resume.name,
+        ...facts
+          .filter((fact) => fact.kind === "name")
+          .map((fact) => fact.content),
+      ],
+    );
     console.log(
       `[start-session DIAG] recalledFacts=${facts.length} resumeName=${resume.name ? "yes" : "no"} resumeLines=${resume.summary ? "yes" : "no"}`,
     );
-    const memParts = [factBlock, resume.summary].filter((s) => s && s.trim());
+    const memParts = [factBlock, safeResumeSummary].filter(
+      (s) => s && s.trim(),
+    );
     if (memParts.length > 0) {
       // Cap at 950 chars (LiveAvatar limit is 1000) to be safe.
       vars.user_memory_summary = memParts.join("\n\n").slice(0, 950);
@@ -192,11 +207,36 @@ async function buildDynamicVariables(): Promise<Record<string, string>> {
 }
 
 export async function POST(request: Request) {
+  // Gate added 2026-08-21. Minting is the most expensive thing this app does —
+  // a block for the first 30 seconds, then a block every 6 seconds, billing
+  // whether or not anyone is speaking. This route had no origin check and no
+  // rate limit; the credit cap below fails open when its storage is missing, so
+  // it cannot be the only thing standing here.
+  const originErr = assertAllowedOrigin(request);
+  if (originErr) return originErr;
+  const mintVerdict = checkLocalLimit(request, "mint", 1, [
+    MINT_LIMIT,
+    MINT_HOURLY_LIMIT,
+  ]);
+  if (!mintVerdict.allowed) {
+    console.warn(`[mint-limit] rejected (${mintVerdict.reason})`);
+    return new Response(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(mintVerdict.retryAfterSeconds),
+      },
+    });
+  }
+
   const missing = [
     ["LIVEAVATAR_API_KEY", API_KEY],
     ["LIVEAVATAR_AVATAR_ID", AVATAR_ID],
     ["LIVEAVATAR_VOICE_ID", VOICE_ID],
-    ["LIVEAVATAR_CONTEXT_ID", CONTEXT_ID],
+    // LIVEAVATAR_CONTEXT_ID removed 2026-08-21: aiASAP no longer sends a context
+    // id, so requiring one here would 500 this route for a variable nothing uses.
+    // (Production has never defined it — that is why FULL mode would have failed
+    // there had anyone used ?mode=full.)
   ].filter(([, value]) => !value);
 
   if (missing.length > 0) {
@@ -264,9 +304,11 @@ export async function POST(request: Request) {
         `LiveAvatar primary voice ${voiceResolution.primaryVoiceId} has no preview audio; using fallback voice ${voiceResolution.voiceId}`,
       );
     }
+    // No context_id, by design (2026-08-21). FULL mode still mints a session and
+    // still lip-syncs; it simply no longer hands LiveAvatar a server-side brain.
+    // 6's brain is ours, in code, uncapped.
     const avatarPersona: Record<string, string> = {
       voice_id: voiceResolution.voiceId,
-      context_id: CONTEXT_ID,
     };
     const avatarLanguage = mapLocaleToAvatarLanguage(locale, LANGUAGE);
     if (avatarLanguage) {

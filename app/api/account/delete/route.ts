@@ -57,6 +57,26 @@ export async function POST(request: Request) {
     );
   }
 
+  const { checkDestructiveActionAllowed } = await import(
+    "../../../../src/lib/accountProtection"
+  );
+  const protection = await checkDestructiveActionAllowed(
+    userId,
+    scope === "memory" ? "memory_wipe" : "account_delete",
+  );
+  if (protection.allowed === false) {
+    return NextResponse.json(
+      {
+        error:
+          protection.code === "protected_account"
+            ? "This permanent account cannot be deleted or wiped"
+            : "Deletion stopped because account protection could not be verified",
+        code: protection.code,
+      },
+      { status: protection.code === "protected_account" ? 423 : 503 },
+    );
+  }
+
   // MEMORY scope = wipe data now, keep the account. No grace (they're staying).
   if (scope === "memory") {
     const result = await purgeUserData(userId, email, false);

@@ -46,15 +46,31 @@ const sections: Array<{
       "Do not provide passwords, financial account numbers, social security numbers, private medical details, or other highly sensitive information unless a future feature explicitly supports it with appropriate protections.",
     ],
   },
+  // Added 2026-08-21. G asked whether the footer Terms link was enough for a
+  // product where the whole conversation is transcribed. It is not on its own —
+  // somebody using this in the car never sees the bottom of a page — so 6 now
+  // says a short version out loud before the first real question. This section
+  // is the written half of that same promise, in plain English rather than
+  // legal English, and it states the commitments we actually make.
   {
-    title: "7. Third-Party Services",
+    title: "7. Your Voice Conversation, In Plain English",
+    bullets: [
+      "We write down the voice conversation so we can build your brand and your website.",
+      "People on the team do not read your full transcript. They work from short AI summaries.",
+      "Your words and your photos go on a public page only after you say yes.",
+      "You can tell 6 to stop at any time, and you can ask us to archive and remove your live data.",
+      "6 says a short version of this out loud before the first real question, so you do not have to find this page to know it.",
+    ],
+  },
+  {
+    title: "8. Third-Party Services",
     paragraphs: [
       "aiASAP may rely on third-party services for AI, voice, avatars, messaging, email, phone calls, hosting, analytics, storage, authentication, and payments.",
       "Those services may have their own terms and privacy practices.",
     ],
   },
   {
-    title: "8. Intellectual Property",
+    title: "9. Intellectual Property",
     paragraphs: [
       "aiASAP, its branding, software, workflows, AI systems, interface, and related content are owned by aiASAP or the Creator/Builder/Founder/Financier/CEO aiASAP unless otherwise stated.",
       "aiASAP is a trademark of DietzX.",
@@ -62,24 +78,24 @@ const sections: Array<{
     ],
   },
   {
-    title: "9. Service Changes",
+    title: "10. Service Changes",
     paragraphs: [
       "aiASAP is early-stage software. Features may change, break, pause, be limited, or be discontinued at any time.",
     ],
   },
   {
-    title: "10. Limitation Of Liability",
+    title: "11. Limitation Of Liability",
     paragraphs: [
       "To the maximum extent permitted by law, aiASAP is provided as-is and without warranties.",
       "aiASAP is not liable for missed reminders, incorrect information, service outages, user decisions, third-party service failures, or any direct or indirect damages arising from use of the service.",
     ],
   },
   {
-    title: "11. Governing Law",
+    title: "12. Governing Law",
     paragraphs: ["These terms are governed by the laws of the State of Maryland."],
   },
   {
-    title: "12. Contact",
+    title: "13. Contact",
     paragraphs: [
       "For legal, privacy, or bug-report inquiries, contact aiASAP@pm.me.",
     ],

@@ -2,8 +2,8 @@ import { useCallback } from "react";
 import { useLiveAvatarContext } from "./context";
 import {
   cutCustomVoiceFallback,
-  deliverCustomTtsAudio,
   registerSixSpokenLine,
+  speakThroughAvatar,
 } from "./customVoiceDelivery";
 
 export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
@@ -29,28 +29,14 @@ export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
         // LIP-SYNC (G 2026-06-14): native TTS via repeat() (room-based CUSTOM
         // mint, voice, no context_id) moves 6's MOUTH. ElevenLabs + the WebAudio
         // armor stay as the silent fallback.
-        try {
-          return sessionRef.current.repeat(message);
-        } catch (e) {
-          console.error("[custom repeat] repeat() failed, ElevenLabs fallback:", e);
-          try {
-            const res = await fetch("/api/elevenlabs-text-to-speech", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: message }),
-            });
-            if (!res.ok) {
-              throw new Error(`tts ${res.status}: ${(await res.text()).slice(0, 120)}`);
-            }
-            const { audio } = (await res.json()) as { audio?: string };
-            if (typeof audio !== "string" || audio.length < 50) {
-              throw new Error("tts returned no audio");
-            }
-            return deliverCustomTtsAudio(sessionRef.current, audio, "actions.repeat");
-          } catch (e2) {
-            console.error("[custom repeat] ElevenLabs fallback also failed:", e2);
-          }
-        }
+        //
+        // 2026-08-21: this used to be a bare try/catch around repeat(), which
+        // only rescued 6 when the call THREW. The failure that actually happens
+        // is the call being accepted and then ignored — 6 goes mute and nothing
+        // notices. speakThroughAvatar adds the AVATAR_SPEAK_STARTED watchdog
+        // that deliverCustomTtsAudio already had, and is shared with useTextChat
+        // so the two paths cannot drift.
+        return speakThroughAvatar(sessionRef.current, message, "actions.repeat");
       }
     },
     [sessionRef, mode],

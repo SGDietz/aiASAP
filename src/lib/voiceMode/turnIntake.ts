@@ -41,9 +41,17 @@ function wordsForComparison(value: string): string[] {
     .filter(Boolean);
 }
 
-function isQuestionLike(value: string): boolean {
-  return /^(?:what|why|how|where|when|who|which|do|does|did|can|could|would|will|is|are|was|were)\b/i.test(
-    value,
+function isStandaloneActionableCommand(value: string): boolean {
+  const normalized = normalizeSpeech(value).replace(/[.?!]+$/g, "");
+  if (
+    /^(?:please\s+)?(?:add|remove|delete|clear|close|open|show|make|create|start|switch|rename|move|read|reorder)\s+(?:a|an|the|my|our|this|that)$/i.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  return /^(?:please\s+)?(?:add|remove|delete|clear|close|open|show|make|create|start|switch|rename|move|read|reorder)\s+(?:(?:the|my|our|a|an|this|that)\s+)?\S+/i.test(
+    normalized,
   );
 }
 
@@ -57,25 +65,26 @@ export function isLikelyIncompleteSpeechFragment(text: string): boolean {
   const normalized = normalizeSpeech(text);
   if (!normalized) return false;
 
-  // Clear command + object shapes are actionable even without punctuation.
+  // Clear command + real object shapes are actionable even without punctuation.
+  // An article alone ("add a", "open the") is still an STT shard.
+  if (isStandaloneActionableCommand(normalized)) {
+    return false;
+  }
+
+  // Explicit invitations and complete direct "What do you think?" shapes
+  // legitimately end in think/need/want. Questions are not blanket-exempt:
+  // providers often finalize shards such as "Can you?" and "What do you".
   if (
-    /^(?:please\s+)?(?:add|remove|delete|clear|close|open|show|make|create|start|switch|rename|move|read|reorder)\s+(?:the\s+|my\s+|a\s+|an\s+)?\S+/i.test(
+    /^(?:tell|show) me what (?:you )?(?:think|need|want)$/i.test(normalized) ||
+    /^(?:let me know) what (?:you )?(?:think|need|want)$/i.test(normalized) ||
+    /^what\s+(?:do|does|did)\s+(?:i|you|we|they|he|she|people)\s+(?:think|need|want)[?]?$/i.test(
       normalized,
     )
   ) {
     return false;
   }
 
-  // Complete questions and explicit invitations legitimately end in think/need.
-  if (
-    isQuestionLike(normalized) ||
-    /^(?:tell|show) me what (?:you )?(?:think|need|want)$/i.test(normalized) ||
-    /^(?:let me know) what (?:you )?(?:think|need|want)$/i.test(normalized)
-  ) {
-    return false;
-  }
-
-  if (/[.?!…]["')\]]*$/.test(normalized)) return false;
+  const clause = normalized.replace(/[.?!…]+["')\]]*$/g, "");
 
   const wordCount = wordsForComparison(normalized).length;
 
@@ -83,16 +92,25 @@ export function isLikelyIncompleteSpeechFragment(text: string): boolean {
   // object/clause. These include the observed "And added a" and "take the".
   if (
     /\b(?:and|but|so|because|if|when|while|although|though|that|which|who|whose|where|the|a|an|to|of|with|for|from|into|onto|about|as|is|are|was|were|be|been|being|am|do|does|did|have|has|had|can|could|will|would|shall|should|may|might|must|gonna|wanna|add|added|remove|removed|make|made|create|created|open|opened|close|closed|switch|switched|rename|renamed|move|moved|um|uh|er|don'?t|doesn'?t|didn'?t|can'?t|won'?t)\s*$/i.test(
-      normalized,
+      clause,
     )
   ) {
     if (
       /^(?:yes|yeah|yep|no|nope)[,\s]+i (?:do|don'?t|can|can'?t|will|won'?t|would|wouldn'?t)$/i.test(
-        normalized,
+        clause,
       )
     ) {
       return false;
     }
+    return true;
+  }
+
+  if (
+    !/^(?:who|how)\s+are\s+you$/i.test(clause) &&
+    /^(?:what|why|how|where|when|which|can|could|would|will|do|does|did|is|are|was|were)(?:\s+\S+){0,2}\s+(?:i|you|we|they|he|she)$/i.test(
+      clause,
+    )
+  ) {
     return true;
   }
 
@@ -101,7 +119,7 @@ export function isLikelyIncompleteSpeechFragment(text: string): boolean {
   return (
     wordCount <= 12 &&
     /\b(?:(?:i|we|you|they|people|it|this|that)\s+(?:think|need|want)|(?:i|we|you|they|people)\s+(?:don'?t|doesn'?t|didn'?t|can'?t|won'?t)|(?:is|was|feels|looks|sounds|seems)\s+like)\s*$/i.test(
-      normalized,
+      clause,
     )
   );
 }
@@ -181,9 +199,12 @@ export function acceptSpeechFragment(
     pending !== null &&
     now >= pending.at &&
     now - pending.at <= ttlMs;
-  const candidate = hasFreshPending
-    ? mergeSpeechFragments(pending.text, incoming)
-    : incoming;
+  const shouldDropFreshPending =
+    hasFreshPending && isStandaloneActionableCommand(incoming);
+  const candidate =
+    hasFreshPending && !shouldDropFreshPending
+      ? mergeSpeechFragments(pending.text, incoming)
+      : incoming;
 
   if (isLikelyIncompleteSpeechFragment(candidate)) {
     return {
@@ -224,7 +245,8 @@ export function resolveTurnIntake({
         kind: "dispatch",
         pending: null,
         text: result.text,
-        stitched: freshPending,
+        stitched:
+          freshPending && !isStandaloneActionableCommand(normalizeSpeech(incoming)),
       };
 }
 
@@ -245,7 +267,10 @@ export function bindSessionListener<Event>(
   handler: (event: Event) => void,
 ): () => void {
   source.on(eventName, handler);
+  let detached = false;
   return () => {
+    if (detached) return;
+    detached = true;
     if (typeof source.off === "function") {
       source.off(eventName, handler);
     } else if (typeof source.removeListener === "function") {

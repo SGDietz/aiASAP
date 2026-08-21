@@ -1,5 +1,30 @@
 # aiASAP Project Memory
 
+## Current public-pause rule - 2026-07-20
+
+- Broader aiASAP and all iSolve work are stopped. G reopened only the exact job
+  of replacing the raw Vercel `403` with a friendly static aiASAP pause page.
+- G removed Dos from that job and explicitly assigned Codex to finish it.
+- Preserve G's approved visual direction: **country-house feel with warm
+  ambers**. G specifically ordered the existing iSolve **6's Workshop**
+  background (`bg-6sWorkshop2.png`) to be used. This overrides the generated
+  porch alternative, which must stay unused/excluded.
+- The original `ai-asap` Vercel project must stay sealed by deny-all rule
+  `rule_ai_asap_public_pause_2026_07_20_NgTWwV`; never weaken it to serve the
+  friendly page.
+- Serve the friendly page from a separate zero-function static project and move
+  only `aiasap.ai` and `www.aiasap.ai` to it. Keep all original Vercel aliases
+  and historical deployment URLs on the denied project.
+- Static-page source is preserved at
+  `C:\Users\sgdie\Documents\Claude\projects\ai-asap-pause-page`.
+- At the reboot stop: no maintenance project/deploy existed and no domains had
+  moved. The friendly page still needed local visual verification.
+- Do not run 6, LiveAvatar, a smoke test, Supabase, or provider checks for this
+  job. Verification is static-page rendering plus Vercel control-plane and safe
+  anonymous HTTP evidence only.
+- After the friendly page is live and all original addresses remain blocked,
+  document the fail-closed rollback and stand down from aiASAP/iSolve again.
+
 - Latest reboot-rule update from G on 2026-04-29 supersedes older caution wording: Codex does all work, always, unless Codex absolutely cannot, then asks G for help. Still protect secrets, preserve lane ownership, and keep G informed operationally.
 - Shelly / Mrs. Claws is the local OpenClaw keymaster for keys, pins, and security. Start her in motion when security work is needed, but do not spy on her.
 - Always send links when asking G to go anywhere.

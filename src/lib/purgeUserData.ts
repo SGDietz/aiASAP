@@ -1,4 +1,5 @@
 import { getSupabaseAdminConfig } from "./supabaseAdmin";
+import { assertDestructiveActionAllowed } from "./accountProtection";
 
 /**
  * Shared user-data WIPE (G 2026-06-07). The one place that actually erases a
@@ -29,6 +30,9 @@ export async function purgeUserData(
   email: string | null,
   closeAccount: boolean,
 ): Promise<PurgeResult> {
+  // Guard the primitive itself so no route/admin caller can bypass the UUID
+  // registry by calling this helper directly.
+  await assertDestructiveActionAllowed(userId, "direct_purge");
   const { url, serviceRoleKey } = getSupabaseAdminConfig();
   const headers = {
     apikey: serviceRoleKey,

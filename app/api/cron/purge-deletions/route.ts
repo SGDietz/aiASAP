@@ -74,6 +74,17 @@ export async function GET(request: Request) {
     const daysLeft = msLeft / 86_400_000;
 
     if (msLeft <= 0) {
+      const { checkDestructiveActionAllowed } = await import(
+        "../../../../src/lib/accountProtection"
+      );
+      const protection = await checkDestructiveActionAllowed(
+        p.userId,
+        "cron_purge",
+      );
+      if (protection.allowed === false) {
+        actions.push({ action: "protected_skip", code: protection.code });
+        continue;
+      }
       const result = await purgeUserData(p.userId, p.email, true);
       if (p.email) {
         await sendResendEmail({

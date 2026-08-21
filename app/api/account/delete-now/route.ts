@@ -30,6 +30,21 @@ export async function GET(request: Request) {
       401,
     );
   }
+  const { checkDestructiveActionAllowed } = await import(
+    "../../../../src/lib/accountProtection"
+  );
+  const protection = await checkDestructiveActionAllowed(claims.uid, "delete_now");
+  if (protection.allowed === false) {
+    return html(
+      actionResultPage(
+        "Deletion stopped",
+        protection.code === "protected_account"
+          ? "This is a permanent account. Its identity, memory, and history cannot be deleted."
+          : "We could not verify account protection, so nothing was deleted. Please try again later.",
+      ),
+      protection.code === "protected_account" ? 423 : 503,
+    );
+  }
   await purgeUserData(claims.uid, claims.email, true);
   if (claims.email) {
     await sendResendEmail({

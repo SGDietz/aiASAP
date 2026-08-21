@@ -1,0 +1,110 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  arbitrateAvatarSpeechSource,
+  selectAvatarSpeechSource,
+  type AvatarSpeechSource,
+} from "../../src/lib/speech/sourceAuthority";
+import { isDuplicateUtterance } from "../../src/lib/speech/dedupe";
+
+describe("LiveAvatar account-turn dispatch authority", () => {
+  it("selects one deterministic source by mode with an explicit CUSTOM fallback", () => {
+    expect(selectAvatarSpeechSource("CUSTOM", true)).toBe("app_browser");
+    expect(selectAvatarSpeechSource("CUSTOM", false)).toBe("liveavatar_sdk");
+    expect(selectAvatarSpeechSource("FULL", true)).toBe("liveavatar_sdk");
+    expect(selectAvatarSpeechSource("FULL", false)).toBe("liveavatar_sdk");
+  });
+
+  it("locks the session to one transcript source", () => {
+    let authority: AvatarSpeechSource = selectAvatarSpeechSource("CUSTOM", true);
+
+    const competing = arbitrateAvatarSpeechSource(authority, "liveavatar_sdk");
+    expect(competing).toEqual({
+      accepted: false,
+      authoritativeSource: "app_browser",
+    });
+
+    const sameSourceNextTurn = arbitrateAvatarSpeechSource(
+      authority,
+      "app_browser",
+    );
+    expect(sameSourceNextTurn.accepted).toBe(true);
+  });
+
+  it("does not globally suppress legitimate rapid suffix-shaped follow-ups", () => {
+    expect(
+      isDuplicateUtterance(
+        "Please read me back my email.",
+        1_000,
+        "my email.",
+        1_700,
+      ),
+    ).toBe(false);
+    expect(
+      isDuplicateUtterance(
+        "Please send the link.",
+        1_000,
+        "send the link.",
+        1_700,
+      ),
+    ).toBe(false);
+  });
+
+  it("wires source arbitration into the real component without suffix dropping", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/LiveAvatarSession.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("dispatchAuthoritativeAvatarSpeech");
+    expect(source).toContain("selectAvatarSpeechSource(mode");
+    expect(source).toContain(
+      'dispatchAuthoritativeAvatarSpeech("liveavatar_sdk", event)',
+    );
+    expect(source).toContain(
+      'dispatchAuthoritativeAvatarSpeech("app_browser", { text: transcript })',
+    );
+    const dispatchStart = source.indexOf(
+      "const dispatchAuthoritativeAvatarSpeech",
+    );
+    const validation = source.indexOf(
+      "if (!text || isInternalSignal(text)) return;",
+      dispatchStart,
+    );
+    const arbitration = source.indexOf(
+      "arbitrateAvatarSpeechSource(",
+      dispatchStart,
+    );
+    expect(dispatchStart).toBeGreaterThan(-1);
+    expect(validation).toBeGreaterThan(dispatchStart);
+    expect(validation).toBeLessThan(arbitration);
+    expect(source).toContain(
+      'prevUserSpeechRef.current = { text: "", at: 0 };',
+    );
+    expect(source).toContain("hasExplicitAccountSendOnCloseIntent(lastUser)");
+    const avatarReadbackStart = source.indexOf(
+      "const onAvatarTranscription",
+    );
+    const avatarReadbackEnd = source.indexOf(
+      "AgentEventsEnum.AVATAR_TRANSCRIPTION",
+      avatarReadbackStart,
+    );
+    const avatarReadbackBlock = source.slice(
+      avatarReadbackStart,
+      avatarReadbackEnd,
+    );
+    expect(avatarReadbackBlock).not.toContain(
+      "accountSetupAwaitingEmailRef.current = true;",
+    );
+    expect(avatarReadbackBlock).not.toContain(
+      "accountSetupPendingEmailRef.current = parsed;",
+    );
+    expect(source).toContain("const recoverableRecognitionError");
+    expect(source).toContain(
+      'console.warn("Custom speech recognition restart failed:", error);',
+    );
+    expect(source).not.toContain("isTrailingUtteranceShard");
+    expect(source).not.toContain("account_trailing_shard");
+  });
+});

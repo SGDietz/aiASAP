@@ -1,5 +1,18 @@
 AI assistant reboot rules for Codex and Claude
 
+CURRENT AIASAP PAUSE GATE - 2026-07-20 8:09 PM ET
+- G stopped all broader aiASAP/iSolve work. The only open job is Codex finishing
+  the friendly static aiASAP pause page; Dos is out of this job.
+- Preserve the approved country-house feel with warm ambers through the
+  turnaround. Use the existing iSolve 6's Workshop image
+  `bg-6sWorkshop2.png`; do not use the generated porch alternative.
+- Never loosen the original aiASAP deny-all WAF. Use the separate static folder
+  at C:\Users\sgdie\Documents\Claude\projects\ai-asap-pause-page and a new
+  zero-function Vercel project; move only aiasap.ai and www.aiasap.ai.
+- At reboot stop, nothing had been deployed or moved. Local visual verification
+  is next. Do not start 6, LiveAvatar, a smoke test, Supabase, or paid providers.
+- After verified cutover, document fail-closed rollback and stand down again.
+
 1. You do all work, always, unless YOU ABSOLUTELY CANNOT, then ask for G's help.
 2. Stay in the assigned lane. Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
 3. Work the service problem before saying no. For Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other connected services, check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers. Just do it.

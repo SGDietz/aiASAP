@@ -6,7 +6,11 @@ import {
 } from "../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../src/lib/rateLimit";
 import { OPENAI_API_KEY } from "../secrets";
-import { getUserId } from "../../../src/lib/auth/getUser";
+import { getUser } from "../../../src/lib/auth/getUser";
+import {
+  filterNameFactsForResolvedName,
+  resolvePersonName,
+} from "../../../src/lib/auth/resolveUserName";
 import {
   recallFacts,
   formatRecalledFactsForPrompt,
@@ -19,6 +23,7 @@ import {
 // mode. The old 8-line mini-prompt is gone; 6 is 6 everywhere, and his
 // personality survives avatar stops and returns because WE hold the brain.
 import { SIX_SYSTEM_PROMPT } from "../../../src/lib/brain/sixSystemPrompt";
+import { buildConversationMessages } from "../../../src/lib/brain/conversationMessages";
 
 const SYSTEM_PROMPT = SIX_SYSTEM_PROMPT;
 
@@ -81,11 +86,28 @@ export async function POST(request: Request) {
     }
 
     // M1.2 — Memory recall pass. Only signed-in users have memory.
-    // Failures inside recallFacts return [], so this never breaks chat.
-    const userId = await getUserId();
+    // Supabase Auth is the canonical identity source. Client/device identity is
+    // a fallback; semantic-memory names are deliberately last.
+    const authUser = await getUser();
+    const userId = authUser?.id ?? null;
     const recalled =
       userId !== null ? await recallFacts({ userId, query: message }) : [];
-    const memoryBlock = formatRecalledFactsForPrompt(recalled);
+    const resolvedUserName = resolvePersonName({
+      authUser,
+      clientName: rawUserName,
+      memoryFacts: recalled,
+    });
+    const promptFacts = filterNameFactsForResolvedName(
+      recalled,
+      resolvedUserName,
+    );
+    const memoryBlock = formatRecalledFactsForPrompt(promptFacts);
+    const clientSignedInEmail =
+      typeof rawSignedInEmail === "string" &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawSignedInEmail.trim())
+        ? truncateUtf8String(rawSignedInEmail.trim(), 254)
+        : "";
+    const signedInEmail = authUser?.email ?? clientSignedInEmail;
 
     // Assemble system prompt: 6's full brain + live session context +
     // (optional image context) + (optional memory).
@@ -114,19 +136,18 @@ export async function POST(request: Request) {
     if (memoryBlock) {
       systemSections.push(memoryBlock);
     }
-    // r32 (G live 2026-06-12 20:43: "I don't have a name from you yet this
-    // session" minutes after he gave his name): the app's captured name is
-    // the truth — never re-ask, never deny knowing it.
-    if (typeof rawUserName === "string" && rawUserName.trim()) {
+    // Supabase Auth identity wins. The resolver only falls back to the client
+    // profile and then semantic memory when stronger sources are absent.
+    if (resolvedUserName.name) {
       systemSections.push(
-        `THE USER'S NAME IS: ${rawUserName.trim().slice(0, 40)}. Use it naturally. NEVER ask for their name and NEVER say you don't have a name from them.`,
+        `THE USER'S NAME IS: ${resolvedUserName.name.slice(0, 100)}. Use it naturally. NEVER ask for their name and NEVER say you don't have a name from them.`,
       );
     }
     // r34 (G signed in, the brain asked "first time signing up, or do you
     // already have an account?"): signed-in users are DONE with signup.
-    if (typeof rawSignedInEmail === "string" && rawSignedInEmail.trim()) {
+    if (signedInEmail) {
       systemSections.push(
-        `THE USER IS SIGNED IN as ${rawSignedInEmail.trim().slice(0, 320)}. NEVER ask if they have an account, never ask first-time-or-returning, never ask them to spell an email, never offer account setup. If they ask about their account, that email is the answer. Switching accounts = tell them to say "log me out". They are a KNOWN returning user — NEVER ask "what should I call you" or for their name; if you don't have a name to use, just greet them warmly and move on. (G 2026-06-13: signed in, you'd just called him "G", then asked his name — jarring.)`,
+        `THE USER IS SIGNED IN as ${signedInEmail.slice(0, 254)}. NEVER ask if they have an account, never ask first-time-or-returning, never ask them to spell an email, never offer account setup. If they ask about their account, that email is the answer. Switching accounts = tell them to say "log me out". They are a KNOWN returning user — NEVER ask "what should I call you" or for their name; if you don't have a name to use, just greet them warmly and move on. (G 2026-06-13: signed in, you'd just called him "G", then asked his name — jarring.)`,
       );
     }
     if (listMode === true) {
@@ -168,11 +189,11 @@ export async function POST(request: Request) {
     // stale (old bundle not sending history) — check before debugging deeper.
     console.log(`[chat-complete] history=${history.length} listMode=${listMode === true}`);
 
-    const messages: Array<{ role: string; content: string }> = [
-      { role: "system", content: systemSections.join("\n\n") },
-      ...history,
-      { role: "user", content: message },
-    ];
+    const messages = buildConversationMessages(
+      systemSections.join("\n\n"),
+      history,
+      message,
+    );
 
     // Call OpenAI API
     const res = await fetch("https://api.openai.com/v1/chat/completions", {

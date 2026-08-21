@@ -1,5 +1,98 @@
 # aiASAP Reboot Handoff - 2026-04-27
 
+## Current Reboot Handoff - 2026-07-20 8:09 PM ET - Friendly Static Pause Page
+
+G stopped all broader aiASAP/iSolve work, then explicitly reopened one exact
+aiASAP job: replace Vercel's ugly white `403 Forbidden` screen with a friendly
+static pause page that cannot wake 6 or burn AI/provider credits. G then removed
+Dos from this job and told Codex to do it directly.
+
+### Approved visual direction
+
+- G explicitly approved a **country-house feel with warm ambers** and said he
+  loved it. Preserve that direction through the turnaround.
+- G then clarified the exact background: use the existing **6's Workshop** image
+  already made for iSolve, `bg-6sWorkshop2.png`. This direct instruction
+  supersedes the newly generated porch alternative.
+- Current copy: `6 is taking a quick breather.` followed by a short, friendly
+  tune-up/check-back-soon message.
+- Exact source asset:
+  `C:\Users\sgdie\Documents\Claude\projects\iSolveUrProblems-skin\apps\demo\public\bg-6sWorkshop2.png`.
+  Its copied SHA-256 is
+  `BA214AB2ED72185B0B7F835BE0B0EF08A6F39E78D605403D9DAE5DF6CA64C031`.
+
+### Current live safety state - preserve exactly
+
+- Original Vercel project: `ai-asap` / `prj_2CfMVCy2tavswMsBZMyycRcyKy6X`.
+- Active host-agnostic deny-all rule:
+  `rule_ai_asap_public_pause_2026_07_20_NgTWwV`, path regex `^/.*$`.
+- Original project bypass inventories are empty.
+- The two custom domains still belong to the original project and currently
+  return `403`: `aiasap.ai`, `www.aiasap.ai`.
+- The original project's named aliases and 100+ direct deployment URLs remain
+  sealed by the same WAF rule.
+- Local aiASAP server is stopped; port `3002` is closed; no aiASAP Comet tab was
+  present at the last accessibility-tree check.
+- Canonical repo baseline before this documentation checkpoint was branch
+  `rollback/june14`, HEAD `dc4ba33e`, with 68 pre-existing status entries.
+- Final reboot-ready repo state is still branch `rollback/june14` at
+  `dc4ba33e`, now 71 status entries because Codex intentionally updated only
+  `AIASAP_REBOOT_HANDOFF.md`, `PROJECT_MEMORY.md`, and
+  `STICKY_REBOOT_RULES.txt` for this checkpoint.
+
+### Friendly page already built locally
+
+- Separate isolated folder:
+  `C:\Users\sgdie\Documents\Claude\projects\ai-asap-pause-page`
+- Files ready: `index.html`, `vercel.json`, `.vercelignore`, `README.md`,
+  `six-workshop.webp` (optimized 167,308-byte deploy asset), and a byte-for-byte
+  local copy of the original `bg-6sWorkshop2.png` source.
+- The earlier generated `porch-workshop` files remain only as excluded, unused
+  artifacts. Do not deploy or select them.
+- Page is plain HTML/CSS only: no JavaScript, API, Functions, middleware, cron,
+  analytics, external font, external image, environment variable, integration,
+  account, Supabase, or provider credential.
+- Strict CSP and privacy/security headers are in `vercel.json`.
+- The page has not yet been locally browser-rendered because G called for the
+  reboot just before that check.
+
+### No remote maintenance work has happened yet
+
+- No maintenance Vercel project exists yet; TeamDietz project count remained 7.
+- No static deploy has been created.
+- No domain has been moved.
+- The original aiASAP WAF and live project have not been loosened, deployed,
+  edited, or reopened.
+- No smoke test and no 6/LiveAvatar session were started.
+
+### Exact next steps after reboot
+
+1. Read this newest section plus
+   `C:\Users\sgdie\.codex\memories\extensions\ad_hoc\notes\20260720-200917-aiasap-friendly-pause-reboot.md`.
+2. Locally render and visually inspect the static page at desktop and phone
+   sizes. Confirm it uses the exact existing iSolve 6's Workshop background and
+   preserves the approved country-house/warm-amber look.
+3. Create a new, isolated Vercel project named `aiasap-paused` under
+   `team-dietz`; Framework `Other`, no Git, build command, env, integrations, or
+   runtime resources.
+4. Deploy the static folder without custom domains. Verify `200`, the marker
+   `aiasap-static-pause-v1`, no external requests, and 0 Functions/0 Middleware.
+5. Atomically move only `aiasap.ai` from the original project to the new static
+   project using Vercel's project-domain `move` endpoint; verify the friendly
+   page, then repeat for `www.aiasap.ai`.
+6. Leave `ai-asap.vercel.app`, branch/test aliases, direct deployment URLs, and
+   the original deny-all WAF untouched.
+7. Verify apex/www return the static page, `/api/__aiasap_pause_probe__` is a
+   static `404`, and every original alias/direct deployment remains `403`.
+8. Write the final rollback note, then stand down from all aiASAP/iSolve work.
+
+### Fail-closed rollback
+
+Move `aiasap.ai` and `www.aiasap.ai` atomically from `aiasap-paused` back to the
+original project while leaving the deny-all WAF active. The fallback must be the
+generic locked `403`, never the working aiASAP app. Do not delete either project,
+domain, account, data, env, or deployment.
+
 ## Bedtime Handoff - 2026-04-29 Late ET
 
 G asked to push the current MVP fixes through to `https://aiasap.ai` before bed and preserve the restart point for tomorrow.

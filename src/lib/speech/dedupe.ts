@@ -8,9 +8,11 @@
 // "You sent it without me giving you permission"). One normalized-identical
 // utterance inside the window is an echo, never the user repeating themselves.
 
-/** Lowercase, strip punctuation and whitespace — STT echoes differ only there. */
+const UTTERANCE_NOISE_RE = new RegExp("[^\\p{L}\\p{N}]+", "gu");
+
+/** Lowercase and strip punctuation/whitespace while preserving Unicode text. */
 export function normalizeUtterance(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return text.toLowerCase().replace(UTTERANCE_NOISE_RE, "");
 }
 
 export const STT_ECHO_WINDOW_MS = 2500;

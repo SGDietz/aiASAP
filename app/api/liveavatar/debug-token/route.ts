@@ -2,12 +2,13 @@ import {
   API_KEY,
   API_URL,
   AVATAR_ID,
-  CONTEXT_ID,
   LANGUAGE,
   VOICE_ID,
 } from "../../secrets";
 import { resolveLiveAvatarVoice } from "../../liveavatarVoice";
 import { assertCanMintSessionToken } from "../../../../src/lib/liveavatarCredits";
+import { assertAllowedOrigin } from "../../../../src/lib/apiRouteSecurity";
+import { MINT_LIMIT, checkLocalLimit } from "../../../../src/lib/localRateLimit";
 
 type DebugTokenRequest = {
   includeContext?: boolean;
@@ -25,8 +26,48 @@ function cleanLanguage(value: unknown) {
 }
 
 export async function POST(request: Request) {
+  // SHUT IN PRODUCTION (cross-site audit, 2026-08-21).
+  //
+  // This is a DEBUG HARNESS that mints a real, paid, 10-minute FULL-mode
+  // LiveAvatar session. It had no origin check and no rate limit, so anybody
+  // who knew the path could mint paid sessions on aiasap.ai forever. Worse,
+  // mints made here are never tallied: recordSessionStreamStarted is only
+  // called by /api/v1/sessions/start, so these did not even count against the
+  // daily credit cap that is supposed to be the backstop.
+  //
+  // G's second standing order is "never burn 6". A debug door onto the live
+  // domain is the opposite of that, so in production this route does not exist.
+  // Set LIVEAVATAR_DEBUG_TOKEN_ENABLED=1 to open it deliberately for an
+  // investigation; it is off unless somebody chooses otherwise.
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.LIVEAVATAR_DEBUG_TOKEN_ENABLED !== "1"
+  ) {
+    return new Response(JSON.stringify({ error: "Not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  // Even with it deliberately open, it is same-origin only and rate limited.
+  const originErr = assertAllowedOrigin(request);
+  if (originErr) return originErr;
+  const mintVerdict = checkLocalLimit(request, "debug-token", 1, [MINT_LIMIT]);
+  if (!mintVerdict.allowed) {
+    console.warn(`[debug-token] rejected (${mintVerdict.reason})`);
+    return new Response(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(mintVerdict.retryAfterSeconds),
+      },
+    });
+  }
+
   const input = (await request.json().catch(() => ({}))) as DebugTokenRequest;
-  const includeContext = bool(input.includeContext, true);
+  // Defaults to FALSE since 2026-08-21 (Ara's call, and she was right): the flag
+  // is inert now that no context_id is ever sent, and a flag that defaults TRUE
+  // while doing nothing tells the next reader a lie about what this harness does.
+  const includeContext = bool(input.includeContext, false);
   const includeVoice = bool(input.includeVoice, true);
   const language = cleanLanguage(input.language) || LANGUAGE.trim();
 
@@ -34,7 +75,7 @@ export async function POST(request: Request) {
     ["LIVEAVATAR_API_KEY", API_KEY],
     ["LIVEAVATAR_AVATAR_ID", AVATAR_ID],
     includeVoice ? ["LIVEAVATAR_VOICE_ID", VOICE_ID] : null,
-    includeContext ? ["LIVEAVATAR_CONTEXT_ID", CONTEXT_ID] : null,
+    // LIVEAVATAR_CONTEXT_ID removed 2026-08-21 — aiASAP sends no context id.
   ].filter((entry): entry is [string, string] => Boolean(entry && !entry[1]));
 
   if (missing.length > 0) {
@@ -57,7 +98,10 @@ export async function POST(request: Request) {
   const voiceResolution = includeVoice ? await resolveLiveAvatarVoice() : null;
   const avatarPersona: Record<string, string> = {};
   if (includeVoice && voiceResolution) avatarPersona.voice_id = voiceResolution.voiceId;
-  if (includeContext) avatarPersona.context_id = CONTEXT_ID;
+  // No context_id, ever (2026-08-21). `includeContext` is kept in the request
+  // shape so existing debug callers do not break, but it is now inert: this
+  // harness must never be the one path that quietly reintroduces a provider
+  // brain — and its 65,535-char cap — behind the app's back.
   if (language) avatarPersona.language = language;
 
   const requestBody = {

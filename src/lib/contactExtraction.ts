@@ -185,6 +185,16 @@ const INVALID_NAME_TOKENS = new Set([
   "good",
 ]);
 
+/** Values that must never be trusted even when they came from a durable source. */
+const UNSAFE_IDENTITY_TOKENS = new Set([
+  "loser",
+  "idiot",
+  "moron",
+  "stupid",
+  "worthless",
+  "failure",
+]);
+
 function trimNameValue(s: string): string {
   return s.replace(/\s+/g, " ").trim().replace(/[.,!?;:]+$/g, "").trim();
 }
@@ -262,8 +272,22 @@ function extractLetterSpelledName(text: string): string | null {
   return null;
 }
 
+export function isUnsafePersonNameCandidate(
+  s: string | null | undefined,
+): boolean {
+  if (!s?.trim()) return true;
+  const words = s
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""))
+    .filter(Boolean);
+  return words.some((word) => UNSAFE_IDENTITY_TOKENS.has(word));
+}
+
 export function isGarbageNameCandidate(s: string | null | undefined): boolean {
   if (!s?.trim()) return true;
+  if (isUnsafePersonNameCandidate(s)) return true;
   const t = s.trim();
   const lower = t.toLowerCase();
   if (INVALID_NAME_TOKENS.has(lower)) return true;

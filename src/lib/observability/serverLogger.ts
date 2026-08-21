@@ -1,5 +1,6 @@
 import { getSupabaseAdminConfig } from "../supabaseAdmin";
 import { sendPurposeEmail } from "../emailSenders";
+import { sendTelegramAlert } from "../telegramAlert";
 import type { ErrorLogRow, LogLevel, LogRuntime } from "./types";
 
 // r30 (G 2026-06-12, email system): real errors also email G from
@@ -39,6 +40,43 @@ function maybeSendCrashEmail(payload: ErrorLogRow): void {
     subject: `Watchdog: error in ${payload.route ?? payload.runtime}`,
     text,
   });
+}
+
+/**
+ * G, 2026-08-21: "a telegram watch for system failures needs to be built."
+ *
+ * Same trigger as the crash email, different urgency: email is a record, this
+ * is a tap on the shoulder. Throttled per route inside sendTelegramAlert, so a
+ * route failing a thousand times sends one message and not a thousand.
+ *
+ * Keyed by route rather than by message so that a single broken endpoint
+ * producing many different error strings still counts as ONE thing to be told
+ * about.
+ */
+function maybeSendTelegramAlert(payload: ErrorLogRow): void {
+  if (payload.level !== "error") return;
+  if (TRACER_MESSAGE_RE.test(payload.message)) return;
+  const where = payload.route ?? payload.runtime;
+  const when = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+  });
+  void sendTelegramAlert(
+    `err:${where}`,
+    [
+      "aiASAP is broken.",
+      "",
+      `What: ${payload.message}`,
+      `Where: ${where}`,
+      `When: ${when} Eastern`,
+      payload.session_id ? `Session: ${payload.session_id}` : null,
+      `Env: ${payload.env}`,
+      "",
+      "Full row with the stack is in Supabase error_logs.",
+      "Repeats of this same route are muted for 10 minutes.",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
 }
 
 const MAX_MESSAGE_LEN = 4000;
@@ -131,6 +169,7 @@ export async function captureServerError(row: {
   });
 
   maybeSendCrashEmail(payload);
+  maybeSendTelegramAlert(payload);
 
   let url: string;
   let serviceRoleKey: string;

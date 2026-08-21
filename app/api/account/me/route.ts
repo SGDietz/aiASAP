@@ -2,6 +2,7 @@ import { assertAllowedOrigin } from "../../../../src/lib/apiRouteSecurity";
 import { getAccountCookieName } from "../../../../src/lib/accountPersistence";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 import { getSupabaseServer } from "../../../../src/lib/auth/supabaseServer";
+import { getSupabaseAuthName } from "../../../../src/lib/auth/resolveUserName";
 
 function clearAccountCookieHeader() {
   return [
@@ -75,12 +76,7 @@ export async function GET(request: Request) {
       if (user?.email) {
         userEmail = user.email;
         const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
-        userFullName =
-          typeof meta.full_name === "string"
-            ? meta.full_name
-            : typeof meta.fullName === "string"
-              ? (meta.fullName as string)
-              : null;
+        userFullName = getSupabaseAuthName(user);
         // Voice sizing follows the ACCOUNT for returning users (G 2026-06-10:
         // "the pill boxes stay the size of when last used... if they have an
         // account and are returning").

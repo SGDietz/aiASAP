@@ -1,6 +1,7 @@
 import { assertAllowedOrigin, truncateUtf8String } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 import { buildMagicLinkEmailHtml } from "../../../../src/lib/magicLinkEmail";
+import { notifyTeam } from "../../../../src/lib/teamNotify";
 
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
@@ -109,6 +110,11 @@ export async function POST(request: Request) {
   const redirectTo = `${callbackBase}?next=${nextParam}`;
 
   let emailSent = false;
+  // Supabase's OWN hashed_token for this magic link. It is generated deep
+  // inside the send block below but needed by the insert further down, and
+  // it is THE key that lets a returning click find its row. Before this, the
+  // row stored a locally invented hash instead and could never be matched.
+  let magicTokenHash: string | null = null;
   let supabaseError: string | null = null;
   const resendKey = process.env.RESEND_API_KEY;
 
@@ -154,6 +160,7 @@ export async function POST(request: Request) {
         const hashedToken =
           (gen && (gen.hashed_token || (gen.properties && gen.properties.hashed_token))) ||
           null;
+        magicTokenHash = hashedToken;
         if (!hashedToken) {
           supabaseError = "generate_link returned no token_hash";
         } else {
@@ -179,9 +186,13 @@ export async function POST(request: Request) {
               html,
             }),
           });
-          if (sendRes.ok || sendRes.status === 409 || sendRes.status === 422) {
-            // 409/422 = idempotency conflict: the sync trigger already sent this
-            // signup's link. Dedup working — count it as sent.
+          // 409 is Resend's idempotency conflict: the sync trigger already sent
+          // this signup's link, so the dedup worked and it really is sent.
+          // 422 was ALSO counted here, and that was wrong (fixed 2026-08-21):
+          // 422 is a VALIDATION failure - a bad address or an unverified sending
+          // domain. Nothing was delivered. Counting it as sent told people to go
+          // and check an inbox that had received nothing.
+          if (sendRes.ok || sendRes.status === 409) {
             emailSent = true;
           } else {
             const detail = await sendRes.text();
@@ -230,7 +241,12 @@ export async function POST(request: Request) {
           body: JSON.stringify({
             email,
             session_id: sessionId,
-            token_hash: tokenHash,
+            // Supabase's hashed_token, so /auth/callback can find THIS row from
+            // the link the user actually clicked. Falls back to the local hash
+            // only so the row still inserts (the column is NOT NULL) - a row that
+            // cannot be matched is still better than no row at all, because
+            // account/me and link-session both find it by email.
+            token_hash: magicTokenHash ?? tokenHash,
             captured_lists: captured,
             expires_at: expiresAt,
           }),
@@ -261,6 +277,29 @@ export async function POST(request: Request) {
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
   }
+
+  // TELL THE TEAM (G, 2026-08-21: "when anything new comes in that the team
+  // needs to know about, an auto email is sent with all the important info").
+  // A person handing over their email IS the "something new" — it is the first
+  // moment a visitor becomes a real prospect. Fire-and-forget on purpose: a
+  // notification failure must never break somebody's sign-in.
+  void notifyTeam({
+    kind: "new_account",
+    who: fullName || email,
+    email,
+    facts: [
+      ["Name given", fullName],
+      [
+        "Lists they asked about",
+        lists.length ? lists.map((l) => String(l)).slice(0, 10).join(", ") : null,
+      ],
+    ],
+    nextStep:
+      "Nothing to do yet - this is just so you know they exist. The interview comes next.",
+    sessionId,
+    // One real signup = one email, however many times this route is retried.
+    dedupeKey: `${email}:${sessionId ?? "nosession"}`,
+  });
 
   return new Response(
     JSON.stringify({ ok: true, emailSent: true, pendingStateToken }),

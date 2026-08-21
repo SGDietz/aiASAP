@@ -41,6 +41,7 @@ export function makeFakeWorld(
     awaitingSend: false,
     pendingEmail: null as string | null,
     rejectedEmail: null as string | null,
+    confirmedEmail: null as string | null,
     sendEmail: null as string | null,
     emailMissCount: 0,
     offerMade: false,
@@ -68,6 +69,8 @@ export function makeFakeWorld(
     set pendingEmail(v: string | null) { state.pendingEmail = v; },
     get rejectedEmail() { return state.rejectedEmail; },
     set rejectedEmail(v: string | null) { state.rejectedEmail = v; },
+    get confirmedEmail() { return state.confirmedEmail; },
+    set confirmedEmail(v: string | null) { state.confirmedEmail = v; },
     get sendEmail() { return state.sendEmail; },
     set sendEmail(v: string | null) { state.sendEmail = v; },
     get emailMissCount() { return state.emailMissCount; },
@@ -124,6 +127,7 @@ export function makeFakeWorld(
       state.awaitingName = false;
       state.pendingEmail = null;
       state.rejectedEmail = null;
+      state.confirmedEmail = null;
       state.awaitingSend = false;
       state.sendEmail = null;
       state.emailMissCount = 0;

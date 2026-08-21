@@ -22,9 +22,11 @@ import {
   ACCOUNT_RETURNING_RE,
   ACCOUNT_SETUP_TRIGGER_RE,
   EMAIL_ENTRY_REQUEST_RE,
+  EMAIL_READBACK_REQUEST_RE,
   buildAccountMemoryOffer,
   extractAccountEmailCandidate,
   extractDeviceNameCandidate,
+  hasEmailCorrectionIntent,
   hasEndSessionIntent,
   isAccountConsentYes,
   isValidEmailCandidate,
@@ -49,6 +51,7 @@ export interface SignupPorts {
   awaitingSend: boolean; // accountSetupAwaitingSendRef
   pendingEmail: string | null; // accountSetupPendingEmailRef
   rejectedEmail: string | null; // accountSetupRejectedEmailRef
+  confirmedEmail: string | null; // accountSetupConfirmedEmailRef
   sendEmail: string | null; // accountSetupSendEmailRef
   emailMissCount: number; // accountSetupEmailMissCountRef
   offerMade: boolean; // accountSetupOfferMadeRef
@@ -91,7 +94,14 @@ export function takesEmailFastPath(
 ): boolean {
   return (
     !flags.accountBetaDisabled &&
-    (ports.awaitingEmail || ports.pendingEmail !== null) &&
+    (ports.awaitingEmail ||
+      ports.pendingEmail !== null ||
+      (ports.confirmedEmail !== null &&
+        (EMAIL_READBACK_REQUEST_RE.test(userText) ||
+          hasEmailCorrectionIntent(
+            userText,
+            ports.pendingEmail !== null || ports.awaitingSend,
+          )))) &&
     !hasEndSessionIntent(userText)
   );
 }
@@ -167,8 +177,13 @@ export async function confirmEmailCandidateFlow(
   }
   ports.pendingEmail = normalizedEmail;
   ports.rejectedEmail = null;
+  ports.confirmedEmail = null;
+  ports.sendEmail = null;
   ports.awaitingEmail = false;
   ports.awaitingReady = false;
+  ports.awaitingSend = false;
+  ports.sendArmedAt = 0;
+  ports.sendArmedByText = null;
   ports.emailMissCount = 0;
   ports.closeTypedBox();
   ports.setTypedEmail(normalizedEmail);
@@ -365,10 +380,76 @@ export async function accountSetupSpeechFlow(
   const contact = extractContactDetails(userText);
   const correctedEmail = mergeEmailDomainCorrection(
     userText,
-    ports.pendingEmail ?? ports.rejectedEmail,
+    ports.pendingEmail ??
+      ports.sendEmail ??
+      ports.confirmedEmail ??
+      ports.rejectedEmail,
   );
   const directEmail =
     extractAccountEmailCandidate(userText, contact.email) ?? correctedEmail;
+
+  // Readback never mutates state. Prefer the candidate currently awaiting
+  // confirmation, then the last explicitly confirmed value. This also works
+  // after a user says "stop / don't send": canceling the send gate must not
+  // erase the field they already confirmed.
+  const readbackEmail =
+    ports.pendingEmail ?? ports.confirmedEmail ?? ports.sendEmail;
+  if (EMAIL_READBACK_REQUEST_RE.test(userText) && readbackEmail) {
+    ports.showChest();
+    ports.setChestDisplay(readbackEmail);
+    if (!ports.avatarTalking) {
+      await ports.say(
+        ports.pendingEmail
+          ? `I have ${readbackEmail} on my chest. Is that correct?`
+          : `I have ${readbackEmail} confirmed. I won't send anything unless you explicitly tell me to.`,
+      );
+    }
+    return true;
+  }
+
+  // Correction is the only path that may replace a candidate. A raw competing
+  // provider transcript must never overwrite pending/confirmed account data.
+  // Readback is intentionally handled above so a sentence asking to hear a
+  // possibly-wrong address cannot mutate it.
+  const emailBeingCorrected =
+    ports.pendingEmail ??
+    ports.sendEmail ??
+    ports.confirmedEmail ??
+    ports.rejectedEmail;
+  const atActiveEmailGate =
+    ports.awaitingEmail ||
+    ports.pendingEmail !== null ||
+    ports.awaitingSend ||
+    ports.confirmedEmail !== null ||
+    ports.rejectedEmail !== null;
+  if (
+    emailBeingCorrected &&
+    hasEmailCorrectionIntent(userText, atActiveEmailGate)
+  ) {
+    const wasPendingConfirmation = ports.pendingEmail !== null;
+    ports.rejectedEmail = emailBeingCorrected;
+    ports.awaitingSend = false;
+    ports.sendEmail = null;
+    ports.sendArmedByText = null;
+    ports.pendingEmail = null;
+    ports.awaitingReady = false;
+    ports.awaitingEmail = true;
+    ports.emailMissCount = 0;
+    ports.lastParsedEmail = null;
+    ports.setChestDisplay("");
+    ports.showChest();
+    if (directEmail) {
+      return confirmEmailCandidateFlow(ports, directEmail);
+    }
+    if (!ports.avatarTalking) {
+      await ports.say(
+        wasPendingConfirmation
+          ? "Okay, let's try again. Please spell it slowly."
+          : "Okay, I won't send it. Let's take the email again. Please spell it slowly.",
+      );
+    }
+    return true;
+  }
 
   if (
     EMAIL_ENTRY_REQUEST_RE.test(userText) &&
@@ -399,17 +480,13 @@ export async function accountSetupSpeechFlow(
       return true;
     }
     if (isAccountConsentYes(userText)) {
-      // STT ECHO GUARD (2026-06-11, G: "You sent it without me giving you
-      // permission"): his "Perfect." arrived twice — the first confirmed the
-      // email and ARMED this gate, the duplicate one beat later FIRED it.
-      // The exact words that armed the gate can never also fire it inside
-      // the echo window; a real consent is a different sentence ("yes",
-      // "send it") spoken after 6 actually asks.
+      // The utterance that confirmed the address and armed this gate can never
+      // also authorize delivery. Provider echoes can be delayed well beyond a
+      // short timer, so require a distinct normalized consent utterance.
       if (
         ports.sendArmedByText !== null &&
         normalizeUtterance(userText) ===
-          normalizeUtterance(ports.sendArmedByText) &&
-        ports.now() - ports.sendArmedAt < 4000
+          normalizeUtterance(ports.sendArmedByText)
       ) {
         return true;
       }
@@ -431,23 +508,14 @@ export async function accountSetupSpeechFlow(
   }
 
   if (ports.pendingEmail) {
-    // CHANGE 1 (2026-06-01): 6's confirmed readback is authoritative. When
-    // it drove the pending value (lastParsedEmail set), do NOT let a raw-STT
-    // directEmail (which mangles spelled letters) overwrite it — the user
-    // must say "no" to re-spell. Only the typed/clean path (no 6 readback)
-    // may still swap the candidate inline.
-    if (
-      directEmail &&
-      directEmail !== ports.pendingEmail &&
-      ports.lastParsedEmail === null
-    ) {
-      return confirmEmailCandidateFlow(ports, directEmail);
-    }
+    // Pending account email is sticky. Only the explicit correction path
+    // above may replace it; raw/provider candidates remain observational.
     if (isAccountConsentYes(userText)) {
       // Email confirmed CORRECT. Do NOT send yet — get explicit send consent
       // first (G 2026-06-03: "ask permission before sending; the user says
       // yes, THEN send"). Park the confirmed address on the send gate.
-      ports.sendEmail = ports.pendingEmail;
+      ports.confirmedEmail = ports.pendingEmail;
+      ports.sendEmail = ports.confirmedEmail;
       ports.pendingEmail = null;
       ports.awaitingEmail = false;
       ports.awaitingReady = false;

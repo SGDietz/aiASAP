@@ -61,6 +61,8 @@ export async function scheduleAccountDeletion(
   userId: string,
   graceDays = 30,
 ): Promise<DeletionSchedule | null> {
+  const { assertDestructiveActionAllowed } = await import("./accountProtection");
+  await assertDestructiveActionAllowed(userId, "account_delete_schedule");
   const now = Date.now();
   const schedule: DeletionSchedule = {
     scheduled_at: new Date(now).toISOString(),

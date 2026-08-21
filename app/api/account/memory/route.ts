@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getUserId } from "../../../../src/lib/auth/getUser";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
 import type { MemoryFactKind } from "../../../../src/lib/memory/types";
+import { checkDestructiveActionAllowed } from "../../../../src/lib/accountProtection";
 
 const MAX_RETURN = 200;
 
@@ -68,6 +69,23 @@ export async function DELETE(request: NextRequest) {
   const userId = await getUserId();
   if (!userId) {
     return NextResponse.json({ error: "not authenticated" }, { status: 401 });
+  }
+
+  const protection = await checkDestructiveActionAllowed(
+    userId,
+    "memory_fact_delete",
+  );
+  if (protection.allowed === false) {
+    return NextResponse.json(
+      {
+        error:
+          protection.code === "protected_account"
+            ? "This permanent account's memory history cannot be deleted"
+            : "Memory deletion stopped because account protection could not be verified",
+        code: protection.code,
+      },
+      { status: protection.code === "protected_account" ? 423 : 503 },
+    );
   }
 
   let url: string;

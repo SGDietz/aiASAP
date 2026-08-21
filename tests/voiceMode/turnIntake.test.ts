@@ -13,6 +13,11 @@ describe("voice turn intake — latest aiASAP SUP fragments", () => {
     "think I think the place is like",
     "my personal life I'm such a",
     "I added a",
+    "I added a.",
+    "add a",
+    "open the",
+    "Can you?",
+    "What do you",
     "take the",
     "You know, people don't",
     "they need to be",
@@ -26,6 +31,8 @@ describe("voice turn intake — latest aiASAP SUP fragments", () => {
     "you there",
     "How are you",
     "What do you think",
+    "What does she think?",
+    "What do we need?",
     "Tell me what you think",
     "Add toothpaste",
     "close the list",
@@ -108,6 +115,21 @@ describe("voice turn intake — latest aiASAP SUP fragments", () => {
     });
   });
 
+  it("does not stitch a fresh conversational shard into a direct command", () => {
+    const result = resolveTurnIntake({
+      incoming: "Add toothpaste",
+      pending: { text: "And I think", at: 1_000 },
+      now: 2_000,
+    });
+
+    expect(result).toEqual({
+      kind: "dispatch",
+      text: "Add toothpaste",
+      pending: null,
+      stitched: false,
+    });
+  });
+
   it("cleans up the exact session source that registered the listener", () => {
     const oldSession = { on: vi.fn(), off: vi.fn() };
     const replacementSession = { on: vi.fn(), off: vi.fn() };
@@ -121,9 +143,11 @@ describe("voice turn intake — latest aiASAP SUP fragments", () => {
     );
     currentSession = replacementSession;
     cleanup();
+    cleanup();
 
     expect(oldSession.on).toHaveBeenCalledWith("USER_TRANSCRIPTION", handler);
     expect(oldSession.off).toHaveBeenCalledWith("USER_TRANSCRIPTION", handler);
+    expect(oldSession.off).toHaveBeenCalledTimes(1);
     expect(replacementSession.off).not.toHaveBeenCalled();
     expect(currentSession).toBe(replacementSession);
   });

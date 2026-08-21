@@ -2,12 +2,15 @@
 // does during verbal signup. Every case below is a REAL transcript shape from
 // G's bug reports (dates in the comments match the fix notes in helpers.ts).
 import { describe, expect, it } from "vitest";
+import { extractContactDetails } from "../../src/lib/contactExtraction";
 import {
   buildAccountMemoryOffer,
   confirmsEndSession,
   extractDeviceNameCandidate,
   extractSpokenEmailCandidate,
+  hasEmailCorrectionIntent,
   hasEndSessionIntent,
+  hasExplicitAccountSendOnCloseIntent,
   isAccountConsentYes,
   isInternalSignal,
   isStitchedSessionClose,
@@ -78,6 +81,33 @@ describe("hasEndSessionIntent — close must escape the email fast-path (G 2026-
       false,
     );
     expect(isInternalSignal("[SILENT]")).toBe(true);
+  });
+});
+
+describe("hasExplicitAccountSendOnCloseIntent — close is never implicit send consent", () => {
+  it("accepts an explicit same-turn send-and-close command", () => {
+    expect(
+      hasExplicitAccountSendOnCloseIntent(
+        "Yes, send the sign-in link and close the session.",
+      ),
+    ).toBe(true);
+    expect(
+      hasExplicitAccountSendOnCloseIntent("Send it, then close this site out."),
+    ).toBe(true);
+  });
+
+  it("rejects generic affirmation, ambiguity, and negation", () => {
+    expect(hasExplicitAccountSendOnCloseIntent("Okay, close the session.")).toBe(
+      false,
+    );
+    expect(hasExplicitAccountSendOnCloseIntent("Yes, close the session.")).toBe(
+      false,
+    );
+    expect(
+      hasExplicitAccountSendOnCloseIntent(
+        "Don't send anything; close the session.",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -219,7 +249,7 @@ describe("mergeEmailDomainCorrection — fix just the domain, keep the local", (
   });
 });
 
-describe("parseEmailFromAvatarReadback — 6's readback is the source of truth", () => {
+describe("parseEmailFromAvatarReadback — observational readback parser", () => {
   it("parses the canonical spelled readback", () => {
     expect(
       parseEmailFromAvatarReadback(
@@ -272,6 +302,13 @@ describe("extractDeviceNameCandidate — junk never becomes a name (G 2026-06-07
       extractDeviceNameCandidate("I am, however, not sure about this", false),
     ).toBe(null);
   });
+  it("SUP 56-59: emotional self-talk never becomes identity data", () => {
+    const transcript =
+      "I think the place is, it's like in my personal life, I'm such a loser. I don't have any friends.";
+
+    expect(extractDeviceNameCandidate(transcript, false)).toBe(null);
+    expect(extractContactDetails(transcript).fullName).toBe(null);
+  });
   it("a bare answer works only when 6 just asked", () => {
     expect(extractDeviceNameCandidate("G", true)).toBe("G");
     expect(extractDeviceNameCandidate("G", false)).toBe(null);
@@ -284,6 +321,30 @@ describe("extractDeviceNameCandidate — junk never becomes a name (G 2026-06-07
     expect(extractDeviceNameCandidate("It is", true)).toBe(null);
     expect(extractDeviceNameCandidate("first time", true)).toBe(null);
     expect(extractDeviceNameCandidate("I'm talking", true)).toBe(null);
+  });
+  it("explicit identity answers preserve valid names while rejecting setup residue", () => {
+    expect(extractDeviceNameCandidate("my name is George Good", false)).toBe(
+      "George Good",
+    );
+    expect(extractDeviceNameCandidate("call me Fine", false)).toBe("Fine");
+    expect(extractDeviceNameCandidate("my name is an account", false)).toBe(null);
+    expect(extractDeviceNameCandidate("an account", true)).toBe(null);
+    expect(extractDeviceNameCandidate("account", true)).toBe(null);
+    expect(extractDeviceNameCandidate("set up", true)).toBe(null);
+    expect(extractDeviceNameCandidate("create", true)).toBe(null);
+    expect(extractDeviceNameCandidate("create account please", true)).toBe(null);
+    expect(extractDeviceNameCandidate("create an G", true)).toBe(null);
+    expect(extractDeviceNameCandidate("set up an account", true)).toBe(null);
+    expect(extractDeviceNameCandidate("create an account", true)).toBe(null);
+    expect(extractDeviceNameCandidate("start an account", true)).toBe(null);
+    expect(extractDeviceNameCandidate("open an account", true)).toBe(null);
+    expect(extractDeviceNameCandidate("my name is create an account", false)).toBe(
+      null,
+    );
+  });
+  it("preserves legitimate short names that resemble ordinary words", () => {
+    expect(extractDeviceNameCandidate("So Young", true)).toBe("So Young");
+    expect(extractDeviceNameCandidate("My Anh", true)).toBe("My Anh");
   });
   it("isJunkPersonName flags stored lead-ins for repair", () => {
     expect(isJunkPersonName("Call Me")).toBe(true);
@@ -311,6 +372,39 @@ describe("voice sizing — the coached words must always match (the 23:15 bug)",
     // Ordinary talk never resizes:
     expect(UI_SIZE_BIGGER_RE.test("my dreams are bigger than that")).toBe(false);
     expect(UI_SIZE_SMALLER_RE.test("the world feels smaller these days")).toBe(false);
+  });
+});
+
+describe("email correction intent — positive confirmation never reopens entry", () => {
+  it.each([
+    "correct",
+    "Correct.",
+    "Yes, that's correct. Send the sign-in link.",
+    "Okay, it came up correct the first time.",
+    "That's incorrect about the weather.",
+  ])("does not treat %j as a correction outside an active email gate", (text) => {
+    expect(hasEmailCorrectionIntent(text, false)).toBe(false);
+  });
+
+  it.each([
+    "wrong",
+    "incorrect",
+    "But now it's not written correct.",
+    "No, that's not right.",
+    "You didn't spell it correct.",
+  ])("accepts %j only while an email gate is active", (text) => {
+    expect(hasEmailCorrectionIntent(text, true)).toBe(true);
+    expect(hasEmailCorrectionIntent(text, false)).toBe(false);
+  });
+
+  it.each([
+    "fix my email",
+    "fix it",
+    "correct the email",
+    "change my address",
+    "take my email again",
+  ])("accepts explicit email correction %j in any signup context", (text) => {
+    expect(hasEmailCorrectionIntent(text, false)).toBe(true);
   });
 });
 

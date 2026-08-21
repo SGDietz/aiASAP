@@ -6,6 +6,7 @@ import {
 } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
+import { isPostgrestMissingColumnError } from "../../../../src/lib/appEventEnvelope";
 
 // Voice-list mode transcript logging (2026-06-11 r19). While the avatar is
 // stopped, turns never reach LiveAvatar's official transcript — they'd vanish
@@ -24,6 +25,8 @@ export async function POST(request: Request) {
       sessionId?: string;
       role?: string;
       message?: string;
+      eventId?: string;
+      utteranceId?: string;
     };
     const sessionId = body.sessionId ?? "";
     const role = body.role === "assistant" ? "assistant" : "user";
@@ -31,6 +34,16 @@ export async function POST(request: Request) {
       typeof body.message === "string"
         ? truncateUtf8String(body.message.trim(), MAX_TRANSCRIPTION_TEXT_CHARS)
         : "";
+    const eventId =
+      typeof body.eventId === "string" &&
+      /^[A-Za-z0-9:_-]{1,200}$/.test(body.eventId)
+        ? body.eventId
+        : null;
+    const utteranceId =
+      typeof body.utteranceId === "string" &&
+      /^[A-Za-z0-9_-]{1,200}$/.test(body.utteranceId)
+        ? body.utteranceId
+        : null;
     if (!isSafeTranscriptionSessionId(sessionId) || !message) {
       return new Response(JSON.stringify({ error: "bad payload" }), {
         status: 400,
@@ -39,18 +52,50 @@ export async function POST(request: Request) {
     }
 
     const { url, serviceRoleKey } = getSupabaseAdminConfig();
-    const res = await fetch(`${url}/rest/v1/conversation_messages`, {
+    const endpoint = eventId
+      ? `${url}/rest/v1/conversation_messages?on_conflict=event_id`
+      : `${url}/rest/v1/conversation_messages`;
+    let res = await fetch(endpoint, {
       method: "POST",
       headers: {
         apikey: serviceRoleKey,
         Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
-        Prefer: "return=minimal",
+        Prefer: eventId
+          ? "resolution=ignore-duplicates,return=minimal"
+          : "return=minimal",
       },
-      body: JSON.stringify({ session_id: sessionId, role, message }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        role,
+        message,
+        event_id: eventId,
+        utterance_id: utteranceId,
+      }),
     });
+    let detail = res.ok ? "" : await res.text();
+    if (
+      !res.ok &&
+      (eventId || utteranceId) &&
+      isPostgrestMissingColumnError(res.status, detail, [
+        "event_id",
+        "utterance_id",
+      ])
+    ) {
+      // Backward-compatible only when the additive columns are genuinely absent.
+      res = await fetch(`${url}/rest/v1/conversation_messages`, {
+        method: "POST",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ session_id: sessionId, role, message }),
+      });
+      detail = res.ok ? "" : await res.text();
+    }
     if (!res.ok) {
-      const detail = await res.text();
       console.error("[voice-mode:log-turn] insert failed", res.status, detail.slice(0, 200));
       return new Response(JSON.stringify({ error: "insert failed" }), {
         status: 502,

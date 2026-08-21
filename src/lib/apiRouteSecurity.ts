@@ -74,6 +74,53 @@ export const MAX_VIDEO_FRAMES = 24;
 /** Max length of one base64 frame string (~1.5 MiB decoded). */
 export const MAX_VIDEO_FRAME_BASE64_CHARS = 2_200_000;
 
+export class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("Request body exceeds the configured limit");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
+/** Read a request stream with a hard byte cap before any JSON/form parsing. */
+export async function readRequestBodyWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<ArrayBuffer> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new Error("Invalid request body limit");
+  }
+
+  const reader = request.body?.getReader();
+  if (!reader) return new ArrayBuffer(0);
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel("Request body too large").catch(() => undefined);
+        throw new RequestBodyTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined.buffer;
+}
+
 const BEARER_TOKEN_MAX_LEN = 8192;
 
 /** Reject C0 controls, DEL, and Unicode line/paragraph separators (CRLF header injection). */

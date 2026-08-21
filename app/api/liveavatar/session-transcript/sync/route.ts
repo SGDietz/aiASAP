@@ -6,15 +6,17 @@ import {
 } from "../../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../../src/lib/rateLimit";
 import { buildMagicLinkEmailHtml } from "../../../../../src/lib/magicLinkEmail";
-import { persistUserUtteranceLeadCapture } from "../../../../../src/lib/leadCaptureFromUserText";
+
 import { getSupabaseAdminConfig } from "../../../../../src/lib/supabaseAdmin";
 import { normalizeTesterLabel } from "../../../../../src/lib/testerAttribution";
+import { allowsTranscriptSignupSideEffects } from "../../../../../src/lib/signup/transcriptSideEffects";
 import { API_KEY, API_URL } from "../../../secrets";
 import { getUserId } from "../../../../../src/lib/auth/getUser";
 import {
   extractFactsFromTurn,
   storeFacts,
 } from "../../../../../src/lib/memory";
+import { normalizeUtterance } from "../../../../../src/lib/speech/dedupe";
 
 // Per-session in-memory de-dup for the auto-magic-link trigger. Process-
 // scoped — restart clears it. Good enough for beta; the alternative is
@@ -296,9 +298,19 @@ async function sendMagicLinkServerSide(
         html,
       }),
     });
-    // 409/422 = idempotency conflict: the other sender already sent this signup's
-    // link. That's the dedup working — treat as success, not a failure.
-    if (sendRes.status === 409 || sendRes.status === 422) {
+    // 409 = idempotency conflict: the other sender already sent this signup's
+    // link. That IS the dedup working, so it really is sent.
+    //
+    // 422 used to be counted here too, and that was wrong (fixed 2026-08-21).
+    // Resend returns 422 for a VALIDATION failure — a malformed address, an
+    // unverified sending domain — and nothing is delivered. Counting it as
+    // success made 6 say "I sent you an email, check for it now" to somebody
+    // whose inbox was never going to receive anything, and they never come back.
+    //
+    // The same bug lived in app/api/account/start/route.ts. That copy was fixed
+    // first; THIS is the path that fires more often, because it is the one the
+    // transcript trigger uses. Both senders now agree.
+    if (sendRes.status === 409) {
       return { ok: true };
     }
     if (!sendRes.ok) {
@@ -309,14 +321,6 @@ async function sendMagicLinkServerSide(
   } catch (e) {
     return { ok: false, error: String(e) };
   }
-}
-
-/** Skip lead extraction for long context lines mis-tagged as user or internal prompts. */
-function shouldRunLeadCaptureOnUserTranscript(text: string): boolean {
-  const t = text.trim();
-  if (t.length > 500) return false;
-  if (/^you are directly viewing (an image|a video)/i.test(t)) return false;
-  return true;
 }
 
 type TranscriptRow = {
@@ -333,6 +337,77 @@ function supabaseHeaders(serviceRoleKey: string) {
     "Content-Type": "application/json",
     Prefer: "resolution=ignore-duplicates,return=minimal",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Transcript claim-and-merge (Ara's Job-1 packet, 2026-08-21; installed and
+// verified by Claude). Every line 6 says was being stored TWICE: the app logs
+// it at emit time via /api/voice-mode/log-turn with source='app' and a NULL
+// la_absolute_timestamp, then this poll stores the provider's copy 15-20 s
+// later with source='liveavatar_api'. The insert's on_conflict key includes
+// la_absolute_timestamp, so a NULL-timestamped app row could never conflict
+// and the pair always survived. Proof, session 97429155: 08:07:22 app /
+// 08:07:28 liveavatar_api, same text.
+//
+// So: before inserting, find the app's own row for the same session, role and
+// normalized text near the provider's timestamp, and PATCH the provider's
+// timestamp + source onto THAT row instead of inserting a second one.
+//
+// A transcript row is never deleted, on any path. If the PATCH conflicts the
+// app row is simply left alone - a rare surviving duplicate is acceptable,
+// destroying what someone said is not.
+// ---------------------------------------------------------------------------
+const MERGE_WINDOW_MS = 30000;
+
+type AppTranscriptRow = {
+  id: string;
+  role: string;
+  message: string | null;
+  source: string | null;
+  created_at: string;
+  la_absolute_timestamp: number | null;
+};
+
+async function fetchAppTranscriptRows(
+  url: string,
+  serviceRoleKey: string,
+  sessionId: string,
+): Promise<AppTranscriptRow[]> {
+  const res = await fetch(
+    `${url}/rest/v1/conversation_messages?session_id=eq.${encodeURIComponent(sessionId)}&source=eq.app&select=id,role,message,source,created_at,la_absolute_timestamp&order=created_at.desc&limit=200`,
+    {
+      method: "GET",
+      headers: supabaseHeaders(serviceRoleKey),
+    },
+  );
+  if (!res.ok) return [];
+  const json: unknown = await res.json().catch(() => []);
+  return Array.isArray(json) ? (json as AppTranscriptRow[]) : [];
+}
+
+function findMergeTarget(
+  appRows: AppTranscriptRow[],
+  providerRow: { role: string; message: string; la_absolute_timestamp: number },
+  claimedIds: Set<string>,
+): AppTranscriptRow | null {
+  const want = normalizeUtterance(providerRow.message);
+  if (!want) return null;
+  const providerMs = providerRow.la_absolute_timestamp * 1000;
+  for (const app of appRows) {
+    // claimedIds is Claude's addition to Ara's packet. Without it, two provider
+    // rows carrying the SAME normalized text (6 legitimately repeating a line,
+    // which this app does) both match the SAME app row: the first patches it,
+    // the second re-patches it from a stale in-memory list and then skips its
+    // own insert - silently losing one spoken line. One row may be claimed once.
+    if (claimedIds.has(app.id)) continue;
+    if (app.role !== providerRow.role) continue;
+    if (normalizeUtterance(app.message || "") !== want) continue;
+    const createdMs = Date.parse(app.created_at);
+    if (!Number.isFinite(createdMs)) continue;
+    if (Math.abs(createdMs - providerMs) > MERGE_WINDOW_MS) continue;
+    return app;
+  }
+  return null;
 }
 
 function isTranscriptRow(value: unknown): value is TranscriptRow {
@@ -389,6 +464,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { liveAvatarSessionId: rawSessionId, startTimestamp } = body;
     const testerLabel = normalizeTesterLabel(body.testerLabel);
+    const clientManagedSignup = body.clientManagedSignup === true;
 
     if (!isSafeTranscriptionSessionId(rawSessionId)) {
       return new Response(JSON.stringify({ error: "Invalid liveAvatarSessionId" }), {
@@ -472,38 +548,89 @@ export async function POST(request: Request) {
       ...(testerLabel ? { tester_label: testerLabel } : {}),
     }));
 
+    const toInsert: typeof rows = [];
+    let merged = 0;
+    let skipped409 = 0;
     if (rows.length > 0) {
-      const insertRes = await fetch(
-        `${url}/rest/v1/conversation_messages?on_conflict=session_id,role,la_absolute_timestamp`,
-        {
-          method: "POST",
-          headers: supabaseHeaders(serviceRoleKey),
-          body: JSON.stringify(rows),
-        },
+      const appRows = await fetchAppTranscriptRows(
+        url,
+        serviceRoleKey,
+        liveAvatarSessionId,
       );
+      const claimedIds = new Set<string>();
+      for (const row of rows) {
+        const hit = findMergeTarget(appRows, row, claimedIds);
+        if (hit && hit.id) {
+          claimedIds.add(hit.id);
+          const patchHeaders = {
+            ...supabaseHeaders(serviceRoleKey),
+            Prefer: "return=minimal",
+          };
+          const patchRes = await fetch(
+            `${url}/rest/v1/conversation_messages?id=eq.${encodeURIComponent(hit.id)}`,
+            {
+              method: "PATCH",
+              headers: patchHeaders,
+              body: JSON.stringify({
+                la_absolute_timestamp: row.la_absolute_timestamp,
+                source: "liveavatar_api",
+              }),
+            },
+          );
+          if (patchRes.status === 409) {
+            // A provider row already owns this (session, role, timestamp), so
+            // the app row is the surplus copy. Leave it exactly as it is and
+            // insert nothing: never delete, never double-store.
+            skipped409 += 1;
+            continue;
+          }
+          if (!patchRes.ok) {
+            const detail = await patchRes.text();
+            console.error("Supabase conversation_messages merge patch failed:", detail);
+            return new Response(
+              JSON.stringify({ error: "Failed to merge transcript lines" }),
+              { status: 500, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          merged += 1;
+          continue;
+        }
+        // No app row to claim (the common race: voiceLogTurn is fire-and-forget
+        // and a CONNECT sync can beat it). Store the provider row as before.
+        toInsert.push(row);
+      }
 
-      if (!insertRes.ok) {
-        const detail = await insertRes.text();
-        console.error("Supabase conversation_messages insert failed:", detail);
-        return new Response(
-          JSON.stringify({ error: "Failed to store transcript lines" }),
-          { status: 500, headers: { "Content-Type": "application/json" } },
+      if (toInsert.length > 0) {
+        const insertRes = await fetch(
+          `${url}/rest/v1/conversation_messages?on_conflict=session_id,role,la_absolute_timestamp`,
+          {
+            method: "POST",
+            headers: supabaseHeaders(serviceRoleKey),
+            body: JSON.stringify(toInsert),
+          },
+        );
+
+        if (!insertRes.ok) {
+          const detail = await insertRes.text();
+          console.error("Supabase conversation_messages insert failed:", detail);
+          return new Response(
+            JSON.stringify({ error: "Failed to store transcript lines" }),
+            { status: 500, headers: { "Content-Type": "application/json" } },
+          );
+        }
+      }
+      if (merged > 0 || skipped409 > 0) {
+        console.log(
+          `[transcript-merge] session ${liveAvatarSessionId}: merged ${merged}, inserted ${toInsert.length}, left-alone-409 ${skipped409}`,
         );
       }
     }
 
-    let leadCaptureErrors = 0;
-    for (const row of parsed.transcriptData) {
-      if (row.role !== "user") continue;
-      const line = row.transcript.trim();
-      if (!line || !shouldRunLeadCaptureOnUserTranscript(line)) continue;
-      try {
-        await persistUserUtteranceLeadCapture(liveAvatarSessionId, line, testerLabel);
-      } catch (err) {
-        leadCaptureErrors++;
-        console.error("Lead capture from transcript sync failed:", err);
-      }
-    }
+    // The accepted app turn is the single authority for lead/profile capture.
+    // Official LiveAvatar transcript sync remains append-only evidence only;
+    // replaying its competing STT into lead_sessions let a later misread email
+    // overwrite the address that the user had already verified on screen.
+    const leadCaptureErrors = 0;
 
     // Detect "6 verbally agreed to send a magic link to user's email"
     // pattern in the transcripts. Pattern: assistant said "sending the
@@ -511,6 +638,7 @@ export async function POST(request: Request) {
     // appears anywhere in the session history (current batch OR prior
     // batches). Only runs for anonymous users — signed-in don't need it.
     if (
+      allowsTranscriptSignupSideEffects(clientManagedSignup) &&
       !userId &&
       hasMagicLinkTrigger(parsed.transcriptData) &&
       hasUserSendConsent(parsed.transcriptData) &&

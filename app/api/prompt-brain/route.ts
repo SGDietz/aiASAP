@@ -244,18 +244,16 @@ export async function POST(request: Request) {
     const parsed = typeof content === "string" ? JSON.parse(content) : {};
     const prompts = normalizePrompts(parsed.prompts);
 
-    // v1 brain output logging: fire-and-forget to Supabase conversation_messages
-    // so we can query pillbox state alongside user/assistant turns.
+    // Prompt suggestions are product telemetry, not assistant speech. Keep them
+    // out of conversation_messages so transcript history contains only what the
+    // user and 6 actually said; audit them in app_events instead.
     const supaUrl = process.env.SUPABASE_URL;
     const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     console.log(
-      `[prompt-brain] returned ${prompts.length} prompts for sessionId=${sessionId ? sessionId.substring(0, 8) : "NULL"}: ${prompts.join(" | ")}`,
+      `[prompt-brain] returned ${prompts.length} prompts for sessionId=${sessionId ? sessionId.substring(0, 8) : "NULL"}`,
     );
-    if (!supaUrl) console.error("[prompt-brain] SUPABASE_URL missing");
-    if (!supaKey) console.error("[prompt-brain] SUPABASE_SERVICE_ROLE_KEY missing");
-    if (!sessionId) console.warn("[prompt-brain] no sessionId in request body — log skipped");
     if (supaUrl && supaKey && sessionId) {
-      void fetch(`${supaUrl}/rest/v1/conversation_messages`, {
+      void fetch(`${supaUrl}/rest/v1/app_events`, {
         method: "POST",
         headers: {
           apikey: supaKey,
@@ -264,19 +262,19 @@ export async function POST(request: Request) {
           Prefer: "return=minimal",
         },
         body: JSON.stringify({
-          // conversation_messages has a CHECK constraint allowing only role
-          // 'user' or 'assistant'. Brain output rides as 'assistant' with the
-          // distinguishing source 'prompt_brain_v1' so smoke queries can
-          // filter brain rows out from real voice turns.
           session_id: sessionId,
-          role: "assistant",
-          message: JSON.stringify({ latestUserText, prompts }),
-          source: "prompt_brain_v1",
-          la_absolute_timestamp: Math.floor(Date.now() / 1000),
-          ...(testerLabel ? { tester_label: testerLabel } : {}),
+          event_type: "prompt_brain_suggestions",
+          severity: "low",
+          provider: "openai",
+          route: "/api/prompt-brain",
+          payload: {
+            latest_user_chars: latestUserText.length,
+            prompts,
+            ...(testerLabel ? { tester_label: testerLabel } : {}),
+          },
         }),
       }).catch((err) =>
-        console.error("[prompt-brain] supabase log failed:", err),
+        console.error("[prompt-brain] app event log failed:", err),
       );
     }
 

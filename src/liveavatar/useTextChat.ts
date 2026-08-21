@@ -1,9 +1,10 @@
 import { useCallback } from "react";
 import { useLiveAvatarContext } from "./context";
 import {
-  deliverCustomTtsAudio,
   registerSixSpokenLine,
+  speakThroughAvatar,
 } from "./customVoiceDelivery";
+import { logAppEvent } from "../lib/telemetry";
 
 export const useTextChat = (
   mode: "FULL" | "CUSTOM",
@@ -11,7 +12,10 @@ export const useTextChat = (
   // conversation_messages — the official transcript sync only covers FULL
   // sessions): the component passes a logger so 6's brain replies land in the
   // transcript table.
-  onAssistantText?: (text: string) => void,
+  onAssistantText?: (
+    text: string,
+    context: { utteranceId: string | null },
+  ) => void,
   // r26: the brain was stateless — every call looked like first contact, so
   // 6 re-introduced himself on every turn. The component supplies the running
   // conversation; we send it with each call.
@@ -26,11 +30,59 @@ export const useTextChat = (
   const { sessionRef, reportActivity } = useLiveAvatarContext();
 
   const sendMessage = useCallback(
-    async (message: string, imageAnalysis?: string | null) => {
+    async (
+      message: string,
+      imageAnalysis?: string | null,
+      utteranceId: string | null = null,
+    ) => {
       reportActivity();
       if (mode === "FULL") {
+        // PROOF PROBE (Ara's Job-2 packet, 2026-08-21; installed by Claude with
+        // one correction). Fires immediately before the ONE speech dispatch, so
+        // grouping app_events by utteranceId counts how many times a single line
+        // was actually emitted. That settles "does 6 say a line twice?" with data
+        // instead of argument.
+        //
+        // CORRECTION vs the packet: it pinned eventId to
+        // `${utteranceId}:voice-speech-emitted`. app_events.event_id is UNIQUE, so
+        // a SECOND emission of the same utterance would collide and be dropped -
+        // the probe would report exactly one row and we would "prove" one-emit-per-
+        // line precisely when the bug was happening. Omitting eventId lets
+        // logAppEvent mint a unique id per call (telemetry.ts:95), so every
+        // emission gets its own row. utteranceId stays in the envelope for grouping.
+        if (utteranceId) {
+          logAppEvent(
+            "voice_speech_emitted",
+            {
+              stage: "speech_emit",
+              mode,
+              path: "full-message",
+              textNorm: String(message || "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 96),
+            },
+            "low",
+            {
+              utteranceId,
+              provider: "heygen",
+              outcome: "emitted",
+            },
+          );
+        }
         return sessionRef.current.message(message);
       } else if (mode === "CUSTOM") {
+        const brainStartedAt = Date.now();
+        if (utteranceId) {
+          logAppEvent(
+            "voice_brain_request_started",
+            { stage: "brain_request", mode },
+            "low",
+            {
+              eventId: `${utteranceId}:brain-request-started`,
+              utteranceId,
+              provider: "openai",
+              outcome: "started",
+            },
+          );
+        }
         const response = await fetch("/api/openai-chat-complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -43,8 +95,22 @@ export const useTextChat = (
           }),
         });
         const { response: chatResponseText } = await response.json();
+        if (utteranceId) {
+          logAppEvent(
+            "voice_brain_response_ready",
+            { stage: "brain_response", mode },
+            "low",
+            {
+              eventId: `${utteranceId}:brain-response-ready`,
+              utteranceId,
+              provider: "openai",
+              durationMs: Math.max(0, Date.now() - brainStartedAt),
+              outcome: "ready",
+            },
+          );
+        }
         if (typeof chatResponseText === "string" && chatResponseText) {
-          onAssistantText?.(chatResponseText);
+          onAssistantText?.(chatResponseText, { utteranceId });
           registerSixSpokenLine(chatResponseText); // echo firewall registry
         }
         // LIP-SYNC (G 2026-06-14): the CUSTOM mint is now a room-based session
@@ -54,23 +120,83 @@ export const useTextChat = (
         // double-greet). ElevenLabs + the WebAudio armor stay as the silent
         // fallback if repeat() ever no-ops.
         try {
-          return sessionRef.current.repeat(chatResponseText);
+          if (utteranceId) {
+            logAppEvent(
+              "voice_avatar_repeat_dispatched",
+              { stage: "avatar_repeat", mode },
+              "low",
+              {
+                eventId: `${utteranceId}:avatar-repeat-dispatched`,
+                utteranceId,
+                provider: "heygen",
+                outcome: "dispatched",
+              },
+            );
+          }
+          // PROOF PROBE, CUSTOM path (see the note on the FULL branch above).
+          // Deliberately separate from voice_avatar_repeat_dispatched, which is
+          // keyed per utterance and would swallow a duplicate.
+          if (utteranceId) {
+            logAppEvent(
+              "voice_speech_emitted",
+              {
+                stage: "speech_emit",
+                mode,
+                path: "custom-repeat",
+                textNorm: String(chatResponseText || "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 96),
+              },
+              "low",
+              {
+                utteranceId,
+                provider: "heygen",
+                outcome: "emitted",
+              },
+            );
+          }
+          // 2026-08-21: was a bare repeat() inside a try/catch, so 6 was only
+          // rescued when the call THREW. The real-world failure is the call
+          // being accepted and then silently ignored — the exact thing the
+          // audio-push path has watched for since June. speakThroughAvatar adds
+          // that same AVATAR_SPEAK_STARTED watchdog here, runs it detached so
+          // this call is not slowed, and refuses to rescue a line the user has
+          // since interrupted.
+          return speakThroughAvatar(
+            sessionRef.current,
+            chatResponseText,
+            "textchat.reply",
+            (reason) => {
+              if (!utteranceId) return;
+              logAppEvent(
+                "voice_avatar_repeat_failed",
+                { stage: "avatar_repeat", mode, reason },
+                // HIGH, not medium: every one of these is 6 failing to speak in
+                // front of a real person. It must be findable after the fact.
+                "high",
+                {
+                  eventId: `${utteranceId}:avatar-repeat-failed`,
+                  utteranceId,
+                  provider: "heygen",
+                  durationMs: Math.max(0, Date.now() - brainStartedAt),
+                  outcome: "failed",
+                },
+              );
+            },
+          );
         } catch (e) {
-          console.error("[textchat] repeat() failed, ElevenLabs fallback:", e);
-          try {
-            const res = await fetch("/api/elevenlabs-text-to-speech", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: chatResponseText }),
-            });
-            if (!res.ok) throw new Error(`tts ${res.status}`);
-            const { audio } = (await res.json()) as { audio?: string };
-            if (typeof audio !== "string" || audio.length < 50) {
-              throw new Error("tts returned no audio");
-            }
-            return deliverCustomTtsAudio(sessionRef.current, audio, "textchat.reply");
-          } catch (e2) {
-            console.error("[textchat] ElevenLabs fallback also failed:", e2);
+          console.error("[textchat] speak path failed outright:", e);
+          if (utteranceId) {
+            logAppEvent(
+              "voice_avatar_repeat_failed",
+              { stage: "avatar_repeat", mode, reason: "speak_path_threw" },
+              "high",
+              {
+                eventId: `${utteranceId}:avatar-speak-path-threw`,
+                utteranceId,
+                provider: "heygen",
+                durationMs: Math.max(0, Date.now() - brainStartedAt),
+                outcome: "failed",
+              },
+            );
           }
         }
       }

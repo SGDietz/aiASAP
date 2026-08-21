@@ -67,7 +67,7 @@ describe("G's verbatim wildworks transcript — duplicated 'Perfect.'", () => {
     expect(w.ports.awaitingSend).toBe(false);
   });
 
-  it("even the SAME word sends once the echo window has passed", async () => {
+  it("the arming words never send, even when a provider echo is delayed", async () => {
     const w = makeFakeWorld();
     await replayTurn(w.ports, "set up an account");
     await replayTurn(w.ports, "first time");
@@ -76,10 +76,18 @@ describe("G's verbatim wildworks transcript — duplicated 'Perfect.'", () => {
     expect(w.ports.pendingEmail).toBe("wildworks@pm.me");
     await replayTurn(w.ports, "Perfect.");
     expect(w.ports.awaitingSend).toBe(true);
+    expect(w.ports.sendEmail).toBe("wildworks@pm.me");
+    expect(w.ports.confirmedEmail).toBe("wildworks@pm.me");
 
-    // 6 asks, seconds pass, the user genuinely says "Perfect." again.
+    // Provider echoes can arrive well after a short timer. Identical arming
+    // words still cannot become send consent; a distinct utterance is required.
     w.clock.ms += 6000;
     await replayTurn(w.ports, "Perfect.");
+    expect(w.ports.awaitingSend).toBe(true);
+    expect(w.sentTo).toEqual([]);
+
+    await replayTurn(w.ports, "Yes, send it.");
+    expect(w.ports.awaitingSend).toBe(false);
     expect(w.sentTo).toEqual(["wildworks@pm.me"]);
   });
 });
@@ -89,13 +97,37 @@ describe("dispatcher-level STT dedupe", () => {
     expect(isDuplicateUtterance("Perfect.", 1000, "Perfect.", 2000)).toBe(true);
     expect(isDuplicateUtterance("Make it bigger.", 1000, "make it bigger", 2500)).toBe(true);
   });
+  it("never treats provider trailing shards as duplicate turns", () => {
+    expect(
+      isDuplicateUtterance(
+        "I want to set up an account.",
+        1000,
+        "an account.",
+        1700,
+      ),
+    ).toBe(false);
+    expect(
+      isDuplicateUtterance(
+        "Please read me back my email.",
+        1000,
+        "my email.",
+        1700,
+      ),
+    ).toBe(false);
+  });
   it("outside the window or different text = not an echo", () => {
     expect(isDuplicateUtterance("Perfect.", 1000, "Perfect.", 4500)).toBe(false);
     expect(isDuplicateUtterance("Perfect.", 1000, "Yes.", 1500)).toBe(false);
+    expect(isDuplicateUtterance("Open my account.", 1000, "Account settings.", 1500)).toBe(false);
     expect(isDuplicateUtterance(null, 0, "Perfect.", 1000)).toBe(false);
   });
-  it("normalization strips case, punctuation, and spacing only", () => {
+  it("normalization strips case, punctuation, and spacing without erasing Unicode", () => {
     expect(normalizeUtterance("  Make it BIGGER!! ")).toBe("makeitbigger");
     expect(normalizeUtterance("perfect")).toBe(normalizeUtterance("Perfect."));
+    expect(normalizeUtterance("你好，朋友！")).toBe("你好朋友");
+    expect(isDuplicateUtterance("你好，朋友！", 1000, "你好朋友", 1500)).toBe(
+      true,
+    );
+    expect(isDuplicateUtterance("你好", 1000, "再见", 1500)).toBe(false);
   });
 });

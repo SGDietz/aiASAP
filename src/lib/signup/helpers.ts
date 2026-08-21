@@ -38,6 +38,21 @@ export const ACCOUNT_UNSURE_RE =
   /\b(?:not sure|you tell me|no idea|don'?t (?:know|remember|recall)|can'?t remember|i forget|how would i know)\b/i;
 export const ACCOUNT_READY_NO_RE =
   /\b(?:no|nope|nah|not now|later|stop|never mind|nevermind|cancel|wait|hold on|hold up|wrong|incorrect|that'?s not|isn'?t right|don'?t send)\b/i;
+export const EMAIL_EXPLICIT_CORRECTION_RE =
+  /\b(?:(?:fix|correct|change)\s+(?:it|that|my\s+email|the\s+email|my\s+address|the\s+address)|take\s+(?:it|my\s+email|the\s+email|my\s+address|the\s+address)\s+again|(?:my|the)\s+(?:email|address)\s+(?:is|was|looks?)\s+(?:wrong|incorrect|not\s+(?:right|correct)))\b/i;
+export const EMAIL_GATE_CORRECTION_RE =
+  /^\s*(?:(?:actually\b.*(?:@|\bat\b.*\bdot\b).*|wrong\s+domain\b.*)|(?:(?:but|and)\s+)?(?:(?:no|now)\s*[,.-]?\s*)?(?:(?:that|it)(?:'?s|\s+is)\s+)?(?:wrong|incorrect|not\s+(?:written\s+)?(?:right|correct)|isn'?t\s+(?:written\s+)?(?:right|correct)|you\s+didn'?t\s+(?:write|show|spell|display|enter|type|get)\s+(?:it\s+)?(?:right|correct))[\s.!?]*)$/i;
+export function hasEmailCorrectionIntent(
+  text: string,
+  atActiveEmailGate: boolean,
+): boolean {
+  return (
+    EMAIL_EXPLICIT_CORRECTION_RE.test(text) ||
+    (atActiveEmailGate && EMAIL_GATE_CORRECTION_RE.test(text))
+  );
+}
+export const EMAIL_READBACK_REQUEST_RE =
+  /\b(?:read|repeat|say|show)\b[^.!?]{0,48}\b(?:my\s+)?email\b|\btell\s+me\b[^.!?]{0,48}\b(?:my\s+)?email\b|\bwhat(?:'s|\s+is)\b[^.!?]{0,24}\b(?:my\s+)?email\b/i;
 // Consent-yes detection for the account gates. A CONSENT yes (email-is-correct /
 // send-the-link) must OPEN with a clear affirmation AND carry NO complaint or
 // screen-observation. Two real bugs shaped this (both G 2026-06-09): (a) a buried
@@ -152,6 +167,19 @@ export function hasEndSessionIntent(text: string): boolean {
   // A question about closing or a negated mention is not a request to close.
   if (END_SESSION_BLOCK_RE.test(text)) return false;
   return END_CONVERSATION_RE.test(text);
+}
+
+/**
+ * Same-turn send-and-close is allowed only when the user explicitly says to
+ * send. A generic affirmation such as "okay, close the session" is not enough
+ * to authorize account creation or email delivery.
+ */
+export function hasExplicitAccountSendOnCloseIntent(text: string): boolean {
+  return (
+    hasEndSessionIntent(text) &&
+    /\bsend\b/i.test(text) &&
+    isAccountConsentYes(text)
+  );
 }
 
 export function confirmsEndSession(text: string): boolean {
@@ -282,7 +310,15 @@ export const DEVICE_NAME_STOP_WORDS = new Set([
   "anymore",
 ]);
 
-export function cleanDeviceName(value: string): string | null {
+const SIGNUP_NAME_RESIDUE_RE =
+  /^(?:account|an?\s+account|account\s+setup|(?:setup|set\s+up|create|start|make|open)\s+(?:an?\s+)?account|(?:set\s+up|setup)|(?:create|start|make|open)(?:\s+(?:an?|the|my|new|account|one|it|please|[a-z])){1,3}|such\s+a\s+\w+)$/i;
+const SIGNUP_NAME_COMMAND_SHARD_RE =
+  /^(?:set\s+up|setup|create|start|make|open)(?:\s+(?:an?|the|my|new|account|one|it|please|[a-z])){0,3}$/i;
+
+export function cleanDeviceName(
+  value: string,
+  options: { explicitIdentity?: boolean } = {},
+): string | null {
   let name = value
     .replace(/\b(?:the\s+letter|letter)\s+([a-z])\b/i, "$1")
     .replace(/^(?:is|it's|its|this is)\s+/i, "")
@@ -291,9 +327,13 @@ export function cleanDeviceName(value: string): string | null {
     .trim();
 
   if (!name || name.length > 40 || /[@\d?]/.test(name)) return null;
+  if (SIGNUP_NAME_RESIDUE_RE.test(name)) return null;
   const words = name.split(/\s+/).filter(Boolean);
   if (words.length > 3) return null;
-  if (words.some((word) => DEVICE_NAME_STOP_WORDS.has(word.toLowerCase()))) {
+  if (
+    !options.explicitIdentity &&
+    words.some((word) => DEVICE_NAME_STOP_WORDS.has(word.toLowerCase()))
+  ) {
     return null;
   }
   if (!words.every((word) => /^[a-z][a-z'.-]*$/i.test(word))) return null;
@@ -349,7 +389,15 @@ export function extractDeviceNameCandidate(text: string, allowPlainAnswer: boole
   const explicit = explicitRaw
     ? explicitRaw.replace(FILLER, "").split(/[,]/)[0].trim().slice(0, 40)
     : null;
-  if (explicit) return cleanDeviceName(explicit);
+  if (explicit) {
+    const highConfidenceIdentity =
+      /^(?:my\s+name\s+(?:is|isn't)|my\s+name's|call\s+me|they\s+call\s+me|this\s+is)\b/i.test(
+        text,
+      );
+    return cleanDeviceName(explicit, {
+      explicitIdentity: highConfidenceIdentity,
+    });
+  }
   if (!allowPlainAnswer) return null;
   if (text.length > 40 || /[?@]/.test(text)) return null;
   // STT often splits "call me G" into "Call me" + "G". Never store a bare
@@ -363,6 +411,7 @@ export function extractDeviceNameCandidate(text: string, allowPlainAnswer: boole
     )
     .trim();
   if (!stripped) return null;
+  if (SIGNUP_NAME_COMMAND_SHARD_RE.test(stripped)) return null;
   // r28 (copilot 2026-06-12, G live: "I want to create a" got chopped by STT
   // and the trailing "a" became his name — "Got it, a."): a bare article or
   // pronoun is never a name. Single LETTERS stay allowed — G himself is "G".

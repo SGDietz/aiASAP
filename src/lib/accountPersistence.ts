@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { getSupabaseAdminConfig } from "./supabaseAdmin";
+import { normalizePersonName } from "./auth/resolveUserName";
 
 export type StoredAssistantList = {
   id: string;
@@ -131,13 +132,14 @@ export function sanitizeAccountFullName(value: unknown): string | null {
   if (words.length === 0 || words.length > 4) return null;
   if (!words.every((word) => /^[a-z][a-z'.-]*$/i.test(word))) return null;
 
-  return words
+  const cased = words
     .map((word) =>
       word.length === 1
         ? word.toUpperCase()
         : word.charAt(0).toUpperCase() + word.slice(1),
     )
     .join(" ");
+  return normalizePersonName(cased);
 }
 
 export function newToken(): string {

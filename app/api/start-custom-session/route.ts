@@ -1,7 +1,35 @@
 import { API_KEY, API_URL, AVATAR_ID, VOICE_ID } from "../secrets";
 import { assertCanMintSessionToken } from "../../../src/lib/liveavatarCredits";
+import { assertAllowedOrigin } from "../../../src/lib/apiRouteSecurity";
+import {
+  MINT_HOURLY_LIMIT,
+  MINT_LIMIT,
+  checkLocalLimit,
+} from "../../../src/lib/localRateLimit";
 
-export async function POST() {
+export async function POST(request: Request) {
+  // Gate added 2026-08-21. Minting is the most expensive thing this app does —
+  // a block for the first 30 seconds, then a block every 6 seconds, billing
+  // whether or not anyone is speaking. This route had no origin check and no
+  // rate limit; the credit cap below fails open when its storage is missing, so
+  // it cannot be the only thing standing here.
+  const originErr = assertAllowedOrigin(request);
+  if (originErr) return originErr;
+  const mintVerdict = checkLocalLimit(request, "mint", 1, [
+    MINT_LIMIT,
+    MINT_HOURLY_LIMIT,
+  ]);
+  if (!mintVerdict.allowed) {
+    console.warn(`[mint-limit] rejected (${mintVerdict.reason})`);
+    return new Response(JSON.stringify({ error: "Too many requests" }), {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(mintVerdict.retryAfterSeconds),
+      },
+    });
+  }
+
   const gate = await assertCanMintSessionToken();
   if (!gate.ok) {
     return new Response(JSON.stringify({ error: gate.message }), {

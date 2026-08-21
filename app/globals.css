@@ -101,6 +101,24 @@
     opacity: 0.7;
   }
 
+  /* The four/five stage buttons over 6's chest. G, 2026-08-21: "the buttons are
+     all a little too transparent, make them less transparent."
+
+     A modifier rather than a change to .btn-inset, because .btn-inset is used
+     all over the app (Camera, Gallery, the list controls) and those sit on
+     panels, not on top of 6. Only the stage cluster needed to get heavier.
+     Both rules are single-class and in this same layer, so source order is what
+     wins — keep .btn-stage BELOW .btn-inset. The :hover pair is required too:
+     .btn-inset:hover is a pseudo-class and would otherwise out-specify the flat
+     .btn-stage rule and hand the transparency straight back on hover. */
+  .btn-stage {
+    background: linear-gradient(180deg, rgba(74, 74, 74, 0.96), rgba(28, 28, 28, 0.98));
+    border-color: rgba(140, 95, 48, 0.7);
+  }
+  .btn-stage:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(88, 88, 88, 0.98), rgba(36, 36, 36, 1));
+  }
+
   /* Inset text: warm amber lettering with carved/inset shadow (titles, status text) */
   .text-inset {
     color: #d7a05a;

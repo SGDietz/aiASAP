@@ -180,6 +180,43 @@ describe("rejected email — clean re-spell, never carried forward", () => {
     await replayTurn(w.ports, "wrong domain, it's pm dot me");
     expect(w.ports.pendingEmail).toBe("sgdietz@pm.me");
   });
+
+  it("domain correction at the send gate disarms the old address", async () => {
+    const w = makeFakeWorld({ userName: "G" });
+    await replayTurn(w.ports, "set up an account");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "sgdietz@gmail.com");
+    await replayTurn(w.ports, "yes");
+    expect(w.ports.awaitingSend).toBe(true);
+    expect(w.ports.sendEmail).toBe("sgdietz@gmail.com");
+
+    await replayTurn(w.ports, "wrong domain, it's pm dot me");
+    expect(w.ports.pendingEmail).toBe("sgdietz@pm.me");
+    expect(w.ports.awaitingSend).toBe(false);
+    expect(w.ports.sendEmail).toBe(null);
+    expect(w.sentTo).toEqual([]);
+
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "yes, send it");
+    expect(w.sentTo).toEqual(["sgdietz@pm.me"]);
+  });
+
+  it("natural domain correction after holding off reuses the confirmed local part", async () => {
+    const w = makeFakeWorld({ userName: "G" });
+    await replayTurn(w.ports, "set up an account");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "sgdietz@gmail.com");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "no, don't send it");
+    expect(w.ports.awaitingSend).toBe(false);
+    expect(w.sentTo).toEqual([]);
+
+    await replayTurn(w.ports, "wrong domain, it's pm dot me");
+    expect(w.ports.pendingEmail).toBe("sgdietz@pm.me");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "send it");
+    expect(w.sentTo).toEqual(["sgdietz@pm.me"]);
+  });
 });
 
 describe("send gate — no means no, silence rules while 6 talks", () => {
@@ -404,5 +441,125 @@ describe("CONSENT_COMPLAINT_RE — the 'at' trap (2026-06-10)", () => {
     expect(w.ports.awaitingSend).toBe(false);
     expect(w.ports.pendingEmail).toBe("sgdietz@pm.me"); // still pending, not confirmed
     expect(w.said.at(-1)).toContain("yes or no");
+  });
+});
+
+describe("G's failed permanent-account smoke, 2026-07-18", () => {
+  it("positive correct plus send language advances only to the send-consent gate", async () => {
+    const w = makeFakeWorld({ userName: "G" });
+
+    await replayTurn(w.ports, "I want to set up an account.");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "sgdietz@pm.me");
+    await replayTurn(w.ports, "Yes, that's correct. Send the sign-in link.");
+
+    expect(w.ports.awaitingSend).toBe(true);
+    expect(w.ports.awaitingEmail).toBe(false);
+    expect(w.ports.sendEmail).toBe("sgdietz@pm.me");
+    expect(w.sentTo).toEqual([]);
+
+    await replayTurn(w.ports, "Yes, send it now.");
+    expect(w.sentTo).toEqual(["sgdietz@pm.me"]);
+  });
+
+  it("pending email ignores raw competing addresses but accepts an explicit correction", async () => {
+    const w = makeFakeWorld({ userName: "G" });
+
+    await replayTurn(w.ports, "I want to set up an account.");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "first@example.com");
+    expect(w.ports.pendingEmail).toBe("first@example.com");
+
+    await replayTurn(w.ports, "providerwrong@example.com");
+    expect(w.ports.pendingEmail).toBe("first@example.com");
+
+    await replayTurn(
+      w.ports,
+      "No, correct my email to replacement@example.com.",
+    );
+    expect(w.ports.pendingEmail).toBe("replacement@example.com");
+    expect(w.ports.awaitingSend).toBe(false);
+    expect(w.sentTo).toEqual([]);
+
+    await replayTurn(w.ports, "Yes, that's correct.");
+    await replayTurn(w.ports, "Yes, send it now.");
+    expect(w.sentTo).toEqual(["replacement@example.com"]);
+  });
+
+  it.each([
+    "But now it's not written correct.",
+    "You didn't spell it correct.",
+    "Fix it.",
+  ])("%j reopens entry while the email awaits confirmation", async (correction) => {
+    const w = makeFakeWorld({ userName: "G" });
+
+    await replayTurn(w.ports, "I want to set up an account.");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "first@example.com");
+    await replayTurn(w.ports, correction);
+
+    expect(w.ports.pendingEmail).toBe(null);
+    expect(w.ports.awaitingEmail).toBe(true);
+    expect(w.ports.awaitingSend).toBe(false);
+    expect(w.sentTo).toEqual([]);
+  });
+
+  it("readback wins a correction collision without mutating the candidate", async () => {
+    const w = makeFakeWorld({ userName: "G" });
+
+    await replayTurn(w.ports, "I want to set up an account.");
+    await replayTurn(w.ports, "yes");
+    await replayTurn(w.ports, "sgdietz@pm.me");
+    await replayTurn(w.ports, "Read me back my email because I think it is wrong.");
+
+    expect(w.ports.pendingEmail).toBe("sgdietz@pm.me");
+    expect(w.ports.awaitingEmail).toBe(false);
+    expect(w.ports.awaitingSend).toBe(false);
+    expect(w.ports.chestText).toBe("sgdietz@pm.me");
+    expect(w.sentTo).toEqual([]);
+  });
+
+  it("rejects the account-command tail as a name and survives correction/readback", async () => {
+    const w = makeFakeWorld();
+
+    await replayTurn(w.ports, "I want to set up an account.");
+    expect(w.ports.awaitingName).toBe(true);
+
+    // LiveAvatar emitted this trailing shard as another final transcript. It is
+    // account-command residue, never the person's name.
+    await replayTurn(w.ports, "an account.");
+    expect(w.ctx.userName).toBe(null);
+    expect(w.ports.awaitingName).toBe(true);
+
+    await replayTurn(w.ports, "G");
+    expect(w.ctx.userName).toBe("G");
+
+    await replayTurn(w.ports, "sgdietz@pm.me");
+    expect(w.ports.pendingEmail).toBe("sgdietz@pm.me");
+
+    await replayTurn(w.ports, "Read me back my email.");
+    expect(w.ports.pendingEmail).toBe("sgdietz@pm.me");
+    expect(w.said.at(-1)).toContain("sgdietz@pm.me");
+
+    await replayTurn(w.ports, "Okay, it came up correct the first time.");
+    expect(w.ports.awaitingSend).toBe(true);
+
+    // This is an EMAIL correction, not permission to send and not a dead end.
+    await replayTurn(w.ports, "But now it's not written correct.");
+    expect(w.ports.awaitingSend).toBe(false);
+    expect(w.ports.awaitingEmail).toBe(true);
+    expect(w.sentTo).toEqual([]);
+
+    await replayTurn(w.ports, "Email, take it again. sgdietz@pm.me.");
+    expect(w.ports.pendingEmail).toBe("sgdietz@pm.me");
+
+    await replayTurn(w.ports, "6, tell me what my email is.");
+    expect(w.said.at(-1)).toContain("sgdietz@pm.me");
+    expect(w.sentTo).toEqual([]);
+
+    await replayTurn(w.ports, "Yes, that's correct.");
+    expect(w.ports.awaitingSend).toBe(true);
+    await replayTurn(w.ports, "Yes, send the sign-in link.");
+    expect(w.sentTo).toEqual(["sgdietz@pm.me"]);
   });
 });

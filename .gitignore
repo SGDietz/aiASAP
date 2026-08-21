@@ -22,3 +22,10 @@ __scratch2__/
 # any future LEAKED file that holds real keys in cleartext.)
 LEAKED_CREDENTIALS_ROTATION.md
 *LEAKED*
+
+# Build junk that must never reach a PUBLIC repo (added 2026-08-21).
+# .next/ was already ignored, but a renamed quarantine copy was not - 359 MB
+# of stale July build output was about to be committed.
+.next.quarantine-*/
+build_out.txt
+results/

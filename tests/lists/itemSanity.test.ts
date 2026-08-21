@@ -15,6 +15,7 @@ describe("isPlausibleListItem — rejects all the junk G hit", () => {
       "People get", "Up people", "2 second", "Page 1A", "Search results",
       "Zip", "Been silent", "Changes here", "Through", "Except for",
       "problems", "Fucking problems", "What do people buy", "2",
+      "Added a", "I added a", "And added a", "Need to do",
     ]) {
       expect(isPlausibleListItem(junk), junk).toBe(false);
     }

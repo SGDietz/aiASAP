@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
+import { checkDestructiveActionAllowed } from "../../../../src/lib/accountProtection";
 
 /**
  * Cleanup endpoint — deletes auth.users rows where email was never confirmed
@@ -86,6 +87,14 @@ export async function GET(request: NextRequest) {
     const id = typeof u.id === "string" ? u.id : null;
     if (!id) continue;
     try {
+      const protection = await checkDestructiveActionAllowed(
+        id,
+        "unconfirmed_cleanup",
+      );
+      if (protection.allowed === false) {
+        failed.push({ id, reason: protection.code });
+        continue;
+      }
       const delRes = await fetch(`${url}/auth/v1/admin/users/${id}`, {
         method: "DELETE",
         headers,

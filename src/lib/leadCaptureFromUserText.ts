@@ -97,6 +97,22 @@ function pickScalar(prev: string | null, next: string | null): string | null {
   return prev?.trim() ?? null;
 }
 
+/**
+ * Observational transcripts never choose a canonical email. Preserve an
+ * already-authoritative value, if one exists, and ignore every incoming
+ * provider/browser transcript candidate. The signup machine plus account/start
+ * owns confirmation and deliberate correction.
+ */
+export function chooseStableLeadEmail(
+  previous: string | null,
+  incoming: string | null,
+): string | null {
+  const current = previous?.trim().toLowerCase() ?? "";
+  if (current) return current;
+  void incoming;
+  return null;
+}
+
 function pickBetterFullName(prev: string | null, next: string | null): string | null {
   const n = next?.trim() ?? "";
   if (!n || isGarbageNameCandidate(n)) return prev?.trim() ?? null;
@@ -117,7 +133,6 @@ async function upsertMergedContactEntity(
   sessionId: string,
   partial: {
     full_name: string | null;
-    email: string | null;
     phone: string | null;
     source_text: string;
     tester_label: string | null;
@@ -136,19 +151,16 @@ async function upsertMergedContactEntity(
   const rows = (await listRes.json()) as ContactEntityRow[];
 
   let fullName: string | null = null;
-  let email: string | null = null;
   let phone: string | null = null;
   let sourceText: string | null = null;
 
   for (const r of rows) {
     fullName = pickBetterFullName(fullName, r.full_name);
-    email = pickScalar(email, r.email);
     phone = pickScalar(phone, r.phone);
     sourceText = appendSourceText(sourceText, r.source_text ?? "");
   }
 
   fullName = pickBetterFullName(fullName, partial.full_name);
-  if (partial.email?.trim()) email = partial.email.trim();
   if (partial.phone?.trim()) phone = partial.phone.trim();
   sourceText = appendSourceText(sourceText, partial.source_text);
 
@@ -166,7 +178,6 @@ async function upsertMergedContactEntity(
       body: JSON.stringify({
         session_id: sessionId,
         full_name: fullName,
-        email,
         phone,
         source_text: sourceText || null,
         ...(partial.tester_label ? { tester_label: partial.tester_label } : {}),
@@ -178,7 +189,10 @@ async function upsertMergedContactEntity(
     return;
   }
 
-  const keepId = rows[0].id;
+  // Never delete or overwrite a row carrying an existing canonical email.
+  // Observational capture owns only name/phone/source fields.
+  const keepRow = rows.find((row) => Boolean(row.email)) ?? rows[0];
+  const keepId = keepRow.id;
   const patchRes = await fetch(
     `${url}/rest/v1/contact_entities?id=eq.${encodeURIComponent(keepId)}`,
     {
@@ -186,7 +200,6 @@ async function upsertMergedContactEntity(
       headers: headersPatch,
       body: JSON.stringify({
         full_name: fullName,
-        email,
         phone,
         source_text: sourceText || null,
         ...(partial.tester_label ? { tester_label: partial.tester_label } : {}),
@@ -197,9 +210,10 @@ async function upsertMergedContactEntity(
     throw new Error(`contact_entities patch failed (${patchRes.status})`);
   }
 
-  for (let i = 1; i < rows.length; i++) {
+  for (const row of rows) {
+    if (row.id === keepId || row.email) continue;
     const delRes = await fetch(
-      `${url}/rest/v1/contact_entities?id=eq.${encodeURIComponent(rows[i].id)}`,
+      `${url}/rest/v1/contact_entities?id=eq.${encodeURIComponent(row.id)}`,
       {
         method: "DELETE",
         headers: headersPatch,
@@ -306,8 +320,9 @@ function chooseNextPrompt(
 }
 
 /**
- * Persist lead extraction for one user utterance (used by /api/transcription/capture
- * and LiveAvatar official transcript sync for `user` lines).
+ * Persist observational lead extraction for one accepted user utterance.
+ * Extracted emails are audit evidence only; they never write canonical
+ * lead/contact email fields or trigger signup delivery.
  */
 export async function persistUserUtteranceLeadCapture(
   sessionId: string,
@@ -336,20 +351,20 @@ export async function persistUserUtteranceLeadCapture(
   let consentStatus = currentLead.consent_status;
   if (intent.declined) consentStatus = "declined";
   else if (intent.interested) consentStatus = "accepted";
-  if (email || phone || fullName) consentStatus = "accepted";
+  if (phone || fullName) consentStatus = "accepted";
 
   const mergedLead: LeadSessionRow = {
     ...currentLead,
     consent_status: consentStatus,
     full_name: pickBetterFullName(currentLead.full_name, fullName),
-    email: pickScalar(currentLead.email, email),
+    email: chooseStableLeadEmail(currentLead.email, email),
     phone: pickScalar(currentLead.phone, phone),
     last_prompted_field: currentLead.last_prompted_field,
     last_prompted_at: currentLead.last_prompted_at,
   };
 
   const next = chooseNextPrompt(mergedLead, {
-    email,
+    email: null,
     phone,
     fullName,
   });
@@ -373,9 +388,24 @@ export async function persistUserUtteranceLeadCapture(
     ...(testerLabel ? { tester_label: testerLabel } : {}),
   });
 
-  if (email || phone || fullName) {
+  // A transcript-only email candidate has no canonical lead mutation to make.
+  // Returning after the append-only audit write also removes the old
+  // read-then-upsert race between competing browser/provider interpretations.
+  if (!phone && !fullName && !intent.interested && !intent.declined) {
+    return {
+      extracted: {
+        email: mergedLead.email,
+        phone: mergedLead.phone,
+        full_name: mergedLead.full_name,
+        consent_status: mergedLead.consent_status,
+      },
+      assistantPrompt: null,
+      shouldSkipVision: false,
+    };
+  }
+
+  if (phone || fullName) {
     await upsertMergedContactEntity(url, serviceRoleKey, sessionId, {
-      email,
       phone,
       full_name: fullName,
       source_text: text,
@@ -386,11 +416,14 @@ export async function persistUserUtteranceLeadCapture(
   await upsertLeadSession(url, serviceRoleKey, {
     session_id: mergedLead.session_id,
     consent_status: mergedLead.consent_status,
-    full_name: mergedLead.full_name,
-    email: mergedLead.email,
-    phone: mergedLead.phone,
-    last_prompted_field: mergedLead.last_prompted_field,
-    last_prompted_at: mergedLead.last_prompted_at,
+    ...(fullName ? { full_name: mergedLead.full_name } : {}),
+    ...(phone ? { phone: mergedLead.phone } : {}),
+    ...(next.promptField
+      ? {
+          last_prompted_field: mergedLead.last_prompted_field,
+          last_prompted_at: mergedLead.last_prompted_at,
+        }
+      : {}),
     updated_at: nowIso,
     ...(testerLabel ? { tester_label: testerLabel } : {}),
   });

@@ -41,6 +41,11 @@ let playbackChain: Promise<void> = Promise.resolve();
 let pendingCount = 0;
 let activeSource: AudioBufferSourceNode | null = null;
 let cutEpoch = 0;
+// 2026-08-21 ride (G via 6: "a mute button ... where we don't hear him talking"):
+// speaker mute for the CUSTOM WebAudio fallback path. While true, queued
+// fallback audio is skipped (the queue still drains so the mic gate re-opens)
+// and the AEC output element is muted. Flipped by setCustomVoiceMuted().
+let customVoiceMuted = false;
 
 export function reportCustomVoiceDiag(message: string): void {
   // console.warn, NOT console.error — the Next.js dev overlay counts errors
@@ -205,6 +210,7 @@ function fallbackOutputNode(ctx: AudioContext): AudioNode {
 
 async function playPcmBase64ViaWebAudio(audioBase64: string): Promise<void> {
   if (typeof window === "undefined") return;
+  if (customVoiceMuted) return; // speaker muted: skip, queue still drains
   if (!fallbackCtx) fallbackCtx = new AudioContext();
   if (fallbackCtx.state === "suspended") {
     try {
@@ -283,6 +289,52 @@ export function cutCustomVoiceFallback(): void {
     }
     activeSource = null;
   }
+}
+
+/**
+ * Speaker mute for the fallback path (2026-08-21). Muting cuts whatever is
+ * playing and silences the AEC output element; unmuting only lifts the flag —
+ * nothing already skipped is replayed.
+ */
+export function setCustomVoiceMuted(muted: boolean): void {
+  customVoiceMuted = muted;
+  if (aecAudioEl) {
+    try {
+      aecAudioEl.muted = muted;
+    } catch {
+      // element may be detached; the flag alone still silences playback
+    }
+  }
+  if (muted) cutCustomVoiceFallback();
+}
+
+export function isCustomVoiceMuted(): boolean {
+  return customVoiceMuted;
+}
+
+/**
+ * Sessionless playback for VOICE-ONLY mode (2026-08-21).
+ *
+ * `deliverCustomTtsAudio` needs a live LiveAvatarSession — it probes the avatar
+ * socket first. Voice-only has no session ON PURPOSE: minting one is what bills
+ * G by the block, and a voice conversation should cost nothing but tokens. Ara
+ * spotted this herself after first drafting `deliverCustomTtsAudio(null, …)`.
+ *
+ * So this exposes the WebAudio path that was already private and already used
+ * whenever the avatar pipe is dead. It honours the speaker mute, and it is the
+ * ONLY sanctioned way to make 6 speak without a session.
+ *
+ * Input is base64 PCM16 @24kHz — exactly what /api/elevenlabs-text-to-speech
+ * returns (`output_format=pcm_24000`).
+ */
+export async function playVoiceOnlyAudio(audioBase64: string): Promise<void> {
+  if (!audioBase64 || audioBase64.length < 50) return;
+  await playPcmBase64ViaWebAudio(audioBase64);
+}
+
+/** Stop whatever voice-only line is playing (barge-in, mute, unmount). */
+export function cutVoiceOnlyAudio(): void {
+  cutCustomVoiceFallback();
 }
 
 /**
@@ -391,4 +443,133 @@ export function deliverCustomTtsAudio(
       enqueueFallback(session, audioBase64);
     }
   }, SPEAK_WATCHDOG_MS);
+}
+
+// ---------------------------------------------------------------------------
+// THE SILENT-6 HOLE (found by audit 2026-08-21, fixed here).
+//
+// In CUSTOM mode 6's PRIMARY voice is repeat() — LiveAvatar's own TTS, which is
+// also what moves his mouth. Both call sites wrapped it in try/catch and fell
+// back to ElevenLabs on a THROW. But the failure that actually happens is not a
+// throw: the call is ACCEPTED, resolves fine, and the avatar simply never
+// speaks. That is the exact behaviour documented at the top of this file for
+// the audio-push path ("socket=1 ... yet AVATAR_SPEAK_STARTED NEVER fires").
+// On the repeat() path nothing watched for it, so 6 went quiet and no alarm
+// rang anywhere.
+//
+// deliverCustomTtsAudio already had the right shape. This gives repeat() the
+// same armour, in one place, so the two call sites cannot drift apart again.
+
+// Longer than SPEAK_WATCHDOG_MS on purpose: deliverCustomTtsAudio is pushing
+// bytes that already exist, while repeat() has to generate speech server-side
+// before the avatar can start. Rescuing too early would talk over him.
+const REPEAT_WATCHDOG_MS = 2600;
+
+async function elevenLabsRescue(
+  session: LiveAvatarSession,
+  text: string,
+  where: string,
+  reason: string,
+): Promise<void> {
+  reportCustomVoiceDiag(`[custom-voice] ${where} RESCUE (${reason}) -> ElevenLabs`);
+  try {
+    const res = await fetch("/api/elevenlabs-text-to-speech", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`tts ${res.status}`);
+    const { audio } = (await res.json()) as { audio?: string };
+    if (typeof audio !== "string" || audio.length < 50) {
+      throw new Error("tts returned no audio");
+    }
+    deliverCustomTtsAudio(session, audio, `${where}.rescue`);
+  } catch (e) {
+    // Both voices are gone. Say so loudly — this is 6 mute in front of a user.
+    reportCustomVoiceDiag(
+      `[custom-voice] ${where} RESCUE FAILED (${reason}): ${
+        e instanceof Error ? e.message : String(e)
+      } — 6 IS SILENT`,
+    );
+  }
+}
+
+/**
+ * Speak through the avatar with a watchdog. Returns whatever repeat() returns
+ * and does NOT wait — like deliverCustomTtsAudio, the watchdog runs detached,
+ * so the caller is never held up by it.
+ *
+ * onRescue fires when the rescue path is taken, so a caller that has telemetry
+ * context (an utteranceId) can log it in its own channel. Keeping it a callback
+ * is why this module still has no telemetry dependency.
+ */
+export function speakThroughAvatar(
+  session: LiveAvatarSession,
+  text: string,
+  where: string,
+  onRescue?: (reason: string) => void,
+): unknown {
+  if (!text || !text.trim()) return;
+
+  let rescued = false;
+  let started = false;
+  // Snapshot the barge-in counter. If the person talks over 6 (or hits QUIET)
+  // while we are waiting, the line is stale and rescuing it would make 6 speak
+  // over the very interruption that cancelled him.
+  const armedEpoch = cutEpoch;
+
+  const onStarted = () => {
+    started = true;
+  };
+  const disarm = () => {
+    try {
+      session.off(AgentEventsEnum.AVATAR_SPEAK_STARTED, onStarted);
+    } catch {
+      // listener already gone
+    }
+  };
+  const rescue = (reason: string) => {
+    if (rescued) return;
+    rescued = true;
+    disarm();
+    if (cutEpoch !== armedEpoch) {
+      reportCustomVoiceDiag(
+        `[custom-voice] ${where} silent (${reason}) but interrupted since — no rescue`,
+      );
+      return;
+    }
+    onRescue?.(reason);
+    void elevenLabsRescue(session, text, where, reason);
+  };
+
+  try {
+    session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, onStarted);
+  } catch {
+    // Cannot listen, so we cannot tell silence from success. Let repeat() run
+    // bare rather than rescuing blind and risking a double-speak.
+    return session.repeat(text);
+  }
+
+  let result: unknown;
+  try {
+    result = session.repeat(text);
+  } catch (e) {
+    reportCustomVoiceDiag(
+      `[custom-voice] ${where} repeat() threw: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    rescue("repeat_threw");
+    return;
+  }
+
+  // A rejected promise is the old caught case; keep handling it, just here now.
+  Promise.resolve(result).catch(() => rescue("repeat_rejected"));
+
+  window.setTimeout(() => {
+    disarm();
+    // Accepted, resolved, and still not a word out of him. This is the case
+    // that used to go unnoticed.
+    if (!started) rescue("repeat_silent");
+  }, REPEAT_WATCHDOG_MS);
+
+  return result;
 }

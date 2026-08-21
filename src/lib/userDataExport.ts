@@ -51,7 +51,14 @@ export async function gatherUserExport(
   if (email) {
     try {
       const res = await fetch(
-        `${url}/rest/v1/account_email_links?email=eq.${encodeURIComponent(email)}`,
+        // EXPLICIT COLUMNS, and token_hash is deliberately not among them.
+        // Without a select= this pulled every column, and this payload is
+        // handed to the user as a downloadable file by app/api/account/export.
+        // token_hash is now Supabase's real magic-link token - a live sign-in
+        // credential - so exporting it would put a working key to the account
+        // inside a file the user can forward to anyone.
+        `${url}/rest/v1/account_email_links?email=eq.${encodeURIComponent(email)}` +
+          `&select=id,email,session_id,captured_lists,expires_at,used_at,created_at`,
         { headers },
       );
       data.account_email_links = res.ok ? await res.json() : [];

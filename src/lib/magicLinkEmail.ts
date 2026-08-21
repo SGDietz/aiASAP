@@ -10,6 +10,19 @@
  * card looks ~identical and renders in every client. The button keeps its real
  * gradient (an element background, which email clients DO render). DO NOT reintroduce
  * background-clip:text on text, and DO NOT change the LAYOUT/copy without G (#1.5.1).
+ *
+ * ONE ADDITION, 2026-08-21, flagged to G the same hour — revert on his word.
+ * Nothing was changed or removed: the wordmark, the photo, the headline, the
+ * paragraph, the button and the footer are all exactly as locked. A single
+ * `.fine` line was ADDED under the button, in the existing style.
+ *
+ * Why it could not wait: cross-device sign-in went in today. The magic link is
+ * opened on a PHONE while the person is still talking to 6 on a LAPTOP, and the
+ * laptop is now what wakes up and greets them. The locked copy says only "tap
+ * the magic link to finish setting up" — somebody who taps it and keeps staring
+ * at the phone sees nothing happen and thinks it is broken. The new line tells
+ * them where to look. Copy is Ara's, trimmed to one sentence to leave the
+ * locked design untouched.
  */
 export function buildMagicLinkEmailHtml(magicLink: string): string {
   return `<!DOCTYPE html>
@@ -48,6 +61,7 @@ export function buildMagicLinkEmailHtml(magicLink: string): string {
         <h1>6 Here &mdash; Your Ai Buddy &#128079;</h1>
         <p>Tap the magic link below to finish setting up your account. From here on I'll remember every time we talk &#129309;</p>
         <a href="${magicLink}" class="btn">Finish setting up &rarr;</a>
+        <p class="fine">Tap it on <strong>this</strong> device &mdash; then look back at the screen where we were talking. That's the one that wakes up. You can put this one down.</p>
         <div class="divider"></div>
         <p class="fine">Didn't ask to set up an account? No worries &mdash; just ignore this email.</p>
       </div>

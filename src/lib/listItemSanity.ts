@@ -34,6 +34,17 @@ export function isPlausibleListItem(item: string): boolean {
   if (t.length < 2 || t.length > 40) return false;
   if (t.split(/\s+/).length > 4) return false; // real items are short
   if (EXACT_JUNK.has(t.toLowerCase())) return false;
+  // A final STT fragment that ends at an article/action is not an item. This
+  // belt catches persisted legacy fragments even if upstream turn stitching is
+  // bypassed or old snapshot data is cleaned on load.
+  if (
+    /^(?:and\s+)?(?:i\s+)?(?:add(?:ed)?|put|grab|buy|need|want|have|got)\s+(?:a|an|the)[.!]?$/i.test(
+      t,
+    ) ||
+    /^(?:need|want)\s+to\s+(?:do|be|have|make|find|help|work)\b/i.test(t)
+  ) {
+    return false;
+  }
   if (META_CONTAINS_RE.test(t)) return false;
   // leading connective / preposition (an interrupted scrap, not an item)
   if (

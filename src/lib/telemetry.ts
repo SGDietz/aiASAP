@@ -7,10 +7,40 @@
 // Everything here is fire-and-forget: a telemetry failure may NEVER break or
 // slow the conversation path. Writes land in public.app_events (existing
 // table, severity check = critical|high|medium|low) and public.bug_reports.
+//
+import { getTesterLabel } from "./testerAttribution";
 
 type Jsonish = Record<string, unknown>;
 
 export type AppEventSeverity = "critical" | "high" | "medium" | "low";
+
+export type AppEventEnvelope = {
+  eventId?: string | null;
+  utteranceId?: string | null;
+  traceId?: string | null;
+  parentEventId?: string | null;
+  idempotencyKey?: string | null;
+  mutationVersion?: number | null;
+  outcome?: string | null;
+  errorCode?: string | null;
+  statusCode?: number | null;
+  durationMs?: number | null;
+  provider?: string | null;
+  providerRequestId?: string | null;
+};
+
+/** Stable enough for client telemetry; deterministic IDs may be supplied by callers. */
+export function createClientEventId(prefix = "evt"): string {
+  try {
+    const randomUUID = globalThis.crypto?.randomUUID;
+    if (typeof randomUUID === "function") {
+      return `${prefix}-${randomUUID.call(globalThis.crypto)}`;
+    }
+  } catch {
+    // Fall through to the compatibility path.
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 let cachedDevice: Jsonish | null = null;
 
@@ -59,17 +89,33 @@ export function logAppEvent(
   eventType: string,
   payload?: Jsonish,
   severity: AppEventSeverity = "low",
+  envelope: AppEventEnvelope = {},
 ): void {
   try {
+    const eventId = envelope.eventId?.trim() || createClientEventId();
     void fetch("/api/app-events/log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        event_id: eventId,
         event_type: eventType,
         severity,
         session_id: telemetrySessionId,
+        tester_label: getTesterLabel(),
+        client_timestamp: new Date().toISOString(),
         route:
           typeof window !== "undefined" ? window.location.pathname : null,
+        utterance_id: envelope.utteranceId ?? null,
+        trace_id: envelope.traceId ?? null,
+        parent_event_id: envelope.parentEventId ?? null,
+        idempotency_key: envelope.idempotencyKey ?? null,
+        mutation_version: envelope.mutationVersion ?? null,
+        outcome: envelope.outcome ?? null,
+        error_code: envelope.errorCode ?? null,
+        status_code: envelope.statusCode ?? null,
+        duration_ms: envelope.durationMs ?? null,
+        provider: envelope.provider ?? null,
+        provider_request_id: envelope.providerRequestId ?? null,
         payload: payload ?? {},
       }),
       keepalive: true,

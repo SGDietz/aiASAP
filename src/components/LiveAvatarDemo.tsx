@@ -3,9 +3,16 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 // import Image from "next/image";
 import { LiveAvatarSession } from "./LiveAvatarSession";
+import { VoiceOnlyStage } from "./VoiceOnlyStage";
+import { StageControls } from "./StageControls";
 import Link from "next/link";
+import { TaglineText } from "./TaglineText";
 
-type LiveAvatarMode = "FULL" | "CUSTOM";
+// VOICE added 2026-08-21 (G: "we need to have a system built where it can be
+// voice only"). VOICE mints NO LiveAvatar session at all — that is the whole
+// point. The avatar is what bills by the block; a voice conversation should cost
+// tokens and nothing else. Architecture by Ara, installed and completed here.
+type LiveAvatarMode = "FULL" | "CUSTOM" | "VOICE";
 
 function getRequestedLiveAvatarMode(): LiveAvatarMode {
   // CUSTOM is the DEFAULT again (G, 2026-06-14): CUSTOM keeps OUR brain
@@ -25,7 +32,9 @@ function getRequestedLiveAvatarMode(): LiveAvatarMode {
     params.get("avatarMode") ??
     params.get("liveavatarMode") ??
     "";
-  return value.toLowerCase() === "full" ? "FULL" : "CUSTOM";
+  const wanted = value.toLowerCase();
+  if (wanted === "voice") return "VOICE";
+  return wanted === "full" ? "FULL" : "CUSTOM";
 }
 
 // Post-click magic-link return arrives at "/?account=verified". Detect it
@@ -38,7 +47,11 @@ function isPostClickReturn(): boolean {
 
 export const LiveAvatarDemo = () => {
   const [sessionToken, setSessionToken] = useState("");
-  const [mode] = useState<LiveAvatarMode>(getRequestedLiveAvatarMode);
+  const [mode, setMode] = useState<LiveAvatarMode>(getRequestedLiveAvatarMode);
+  // STOP pressed on the stage. The session is genuinely torn down (the meter
+  // stops) but the four buttons STAY on screen with START in the top-left.
+  // Distinct from awaitReturnTap, which is the magic-link return screen.
+  const [pausedOnStage, setPausedOnStage] = useState(false);
   // DISABLED (G 2026-06-03): the separate static tap-screen was redundant — the
   // live view's own "Tap/Click ANYWHERE To Talk To 6" begin-surface IS the tap-
   // gate AND is identical (it's the real view) AND unlocks audio so the greeting
@@ -46,6 +59,8 @@ export const LiveAvatarDemo = () => {
   // exactly like a first session. (isPostClickReturn kept dormant for reference.)
   void isPostClickReturn;
   const [awaitReturnTap, setAwaitReturnTap] = useState(false);
+  // Nothing mints until this is true. See the bootstrap effect below.
+  const [hasTappedToStart, setHasTappedToStart] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExited, setIsExited] = useState(false);
@@ -58,6 +73,13 @@ export const LiveAvatarDemo = () => {
 
   const startSession = useCallback(async () => {
     try {
+      // VOICE never mints. Guarded here as well as in the bootstrap effect so
+      // that no future caller can start a paid session from voice-only mode by
+      // calling startSession directly.
+      if (mode === "VOICE") {
+        setIsLoading(false);
+        return;
+      }
       setIsLoading(true);
       setError(null);
       // Languages switchboard (2026-06-10): carry ?lang=es (etc.) from the URL
@@ -114,12 +136,33 @@ export const LiveAvatarDemo = () => {
     if (awaitReturnTap) {
       return;
     }
+    // Stopped on stage: only the START button may mint again.
+    if (pausedOnStage) {
+      return;
+    }
     if (sessionBootstrapRef.current) {
+      return;
+    }
+    // VOICE: no auto-start, no mint, ever.
+    if (mode === "VOICE") {
+      return;
+    }
+    // 2026-08-21, G: "in the very very beginning, don't start the avatar in
+    // motion ... have him stopped as though the restart screen, then on the
+    // screen it says tap click anywhere to talk to six. So we're not burning
+    // credits."
+    //
+    // This is the single biggest money fix in the product. Until now, LOADING
+    // THE PAGE minted a LiveAvatar session — every visit, every refresh, every
+    // crawler, whether or not a word was ever spoken, billed at a block for the
+    // first 30s and a block every 6s after. Now nothing starts until a human
+    // deliberately taps. The still picture costs nothing to look at.
+    if (!hasTappedToStart) {
       return;
     }
     sessionBootstrapRef.current = true;
     void startSession();
-  }, [isExited, sessionToken, startSession, awaitReturnTap]);
+  }, [isExited, sessionToken, startSession, awaitReturnTap, mode, hasTappedToStart, pausedOnStage]);
 
   const onSessionStopped = (opts?: { reason?: "inactivity" }) => {
     void opts;
@@ -283,6 +326,45 @@ export const LiveAvatarDemo = () => {
     setSessionToken("");
   };
 
+  // STOP (G, 2026-08-21: "people be able to stop the avatar and start the
+  // avatar"). Same real teardown as an exit — the session is genuinely gone, so
+  // the meter stops — but we land on the tap-to-return screen: 6's still picture
+  // with "Tap to talk to 6". That screen already existed and was dormant; this is
+  // its proper job. explicitExitRef is set for the same reason as above: without
+  // it, clearing the token can race the auto-start effect and mint a NEW session
+  // (real money) in the instant before awaitReturnTap applies.
+  const handlePause = () => {
+    explicitExitRef.current = true;
+    // NOT awaitReturnTap and NOT hasTappedToStart=false. G, 2026-08-21: "if
+    // someone hits stop he stops completely, everything stops, but then the word
+    // start comes up in that stop button" - the buttons stay put. Sending them
+    // back to the first-load gate would also be wrong: that gate exists to stop
+    // a page LOAD from billing, and they are long past it.
+    setPausedOnStage(true);
+    setSessionToken("");
+  };
+
+  // START, from the stopped stage. A dead token cannot be revived, so this is a
+  // brand-new paid session - the same mint the first tap makes.
+  const handleStartFromStopped = () => {
+    explicitExitRef.current = false;
+    sessionBootstrapRef.current = false;
+    setPausedOnStage(false);
+    setError(null);
+    void startSession();
+  };
+
+  // VOICE. Drops the avatar and keeps the conversation. Mints nothing - this is
+  // the only control on the stage that SAVES money. If a session is up we tear
+  // it down first so the meter actually stops.
+  const handleVoiceOnly = () => {
+    explicitExitRef.current = true;
+    setPausedOnStage(false);
+    setAwaitReturnTap(false);
+    setSessionToken("");
+    setMode("VOICE");
+  };
+
   if (awaitReturnTap && !sessionToken) {
     // Post-click return: mirror the NORMAL entry look (static 6 + wordmark), with
     // a tap-to-start. No email box, no auto-session. On tap, session 2 starts and
@@ -297,8 +379,8 @@ export const LiveAvatarDemo = () => {
                 aiASAP
               </h1>
             </div>
-            <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-semibold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-              Take the Leap
+            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+              <TaglineText />
             </p>
           </div>
         </div>
@@ -309,7 +391,7 @@ export const LiveAvatarDemo = () => {
           {/* G 2026-06-14: same black-bar fix as Session Ended — object-cover
               fills the gold frame (no object-contain letterbox, no black bg). */}
           <img
-            src="/startscreen.png"
+            src="/startscreen-noband.png"
             alt=""
             className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
@@ -317,6 +399,10 @@ export const LiveAvatarDemo = () => {
             <button
               type="button"
               onClick={() => {
+                // START. Clear the explicit-exit latch the STOP button set, or a
+                // later drop would be unable to auto-recover. Mirrors what the
+                // Restart button on the Session Ended screen already does.
+                explicitExitRef.current = false;
                 setAwaitReturnTap(false);
                 sessionBootstrapRef.current = true;
                 void startSession();
@@ -353,6 +439,12 @@ export const LiveAvatarDemo = () => {
                 aiASAP
               </h1>
             </div>
+            {/* G 2026-08-21: "put Turbocharge Your Life under aiASAP at the top
+                just like it is when it's live." Verbatim from the live stage and
+                the return-tap twin, so all three screens read identically. */}
+            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+              <TaglineText />
+            </p>
           </div>
         </div>
         {/* Static 6 framed EXACTLY like the start screen + live avatar (9:16
@@ -365,14 +457,24 @@ export const LiveAvatarDemo = () => {
               object-cover so 6 FILLS the gold frame edge-to-edge (object-top keeps
               his face; the cropped bottom is where the Session-Ended card sits),
               and drop the black bg. No bars, all 6. */}
+          {/* G 2026-08-21 ride: "on the restart screen 6 is low ... no black
+              rectangle at the top." startscreen.png carries the same baked-in
+              black header band as the live stream (rows 0-~80 of 830). The live
+              <video> hides it with a 72% crop bias; this still uses the SAME
+              source with the band cut off (startscreen-noband.png, original
+              file untouched), so 6 rises to where he sits live and no band can
+              show at any viewport, including full-cover phones. */}
           <img
-            src="/startscreen.png"
+            src="/startscreen-noband.png"
             alt="6, your a-i-buddy"
             className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
           {/* Session-ended message + Restart, overlaid where the tap button sits
               on the start screen. Branded brown scrim (no raw black) for legibility. */}
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-[11svh] md:bottom-[14%] z-20 flex flex-col items-center gap-2.5 rounded-2xl border border-[#d7a05a]/35 bg-[#190f05]/60 px-8 py-5 backdrop-blur-sm shadow-[0_0_0_1px_rgba(215,160,90,0.3),0_18px_50px_rgba(0,0,0,0.6)]">
+          {/* G 2026-08-21: "raise up the little box that says Session Ended to
+              more above his hands." Was bottom-[11svh] / md:bottom-[14%], which
+              sat the card ON his folded hands. Lifted so the card clears them. */}
+          <div className="absolute left-1/2 -translate-x-1/2 bottom-[26svh] md:bottom-[30%] z-20 w-max max-w-[calc(100%-2rem)] flex flex-col items-center gap-2.5 rounded-2xl border border-[#d7a05a]/35 bg-[#190f05]/60 px-8 py-5 backdrop-blur-sm shadow-[0_0_0_1px_rgba(215,160,90,0.3),0_18px_50px_rgba(0,0,0,0.6)]">
             <div className="text-2xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">Session Ended</div>
             <div className="text-center text-base bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
               Thank you for using <span style={{ display: 'inline-block', transform: 'skewX(-10deg)', background: 'linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>aiASAP</span>
@@ -469,7 +571,12 @@ export const LiveAvatarDemo = () => {
   }
   */
 
-  if (!sessionToken) {
+  // "Loading" now means "your session is starting", not "nothing has happened
+  // yet". Before 2026-08-21 the page auto-minted on load, so no-token and
+  // starting-up were the same moment. Now they are different: untapped shows the
+  // front door (6 stopped, tap anywhere), and this screen only appears after a
+  // person has actually asked for him.
+  if (!sessionToken && hasTappedToStart && !pausedOnStage && mode !== "VOICE") {
     return (
       <div
         className="w-full min-h-screen flex flex-col items-center justify-center gap-4 px-4"
@@ -521,8 +628,8 @@ export const LiveAvatarDemo = () => {
                     aiASAP
                   </h1>
                 </div>
-                <p className="mt-0 text-[calc(var(--stage-width)*0.032)] font-semibold tracking-[0.39em] md:tracking-[0.26em] xl:tracking-[0.55em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                  Take the Leap
+                <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                  <TaglineText />
                 </p>
               </div>
             </div>
@@ -564,12 +671,158 @@ export const LiveAvatarDemo = () => {
     );
   }
 
+  // THE FRONT DOOR (2026-08-21, G). 6 is stopped, sitting in his still picture,
+  // exactly like the restart screen — "that picture is great". Over him, the
+  // line G loves: Tap/Click ANYWHERE To Talk To 6. Tapping anywhere on the page
+  // is what mints the session; loading the page does not. No credits burn until
+  // a person decides to talk.
+  if (!hasTappedToStart && !sessionToken && !isExited && mode !== "VOICE") {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label="Tap or click anywhere to talk to 6"
+        onClick={() => setHasTappedToStart(true)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setHasTappedToStart(true); }}
+        className="relative w-full h-full min-h-screen flex flex-col overflow-hidden cursor-pointer bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]"
+      >
+        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
+          <div className="text-center px-4">
+            <div className="flex items-start justify-center">
+              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                aiASAP
+              </h1>
+            </div>
+            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+              <TaglineText />
+            </p>
+          </div>
+        </div>
+        <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/startscreen-noband.png"
+            alt="6, your a-i-buddy"
+            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+          />
+        </div>
+        {/* The line, verbatim from the live begin-surface so the two screens
+            read identically. G: "it's gorgeous the way it says that." */}
+        <div className="pointer-events-none fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4" style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.55)" }}>
+          <span className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
+            <span className="flex -translate-y-1.5 items-center text-[calc(var(--stage-width)*0.05)] font-bold italic tracking-[0.14em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#9e6a35] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
+              Tap/Click ANYWHERE
+            </span>
+            <span className="-translate-y-1 text-[calc(var(--stage-width)*0.10)] font-extrabold tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
+              To Talk To 6
+            </span>
+          </span>
+        </div>
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
+          <Link href="/terms" className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+            © 2026 aiASAP All Rights Reserved · Terms
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // STOPPED ON STAGE (G, 2026-08-21). He hit STOP: the session is really gone
+  // and the meter is really off, but the screen does not change out from under
+  // him. Same still picture, same four buttons, and the top-left one now says
+  // START. G: "he stops completely, everything stops, but then the word start
+  // comes up in that stop button."
+  if (pausedOnStage && !sessionToken && mode !== "VOICE") {
+    return (
+      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
+        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
+          <div className="text-center px-4">
+            <div className="flex items-start justify-center">
+              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                aiASAP
+              </h1>
+            </div>
+            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+              <TaglineText />
+            </p>
+          </div>
+        </div>
+        <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/startscreen-noband.png"
+            alt="6, stopped"
+            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+          />
+        </div>
+        {/* running={false} -> the top-left reads START, and MUTE/QUIET dim
+            because there is no session for them to act on. VOICE still works:
+            it costs nothing and needs no avatar. */}
+        <StageControls
+          running={false}
+          micOff={false}
+          quiet={false}
+          onStopStart={handleStartFromStopped}
+          onVoiceOnly={handleVoiceOnly}
+          onToggleMic={() => {}}
+          onToggleQuiet={() => {}}
+        />
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
+          <Link href="/terms" className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+            &copy; 2026 aiASAP All Rights Reserved &middot; Terms
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // VOICE ONLY (2026-08-21). Reuses the still-6 screen exactly as it already
+  // looks, and mounts the voice loop over it. LiveAvatarSession is deliberately
+  // NOT mounted: no avatar, no session token, nothing that bills by the block.
+  if (mode === "VOICE") {
+    return (
+      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
+        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
+          <div className="text-center px-4">
+            <div className="flex items-start justify-center">
+              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+                aiASAP
+              </h1>
+            </div>
+            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
+              <TaglineText />
+            </p>
+          </div>
+        </div>
+        <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/startscreen-noband.png"
+            alt="6, your a-i-buddy"
+            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+          />
+        </div>
+        <VoiceOnlyStage />
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
+          <Link
+            href="/terms"
+            className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+          >
+            © 2026 aiASAP All Rights Reserved · Terms
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <LiveAvatarSession
       mode={mode}
       sessionAccessToken={sessionToken}
       onSessionStopped={onSessionStopped}
       onExit={handleExit}
+      onPause={handlePause}
+      onVoiceOnly={handleVoiceOnly}
     />
   );
 };
