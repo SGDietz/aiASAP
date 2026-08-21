@@ -60,8 +60,10 @@ describe("6 quotes one number and only one number", () => {
     expect(SIX_SYSTEM_PROMPT.toLowerCase()).toContain("monthly fee");
   });
 
-  it("still says the assistant is free right now", () => {
-    expect(SIX_SYSTEM_PROMPT).toContain("FREE beta");
+  it("still says talking to 6 is free", () => {
+    // Wording changed when the future monthly fee came out; the SUBSTANCE is
+    // what this guards, so it asserts the promise, not a phrase that moved.
+    expect(SIX_SYSTEM_PROMPT).toContain("Talking to you costs nothing");
   });
 
   it("the shipped brain matches its source file", () => {
@@ -70,5 +72,56 @@ describe("6 quotes one number and only one number", () => {
     // is a real defect, not tidiness.
     const source = readFileSync(SOURCE, "utf8").replace(/\r\n/g, "\n");
     expect(SIX_SYSTEM_PROMPT).toBe(source);
+  });
+});
+
+describe("there is no subscription, anywhere, in anything 6 says", () => {
+  /**
+   * G, 2026-08-21: "There is no more subscription. Anywhere on the site,
+   * anywhere in six's lingo, anything he says, anything... A hundred percent of
+   * everything that he says or is written about it needs to come out. That's
+   * for the future now, with this scoped rebuild, this true MVP."
+   *
+   * It was worse than untidy. The ownership guarantee read "if you pay at least
+   * the minimum subscription, anything you build here is yours" - which made
+   * owning your own work conditional on a product that does not exist.
+   */
+
+  it("never says the word, in any form", () => {
+    expect(SIX_SYSTEM_PROMPT).not.toMatch(/subscri/i);
+  });
+
+  it("never describes the SHAPE of one either", () => {
+    // Removing the word while keeping tiers and upgrades would still be
+    // promising a product nobody can buy.
+    // "billing ladder" is deliberately NOT in this list. The brain uses that
+    // exact phrase to FORBID one - "never mention a fee, a plan, a tier, an
+    // upgrade, a billing ladder" - and a substring check cannot tell a ban from
+    // an offer. Banning the word would force the instruction to be vaguer,
+    // which is worse than the thing this test protects against.
+    for (const shape of [
+      "free tier",
+      "paid tier",
+      "paid user",
+      "usage tier",
+      "minimum fee",
+    ]) {
+      expect(SIX_SYSTEM_PROMPT.toLowerCase()).not.toContain(shape);
+    }
+  });
+
+  it("still gives the ownership guarantee, now with no strings", () => {
+    // The guarantee had to survive the removal - it is the point of the
+    // section. What went is the condition attached to it.
+    expect(SIX_SYSTEM_PROMPT).toContain("Anything you build here is yours");
+    expect(SIX_SYSTEM_PROMPT).toContain("No strings");
+  });
+
+  it("STILL discloses the build's running costs", () => {
+    // The one thing that must NOT be swept away with it. Hosting and avatar
+    // time are real bills a client pays, and a person who finds out later feels
+    // tricked. Deleting a price is fine; hiding a cost is not.
+    expect(SIX_SYSTEM_PROMPT).toContain("running costs");
+    expect(SIX_SYSTEM_PROMPT).toContain("the avatar's monthly fees, website hosting");
   });
 });
