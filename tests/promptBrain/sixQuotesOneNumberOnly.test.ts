@@ -87,8 +87,28 @@ describe("there is no subscription, anywhere, in anything 6 says", () => {
    * owning your own work conditional on a product that does not exist.
    */
 
-  it("never says the word, in any form", () => {
-    expect(SIX_SYSTEM_PROMPT).not.toMatch(/subscri/i);
+  it("never says aiASAP charges a subscription", () => {
+    // G drew the line 2026-08-21, and it is not the WORD:
+    //
+    //   "The old lingo for a subscription needs to be removed. But whatever
+    //    subscription is a part of doing their own business, that's a
+    //    distinction."
+    //
+    // A client pays for hosting, email, the avatar. Those are real monthly
+    // bills of running THEIR business and 6 must be able to say so in plain
+    // words. Banning the word outright would gag him on a cost he is
+    // REQUIRED to disclose - the opposite of what this file protects.
+    //
+    // So this bans aiASAP billing THEM, and nothing else.
+    for (const dead of [
+      "minimum subscription",
+      "subscription fee",
+      "paid subscriber",
+      "subscribe to aiasap",
+      "your subscription",
+    ]) {
+      expect(SIX_SYSTEM_PROMPT.toLowerCase()).not.toContain(dead);
+    }
   });
 
   it("never describes the SHAPE of one either", () => {
