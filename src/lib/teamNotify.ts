@@ -21,6 +21,7 @@ import { sendTelegramAlert } from "./telegramAlert";
 
 export type TeamNotifyKind =
   | "payment_received"
+  | "system_trouble"
   | "sale_interest"
   | "interview_complete"
   | "interview_stopped_early"
@@ -35,6 +36,10 @@ const HEADLINES: Record<TeamNotifyKind, string> = {
   // Money actually landed. Nothing in this file matters more, and nothing
   // else here is irreversible - a payment is.
   payment_received: "PAID - money is in",
+  // The watcher found something. Deliberately NOT in ALSO_TELEGRAM: the
+  // health cron already rings the phone itself, and two messages for one
+  // problem is how an alert channel loses its meaning.
+  system_trouble: "something needs looking at",
   // The one that is worth money. 6 cannot take a card or see Stripe, so the
   // ONLY way a "yes" becomes real work is somebody being told it happened.
   // Without this the sale sits in a transcript nobody reads.

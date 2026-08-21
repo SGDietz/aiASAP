@@ -30,12 +30,13 @@ import { buildConversationMessages } from "../../../src/lib/brain/conversationMe
 // whispers the next unanswered part into 6's context. 6 is free to ignore the
 // whisper - the machine marks, 6 decides. Nothing here may break the voice:
 // every call is wrapped, and a failure just means no whisper this turn.
-import { newLedger, nextHint, hintLine } from "../../../src/lib/interview/ledger";
+import { newLedger, nextHint, hintLine, isComplete } from "../../../src/lib/interview/ledger";
 import type { Ledger } from "../../../src/lib/interview/ledger";
 import { loadLedger, saveLedger } from "../../../src/lib/interview/ledgerStore";
 import { extractInterviewSlots } from "../../../src/lib/interview/extractSlots";
 import { applySlots } from "../../../src/lib/interview/applySlots";
 import { hasVoiceConsent, recordVoiceConsent } from "../../../src/lib/interview/consent";
+import { generateBuildCard } from "../../../src/lib/interview/buildCardFromLedger";
 import { notifyTeam } from "../../../src/lib/teamNotify";
 
 const SYSTEM_PROMPT = SIX_SYSTEM_PROMPT;
@@ -327,9 +328,43 @@ export async function POST(request: Request) {
 
           if (turn.slots.length === 0 && !noticeChanged) return;
           const { ledger, changed } = applySlots(base, turn.slots, now);
+
+          // THE MOMENT IT BECOMES BUILDABLE. status is the latch and it is set
+          // BEFORE the card is written, so a slow summariser cannot let the
+          // next turn fire a second one.
+          const justFinished = isComplete(ledger) && ledger.status !== "complete";
+          if (justFinished) ledger.status = "complete";
+
           // No change means the turn repeated what we already had. Writing
           // anyway would bump lastActivityAt and hide a stalled interview.
-          if (changed > 0 || noticeChanged) await saveLedger(userId, ledger);
+          if (changed > 0 || noticeChanged || justFinished) {
+            await saveLedger(userId, ledger);
+          }
+
+          if (justFinished) {
+            // The summary that replaces the transcript. 6 promises nobody
+            // reads it line by line - this is what makes that true.
+            const built = await generateBuildCard(ledger);
+            const facts: Array<[string, string | null | undefined]> = built
+              ? [["Build card", built.card]]
+              : [["Build card", "Could not be written this time - read the ledger."]];
+            // A card that ran over its caps still goes out, because Scott needs
+            // the lead either way - but it goes out with the problem named. A
+            // memo quietly calling itself a summary is the failure to avoid.
+            if (built && !built.check.ok) {
+              facts.push(["Card ran over", built.check.problems.join("; ")]);
+            }
+            await notifyTeam({
+              kind: "interview_complete",
+              who: ledger.parts[1].slots.name?.value || signedInEmail || "someone",
+              email: signedInEmail || null,
+              facts,
+              nextStep:
+                "There is enough here to build from. Read the card, then talk to them before taking any money.",
+              // Stable per person, so a retry can never send this twice.
+              dedupeKey: `interview-complete:${userId}`,
+            });
+          }
         } catch (e) {
           console.error("[interview:ledger] failed", e);
         }
