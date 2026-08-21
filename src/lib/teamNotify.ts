@@ -20,6 +20,7 @@ import { sendPurposeEmail } from "./emailSenders";
 import { sendTelegramAlert } from "./telegramAlert";
 
 export type TeamNotifyKind =
+  | "payment_received"
   | "sale_interest"
   | "interview_complete"
   | "interview_stopped_early"
@@ -31,6 +32,9 @@ export type TeamNotifyKind =
 
 /** Plain-English headline per kind. The subject line is read on a lock screen. */
 const HEADLINES: Record<TeamNotifyKind, string> = {
+  // Money actually landed. Nothing in this file matters more, and nothing
+  // else here is irreversible - a payment is.
+  payment_received: "PAID - money is in",
   // The one that is worth money. 6 cannot take a card or see Stripe, so the
   // ONLY way a "yes" becomes real work is somebody being told it happened.
   // Without this the sale sits in a transcript nobody reads.
@@ -49,6 +53,7 @@ const HEADLINES: Record<TeamNotifyKind, string> = {
  * the phone; the rest are email-only so the alert channel keeps its meaning.
  */
 const ALSO_TELEGRAM: ReadonlySet<TeamNotifyKind> = new Set<TeamNotifyKind>([
+  "payment_received",
   "interview_complete",
   "build_feedback",
   "consent_declined",
