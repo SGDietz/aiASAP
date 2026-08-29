@@ -1,6 +1,8 @@
 // Fire-and-forget uploader for every image/video frame 6 is shown.
 // Failure here must never block the user-visible app flow.
 
+import { getTesterLabel } from "./testerAttribution";
+
 export type MediaSource =
   | "camera_snapshot"
   | "video_recording"
@@ -28,6 +30,8 @@ export async function captureMedia(args: CaptureMediaArgs): Promise<void> {
     if (args.geminiAnalysis) form.append("gemini_analysis", args.geminiAnalysis);
     if (args.problem) form.append("problem", args.problem);
     if (args.error) form.append("error", args.error);
+    const testerLabel = getTesterLabel();
+    if (testerLabel) form.append("tester_label", testerLabel);
 
     const res = await fetch("/api/media/capture", {
       method: "POST",

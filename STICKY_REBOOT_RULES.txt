@@ -1,5 +1,185 @@
 AI assistant reboot rules for Codex and Claude
 
+CHIEF TELEGRAM IDENTITY LOCK - 2026-08-28
+- Any future Chief/Codex Telegram send must use only the direct @CodexGeekom1bot lane. Never send Chief messages through the Claude bot. This identity rule does not itself authorize a message; each send still requires the current task's outbound authority.
+
+REBOOT STAND-DOWN CHECKPOINT - 2026-08-28
+- G controls the reboot. Stop implementation, tests, runtime changes, browser control, and agent coordination after writing this checkpoint.
+- Android mic recovery remains PHYSICALLY UNACCEPTED. The last phone smoke failed before Claude's final known-blocked/card-recheck reordering. Never report fixed from local tests alone.
+- G confirmed the original permission sheet was dismissed by an accidental outside tap. Browser embargo is plausible but not page-verifiable.
+- Claude owns microphone code; Chief is support-only unless G explicitly reopens coding.
+- Preserve rollback/june14 at f4665eee and the 121-entry dirty tree (50 tracked, 71 untracked). No clean/reset/commit/push/deploy.
+- Canonical route stays tailnet-only 9444 -> 3001. Claude-created tailnet-only 9445 is unapproved and frozen; do not use, share, remove, or promote it without fresh G authorization.
+- After reboot: Chief return gates first; read Claude 10:40/10:48/10:54 packets; verify aiASAP-Dev-3001, port 3001, mappings, and dirty tree; wait for G; never auto-start provider work.
+
+REBOOT STAND-DOWN CHECKPOINT - 2026-08-24
+- C2 LOADING... is the final shared all-device loading authority. The STOP-box reversal was withdrawn; do not change it without fresh G authorization.
+- If Comet shows unstyled aiASAP after a local build, first inspect whether an old next dev listener is serving HTML whose assets were replaced. Restart only the verified aiASAP-Dev-3001 process chain through its scheduled launcher, then prove fresh local/Tailnet HTML assets resolve before calling it fixed.
+- Keep tonight's Six sales-flow feedback as uninstalled product feedback: the pivot was too pushed; introduce G's genuine design, branding, website, and business-building help naturally. Ask `What do you call your landscaping business?` rather than the awkward personal-versus-company question.
+- Source/render/runtime proof never replaces physical Comet or provider acceptance.
+
+FINAL SHARED C2 LOADING CHECKPOINT - 2026-08-24
+- G's final authority supersedes the later Constantia treatment: the one shared SixLoadingIndicator again renders the approved bold uppercase C2 LOADING... on phone, tablet, and desktop through LoadingText. L is exactly 1.20x OADING; phone ink is 146.25 x 54.4375px with an 8px rim gap, while 600px+ ink is 292.5 x 108.875px with a 16px gap. Required 390/599/600/934x772/1440x900 actual-component renders have <=0.0078125px center error and no clipping. Focused 28/28, typecheck, 78-route build, diff check, and restored local/canonical runtime are green. No provider ride; physical-device/provider acceptance remains G's gate.
+
+EXACT CUSTOM OPENING CHECKPOINT - 2026-08-24
+- A brand-new CUSTOM provider session now claims and speaks exactly once: `6 here. Tell me what you love doing and what you know. Together, we're gonna build a money-making machine.` The runtime owner is VOICE_START_GREETING behind claimSessionGreeting(anonymousGreetingSpokenRef) in LiveAvatarSession.tsx; the synchronized code brain carries the same exact line, and the obsolete post-interruption completion/question injection is removed. No provider ride; deterministic contract tests, typecheck/build, and local/canonical health are the evidence.
+
+UNIVERSAL C2 LOADING CHECKPOINT - 2026-08-24
+- Selected C2 now renders on every viewport through one LoadingText authority: literal LOADING..., weight 900, L exactly 1.20x uppercase OADING, complete dots, and proportional straight-rim fit. Phone remains 146.25 x 54.4375px with an 8px gap; 600px+ is exactly 2x at 292.5 x 108.875px with a 16px gap. Six geometry and every non-Loading owner are unchanged; deterministic six-viewport proof passed with <=0.0078125px center error and no clipping/collision. No provider ride; physical acceptance remains G's gate.
+
+ALL-DEVICE STAGE GLYPH OPTICAL CHECKPOINT - 2026-08-24
+- Shared START/RUNNING authority at every viewport: START triangle and RUNNING STOP square are exactly 0.90x their prior rendered dimensions. RUNNING MUTE preserves width and shortens 25 -> 22.5px on phone and 30 -> 27px at 600+, within 0.0045px of each unchanged Gallery/Quiet optical midpoint. Centers, slots, cells, clusters, labels/gaps/paint/callbacks, Loading, footer/legal, stage, and branding remain frozen. iPad C2 dots are still pending by G's order; no provider ride. Physical-device acceptance remains the gate.
+
+SELECTED PHONE C2 LOADING + RUNNING ICON CHECKPOINT - 2026-08-24
+- G-selected C2 is installed only below 600px: literal LOADING..., weight 900, L exactly 1.20x OADING, rendered at 146.25 x 54.4375px, 8px above the unchanged 249.6px Six rim and centered to 0.0078125px browser rounding. RUNNING STOP and MUTE paint at 22.5px in unchanged 30px slots, within 0.00375px of the accepted Gallery/Quiet optical midpoint; cells, labels, callbacks, 600px+, and strict visible-frame readiness are frozen. Deterministic 390/599/600 proof passed; no provider ride. G's next physical phone smoke remains acceptance.
+
+START/RUNNING VISUAL AUTHORITY CHECKPOINT - 2026-08-24
+- Local-only repair after G's physical mismatch and Chief/Grok adversarial audit: RUNNING now consumes START's literal shared brand lockup, 100svh/94vh stage tokens including the coarse-iPad 80rem cap, phone 100svh - 34.65px media seam, object-top crop/frame shadow, sub-768 control anchor, and the same footer/legal paint. Actual poster/video hierarchy renders at 390, 599, 600, 1024 portrait, 1366 landscape, and 1440 have zero geometry/paint deltas outside truthful START-to-STOP content and enabled states. Loading/readiness are frozen; no provider ride. Focused 65/65, typecheck after final build, 77-route production build; G's next physical smoke remains the gate.
+
+NON-PHONE LOADING SCALE CHECKPOINT - 2026-08-24
+- Local-only physical follow-up: visible text is LOADING on every device; the initial L is exactly 1.20x the uppercase OADING glyph size. Phone keeps the accepted 249.6px badge and 146.25px ink geometry; 600px and wider doubles them to 499.2px and 292.5px. Phone RUNNING overlays START's same 55px semantic footer stack, exposing the same bottom-fixed 34.65px brown paint and centered legal line instead of 55px of stage brown. Controls/readiness are unchanged; no provider ride. G's next physical smoke remains the gate.
+
+UNIVERSAL LOADING / START-RUNNING PARITY CHECKPOINT - 2026-08-24
+- Local-only source behavior after Grok NEEDS CHANGE: the visible Loading label and shared START/RUNNING controls no longer depend on conflicting Tailwind visibility/responsive utilities; gold paint lives on the transformed ink node. Deterministic phone/iPad portrait/iPad landscape/desktop renders prove complete text, exact 146.25px width, 0px center delta (phone 0.0078125px rounding), universal 249.6px badge, and no clipping. RUNNING still consumes START geometry with truthful behavior; visible-node rVFC remains fail-closed. The prior authorized ride was uninstrumented beyond a visible video element and did not reach RUNNING by 57.8s; no second ride. Physical acceptance and Chief's corrected Grok return remain pending.
+
+CURRENT AIASAP REBOOT CHECKPOINT - 2026-08-24 - THREE-STATE DROID REPAIR LOCAL READY
+- Preserve rollback/june14 at f4665eee and all intentional unrelated dirt; aiASAP/local-only boundaries held.
+- START and returned STOP use one shared idle JSX tree. At <=599 their real still/media bottom is 794.5px (789 + 5.5px, exactly 10% of the 55px reserve); legal/footer bottom stay fixed. RUNNING and 600px+ stay frozen.
+- Loading keeps the accepted 249.6px badge and moves another 24.96px north (-49.92px total); glow, centerline, background, and badge-only surface stay unchanged.
+- Droid evidence proves start/session/speech/audio worked; the false-ready cause was a hidden 1x1 probe preceding a different visible video. Keep one persistent visible video under the overlay and clear loading only for a live enabled video track, >=2px intrinsic/layout dimensions, and a presented frame on that exact node. play() rejection keeps the badge; cleanup clears the node. No watchdog/provider ride.
+- Focused 39/39, typecheck, build, 390/599/600, and runtime HTTP/manifest checks passed locally. G's next physical Droid/provider ride is acceptance.
+
+CURRENT AIASAP REBOOT CHECKPOINT - 2026-08-24 - DROID START/LOADING FOLLOW-UP LOCAL READY
+- aiASAP mobile START/immediate loading only; local-only boundaries held. Preserve
+  rollback/june14 at f4665eee and all intentional unrelated dirt.
+- <=599 START moves the real visible image-to-brown boundary south exactly 5.313px;
+  media/footer/legal/bottom geometry remains fixed. Running/stopped and 600px+ are frozen.
+- The 249.6px loading 6 moves north 24.96px. Golden glow keeps RGB 215,160,90 and
+  18px blur; alpha increases exactly 15%, 0.240 -> 0.276.
+- Phone logs prove start APIs and the session settled. The local hang was the loading
+  branch unmounting its only video sink; an invisible non-interactive sink now waits
+  for a real media-frame event. No watchdog/provider ride was added.
+- Focused 30/30, typecheck, build, 390x844 render, and 599/600 seam passed. Runtime
+  restored; local/canonical 200, no manifest link, manifest 404. Next Droid ride is gate.
+
+CURRENT AIASAP REBOOT CHECKPOINT - 2026-08-24 - DROID QUEUE LOCAL READY
+- aiASAP/local only. No WildWorks/provider/commit/push/deploy/database/account/
+  secrets/Telegram/replacement-link/update action. Preserve rollback/june14 at
+  f4665eee and the intentional 92-entry baseline (40 tracked, 52 untracked).
+- START/running/returned-STOP share StageLegalFooter. <=599px brown paint is
+  12.397px, exactly 70% of 17.71px; semantic box/text do not move. Loading alone
+  has no footer and only the centered canonical 6 on #3a2108.
+- Phone loading badge is 208px -> 249.6px (+20%); 600px+ remains 208px. SDK
+  start rejection now exits loading to the honest error surface instead of
+  hanging behind the disconnected-state loader.
+- Local proof: focused 19/19, typecheck/build/diff check; 390x844 badge computed
+  249.59375 centered (195,422), no leaked UI; 599/600 seam preserved.
+- Runtime restored: aiASAP-Dev-3001 Running, :::3001, local/canonical 200 x3,
+  no manifest link, manifest 404. G's Droid/provider ride is still the gate.
+
+CURRENT AIASAP REBOOT CHECKPOINT - 2026-08-24
+This checkpoint supersedes the stale 2026-08-23 mobile-start gate below.
+
+LANE / HARD BOUNDARY
+- Codex/Chief owns aiASAP; Claude owns WildWorks. No WildWorks work.
+- Local only. No commit, push, deploy, paid/provider session, Supabase/database/
+  account/secrets action, Telegram resend, replacement URL, or production change.
+- Postpone the Codex/software app update until G says this visual loop is done.
+
+CANONICAL RUNTIME
+- Use only https://mission-control.tail00dfe0.ts.net:9444. G already has it;
+  never Telegram-resend it or make a replacement URL.
+- Authority: port 3001 / scheduled task aiASAP-Dev-3001. Prep proof: task
+  Running, :::3001 listening, local and canonical HTTP 200.
+- Branch rollback/june14, HEAD f4665eee; preserve all 92 dirty entries (40
+  modified, 52 untracked) and unrelated work.
+- Normal website: no manifest link; /manifest.webmanifest 404; favicons retained.
+
+LOCKED LOCAL VISUAL STATE
+- Loading is the only exception: solid #3a2108 with centered canonical 208x208
+  6 badge/emblem, restrained golden glow, and status semantics. Show no branding,
+  Loading word, controls, legal/footer, avatar, or other UI.
+- START/running/returned-stopped share phone authorities. Visible footer paint:
+  declared 17.71px; transparent lead 25.29px; fixed reserve 55px; bottom
+  remainder 12px. Final 390x844 rect: x0/y814.296875, 390x17.703125, bottom832.
+  Center the padded /legal anchor (not full-bar width); every span must be solid
+  rgb(215,160,90), no gradient/text clip, opacity .60. Loading has no legal.
+- Icon-to-label gap is exactly 2px in START/running/stopped.
+- Idle: 220x150 field, four 110x75 hit cells, left x85, right x199, accepted +4px
+  right column. Non-idle GALLERY/QUIET move +4px together; left controls stay.
+- Running/stopped branding is exactly 12px higher than its former state owner.
+  Preserve accepted START branding.
+- All controls are floating/no-box, warm outlined icons, solid bronze labels,
+  equal strong colors, honest disabled semantics. Apply across lifecycle states
+  and phone/tablet/iPad/laptop/desktop while retaining responsive geometry.
+- Active/stopped phone avatar stays 390x789 and scrollY0. Wordmark/tagline color
+  source was not changed; G likes it. Installable-app behavior remains removed.
+
+VERIFIED VS ACCEPTED
+- Four physical Android screenshots were inspected. Deterministic loading,
+  active, and stopped fixtures were rendered without continuing provider calls.
+- Focused matrix 8/8, typecheck, production build, and diff-check passed. Runtime
+  restored HTTP 200.
+- READY LOCALLY for G's next phone smoke, but NOT physically accepted after the
+  newest fixes. Never call local proof phone acceptance. Never auto-start a
+  provider/LiveAvatar session after reboot.
+
+NEXT REBOOT SEQUENCE
+1. Run Chief wake/return assertions first.
+2. Read the newest 2026-08-24 sections in all three continuity files.
+3. Verify aiASAP-Dev-3001, port 3001, canonical HTTP 200, manifest absent/404,
+   and dirty-tree preservation.
+4. Wait for G. On the SAME link run one clean phone smoke: START -> press START
+   -> badge-only loading -> running STOP/GALLERY/MUTE/QUIET -> press STOP ->
+   returned stopped/idle.
+5. G checks badge-only loading; tight icon-label gaps; right column; branding;
+   identical short legal footer in start/running/stopped; legal absent only in
+   loading; no scroll/crop movement.
+6. Keep the software update postponed. No deploy/promotion without new explicit
+   authorization.
+
+COPY/PASTE RESTART PHRASE:
+Resume aiASAP from the newest 2026-08-24 reboot checkpoint. Run Chief wake/return checks, verify aiASAP-Dev-3001, port 3001, https://mission-control.tail00dfe0.ts.net:9444 HTTP 200, manifest absent/404, and the dirty tree. Wait for G, then on that SAME link smoke START -> START press -> badge-only loading -> running STOP/GALLERY/MUTE/QUIET -> STOP press -> returned idle. Check tight gaps, right column, branding, identical short legal footer in start/running/stopped, legal absent only in loading, scrollY0/crop lock. Do not start a provider automatically, update, send Telegram, deploy, commit, or push.
+
+CURRENT MOBILE START-PAGE GATE - 2026-08-23
+- aiASAP mobile homepage start screen only. G's physical phone still shows the
+  avatar moving; the repair is not accepted. Fixed-size headless proof is not
+  device acceptance.
+- Preserve the already-live legal-bar paint change: its top edge is exactly 4
+  CSS pixels north. No current avatar-lock or pill-blend code was installed or
+  deployed.
+- Claude's corrected draft-only request is delivered as
+  20260823-161600-chief-to-claude-REVISE-mobile-start-avatar-and-pill-patches.md;
+  revised diffs are pending. Reject viewport-unit-only fixes that do not hold
+  the avatar's actual rendered box/crop invariant through browser chrome.
+- Nothing goes on Google Drive except the disaster backup. Never use Drive for
+  project work or handoffs; use the authenticated Chief-Claude bridge only.
+- Pills: base paint only, locked warm palette only. Freeze hover, active, focus,
+  disabled, opacity, transition, geometry, copy, icons, spacing, behavior,
+  tablet, desktop, later stages, and unrelated surfaces.
+- After reboot: process authenticated Chief-Claude receipts first; independently
+  audit the diffs; verify locally and on G's physical phone; do not promote
+  revised code without fresh explicit production authorization.
+- Preserve the dirty checkout (`rollback/june14`, `f4665eee`, 92 entries). Port
+  3001 and aiASAP-Dev-3001 were active before reboot and must be rechecked.
+
+RESTART PHRASE: Read the newest 2026-08-23 sections in AIASAP_REBOOT_HANDOFF.md,
+PROJECT_MEMORY.md, and STICKY_REBOOT_RULES.txt. Resume only the mobile start-page
+avatar-lock and pill-blend review from the Chief-Claude correction packet.
+
+CURRENT AIASAP PAUSE GATE - 2026-07-20 8:09 PM ET
+- G stopped all broader aiASAP/iSolve work. The only open job is Codex finishing
+  the friendly static aiASAP pause page; Dos is out of this job.
+- Preserve the approved country-house feel with warm ambers through the
+  turnaround. Use the existing iSolve 6's Workshop image
+  `bg-6sWorkshop2.png`; do not use the generated porch alternative.
+- Never loosen the original aiASAP deny-all WAF. Use the separate static folder
+  at C:\Users\sgdie\Documents\Claude\projects\ai-asap-pause-page and a new
+  zero-function Vercel project; move only aiasap.ai and www.aiasap.ai.
+- At reboot stop, nothing had been deployed or moved. Local visual verification
+  is next. Do not start 6, LiveAvatar, a smoke test, Supabase, or paid providers.
+- After verified cutover, document fail-closed rollback and stand down again.
+
 1. You do all work, always, unless YOU ABSOLUTELY CANNOT, then ask for G's help.
 2. Stay in the assigned lane. Codex works aiASAP; Claude works iSolve unless G explicitly says otherwise. Never cross lanes unless G knows it.
 3. Work the service problem before saying no. For Telegram, Vercel, Supabase, GitHub, Resend, LiveAvatar/context, and other connected services, check local envs, helper scripts, CLIs/APIs, dashboards, and route around blockers. Just do it.
@@ -12,3 +192,14 @@ AI assistant reboot rules for Codex and Claude
 10. Don't forget about backordering aiASAP.com and other domains.
 11. G's bedtime is 10:00 PM Eastern. Always help him get to bed on time.
 12. Automatically update the LiveAvatar context window/SW when aiASAP behavior, prompts, voice flow, or context needs to change. Use the connected LiveAvatar route, local env, helpers, API, or dashboard as needed; do not ask G to copy/paste context unless there is no working service path.
+13. LEGAL DIRECTION (G 2026-08-22): when an aiASAP or DietzX agreement or legal provision requires a chosen governing law, venue, or jurisdiction, prefer Wyoming, not Maryland. Preserve non-waivable federal and other mandatory law. Never invent a county, business address, court, arbitration process, or other forum mechanism.
+14. LIVE RELEASE (2026-08-22): apex/www are on `dpl_3U45kaR7Sh6nBkc3SHQu7XgxRw9X`; the independent aiASAP Supabase pg_cron watchdog is installed and healthy; the Windows failure watcher stays disabled. Production CUSTOM sessions omit LiveAvatar context IDs and use the code brain.
+15. SMOKE GATE: startup/opening passed and the repaired public code-brain endpoint is 200, but the final in-session WildWorks/avatar-site sequence was contaminated by ambient speech. Do not call it smoke-ready and do not send the Telegram smoke note until G authorizes and completes a clean later session.
+16. PENDING LOCAL COPY: the opening now ends `live the life that you want to live.` in local source/generated brain only. Do not claim it is public or deploy it without new authorization.
+17. TEAM RULE: Chief works aiASAP in-house. Do not use Grok or another buddy unless G explicitly asks.
+START Triangle Restore + Loading Choice Fixture Checkpoint - 2026-08-24
+
+- START alone is restored to Lucide's natural pre-reduction triangle geometry on every viewport: phone paint `20.0015 x 22.5015px`, 600+ paint `24.0019 x 27.0018px`, with the accepted asymmetric painted center unchanged. STOP, MUTE, controls, labels, and live Loading remain frozen. The isolated `/codex-responsive-loading` route presents five labeled, responsive `LOADING...` typography choices over identical canonical Six artwork; it does not install a live Loading winner. Deterministic six-viewport geometry and local-only comparison screenshots are the evidence; no provider ride.
+Selected Constantia Loading Checkpoint - 2026-08-24
+
+- G-selected round-four Option 2 is installed through the one shared `SixLoadingIndicator`: literal `Loading...`, Constantia 700 normal, `0.015em` tracking, selected gold gradient, `125.09375px` complete painted width on every viewport, 8px gap, centered ink, visible overflow, and descender-safe line box. The badge/readiness gate, START triangle, controls, and every unrelated live owner remain unchanged. Actual-component six-viewport proof, focused tests, typecheck/build, and local/canonical health are the acceptance evidence; physical-device acceptance remains G's gate.

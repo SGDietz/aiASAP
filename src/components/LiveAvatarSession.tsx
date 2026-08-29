@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { StageControls } from "./StageControls";
+import { MicrophoneRecoveryCard } from "./MicrophoneRecoveryCard";
+import { ContactCaptureBox } from "./ContactCaptureBox";
 import {
   LiveAvatarContextProvider,
   useSession,
@@ -8,11 +11,212 @@ import {
   useVoiceChat,
   useLiveAvatarContext,
 } from "../liveavatar";
-import Link from "next/link";
+import { StageLegalFooter } from "./StageLegalFooter";
+import { StageBrandLockup } from "./StageBrandLockup";
+import { SixLoadingIndicator } from "./SixLoadingIndicator";
+import { WildWorksLinkButton } from "./WildWorksLinkButton";
 import { SessionState, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
+import {
+  cutCustomVoiceFallback,
+  bindAvatarAudioPresentationProbe,
+  isCustomVoiceFallbackBusy,
+  primeCustomVoiceFallback,
+  registerSixSpokenLine,
+  reportCustomVoiceDiag,
+  setCustomVoiceMuted,
+  subscribeAvatarSpeechFailure,
+  wasRecentlySpokenBySix,
+} from "../liveavatar/customVoiceDelivery";
+import {
+  createBrowserAvatarAudioPresentationProbe,
+  type AvatarAudioPresentationProbe,
+} from "../liveavatar/avatarAudioPresentation";
 import { captureMedia } from "../lib/captureMedia";
-import { extractContactDetails } from "../lib/contactExtraction";
+import { captureTesterLabelFromUrl } from "../lib/testerAttribution";
+import { rememberAnonymousSessionId } from "../lib/auth/AuthProvider";
+import { getSupabaseBrowserOrNull } from "../lib/auth/supabaseBrowser";
+import {
+  accountSetupSpeechFlow,
+  confirmEmailCandidateFlow,
+  takesEmailFastPath,
+  type SignupFlags,
+  type SignupPorts,
+} from "../lib/signup/machine";
+import {
+  resolveSendLinkFallbackStatus,
+  type SendLinkFallbackStatus,
+} from "../lib/signup/sendLinkFallback";
+import {
+  captureClientError,
+  captureClientWarn,
+} from "../lib/observability/clientLogger";
+import {
+  createClientEventId,
+  logAppEvent,
+  maybeSubmitBugReport,
+  maybeSubmitUserFeedback,
+  noteUserTurnForFrustration,
+  setTelemetrySessionId,
+} from "../lib/telemetry";
+import { transcriptEventId } from "../lib/voice/transcriptEventId";
+import {
+  consumePendingSpeechUtteranceId,
+  recordAssistantTurn,
+} from "../lib/voice/speechTurnCorrelation";
+import {
+  claimSessionGreeting,
+  micPressAction,
+  syncSpeakerMute,
+} from "../lib/voice/sessionControls";
+import {
+  inspectMicrophonePermission,
+  microphonePermissionMessage,
+  requestMicrophonePermission,
+  type MicrophonePermissionState,
+} from "../lib/voice/microphonePermission";
+import {
+  getStartupTimingSnapshot,
+  markStartupTiming,
+} from "../lib/voice/startupTiming";
+import {
+  EMPTY_BUILD_INTEREST_STATE,
+  canAdvanceBuildInterview,
+  resolveContactSave,
+  stepBuildInterest,
+  type BuildInterestState,
+} from "../lib/buildInterestFlow";
+import { consumePendingBuildAccountSetup, postOpportunitySignal } from "../lib/opportunityClient";
+import {
+  resolveAvatarSiteIntent,
+  resolveWildWorksLinkTurn,
+  type WildWorksOfferState,
+} from "../lib/wildWorksLinkIntent";
+
+// r30 (G 2026-06-12: "how do we know when I am on my account... Can I log
+// out, and then log in from another account? Let's set up that system"):
+// voice sign-out commands + the spoken confirm line.
+const LOGOUT_COMMAND_RE =
+  /\b(?:log|sign)\s*(?:me\s*)?(?:out|off)\b|\bswitch\s+(?:my\s+|the\s+)?accounts?\b/i;
+const ACCOUNT_SIGNOUT_LINE =
+  "You got it - signing you out now. The page will start fresh in a few seconds, and you can sign in as anyone.";
+
+// r29/r31 (G live 2026-06-12: "The ad is not something that you buy at a
+// grocery store" → "Added a store"; "I didn't say to do that" → spawned a
+// "That To Do List"): talking ABOUT the system is never an order. Negation
+// or reported speech anywhere in a sentence blocks BOTH item adds AND
+// new-list creation from it.
+const META_TALK_RE =
+  // G 2026-06-13: also block UI/visual descriptions ("screenshot of my face",
+  // "a haze that pulses around 6's face") from becoming list items or lists.
+  /\b(?:not|don'?t|doesn'?t|didn'?t|isn'?t|wasn'?t|can'?t|never|you (?:just )?sa(?:y|id)|he said|she said|it says?|says|said|saying|talking to|reality|issue|problem|wrong|mistake|supposed|screenshot|haze|puls(?:e|es|ed|ing)|zoom|glow|halo|avatar|(?:my|your|his|her|six'?s|6'?s) face|the (?:screen|thread))\b/i;
+import {
+  fmtReminderDue,
+  parseReminder,
+  parseTimeOnly,
+  REMINDER_LIST_RE,
+} from "../lib/reminders/parse";
+import {
+  fmtPhoneSpoken,
+  parseSpokenPhone,
+  PHONE_GIVE_RE,
+  SMS_OPT_IN_RE,
+} from "../lib/reminders/phone";
+import {
+  loadUiSizeLevel,
+  UI_CARD_SCALE,
+  UI_SIZE_BIGGER_RE,
+  UI_SIZE_MAX_LEVEL,
+  UI_SIZE_SMALLER_RE,
+  UI_SIZE_STORAGE_KEY,
+} from "../lib/uiSize";
+import {
+  extractSpokenZip,
+  humanZoneName,
+  resolveSpokenLocation,
+  TZ_WRONG_RE,
+} from "../lib/timezone/userTimezone";
+import { TIME_ASK_RE, spokenTimeNow } from "../lib/timeAsk";
+import {
+  AVATAR_RETURN_RE,
+  LIST_DONE_RE as VOICE_LIST_DONE_RE,
+  wantsAvatarBack,
+  AVATAR_BACK_LINES,
+  isGarbledListOpen,
+  parseRemoveByPosition,
+  parseRemovePositions,
+  wantsListReadback,
+} from "../lib/voiceMode/intents";
+import {
+  ADD_OFFER_RE,
+  ADD_OFFER_NEGATE_RE,
+  isAddOfferAffirmative,
+  parseOfferedAddItems,
+} from "../lib/listAddOffer";
+import { isClearAllCommand } from "../lib/listClear";
+import { parseReorderCommand } from "../lib/listReorder";
+import { detectColorTarget } from "../lib/listColorTarget";
+import { isPlausibleListItem } from "../lib/listItemSanity";
+import {
+  applyAddItems,
+  buildAddItemsAcknowledgment,
+} from "../lib/lists/listMutation";
+import {
+  isDestinationListDictation,
+  isSpokenListQuestion,
+  listItemKeysMatch,
+  shouldAllowDetectedListIntent,
+  shouldLookupListItem,
+  shouldTreatAsListMutation,
+  stripDestinationListContext,
+} from "../lib/lists/turnIntent";
+import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
+import {
+  bindSessionListener,
+  isLikelyIncompleteSpeechFragment,
+  resolveTurnIntake,
+  type PendingSpeechFragment,
+} from "../lib/voiceMode/turnIntake";
+import {
+  isDuplicateUtterance,
+} from "../lib/speech/dedupe";
+import {
+  arbitrateAvatarSpeechSource,
+  selectAvatarSpeechSource,
+  shouldUseBrowserSpeechRecognition,
+  type AvatarSpeechSource,
+} from "../lib/speech/sourceAuthority";
+import { allowsOnlineLookup } from "../lib/onlineLookupPolicy";
+import { formatSixSpeechForTts } from "../lib/voice/speechBrand";
+import {
+  LIST_INDEX_RE,
+  buildListIndexReply,
+  resolveListPick,
+  type ListIndexEntry,
+} from "../lib/lists/listIndex";
+import {
+  LIST_CLOSE_RE,
+  ACCOUNT_SETUP_TRIGGER_RE,
+  ACCOUNT_READY_YES_RE,
+  ACCOUNT_READY_NO_RE,
+  END_SESSION_CONFIRM_RE,
+  END_SESSION_CANCEL_RE,
+  END_SESSION_BLOCK_RE,
+  isStitchedSessionClose,
+  ONLINE_LOOKUP_CLOSE_RE,
+  SHOPPING_MODE_CLOSE_RE,
+  isInternalSignal,
+  isDirectAvatarStopCommand,
+  hasEndSessionIntent,
+  hasExplicitAccountSendOnCloseIntent,
+  confirmsEndSession,
+  cleanDeviceName,
+  isJunkPersonName,
+  extractDeviceNameCandidate,
+  isValidEmailCandidate,
+  parseEmailFromAvatarReadback,
+  extractAccountEmailCandidate,
+} from "../lib/signup/helpers";
 import {
   Radio,
   Camera,
@@ -20,7 +224,11 @@ import {
   Video,
   Play,
   Square,
+  Volume2,
+  VolumeX,
   X,
+  Mic,
+  MicOff,
 } from "lucide-react";
 
 export type SessionStoppedReason = { reason?: "inactivity" };
@@ -37,34 +245,179 @@ function getLiveAvatarSessionId(session: unknown): string | null {
     : null;
 }
 
+// RECALL FIX v3 (2026-06-01): snapshot the URL hash at MODULE LOAD — before the
+// AuthProvider browser client (detectSessionInUrl) or anything else can consume /
+// clear the magic-link #access_token. ensureSessionFromUrl reads THIS, not the
+// live window.location.hash (which may already be empty by the time it runs).
+const INITIAL_URL_HASH =
+  typeof window !== "undefined" ? window.location.hash : "";
+
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your a-i buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit easier?";
-const SESSION_END_CONFIRMATION_MESSAGE =
-  "Want me to close this session? Say stop or close to end it, or keep going.";
+  "6 here. Tell me what you love doing and what you know. Together, we're gonna build a money-making machine.";
+
+// G (2026-06-01): close should say ONE short line then close — no two-step
+// confirm dance, no re-prompt, no silence wait. Eager-close is fine because the
+// Restart button is right there on screen. Rotate the line for a little variety.
+const SESSION_CLOSE_GOODBYE_POOL = [
+  "Okay, closing up. Tap Restart any time.",
+  "All done. I'm closing now — Restart when you want me back.",
+  "Closing this up. The Restart button brings me right back.",
+  "Got it, shutting down. Hit Restart whenever you need me.",
+];
+const pickSessionCloseGoodbye = (): string =>
+  SESSION_CLOSE_GOODBYE_POOL[
+    Math.floor(Math.random() * SESSION_CLOSE_GOODBYE_POOL.length)
+  ];
 const LIST_CLOSE_EDUCATION =
   "If you want this list off the screen, just ask me to close the list.";
-const ACCOUNT_BETA_DISABLED = true;
+// G (2026-06-13): the close-list tip must be a ONE-TIME education, not a
+// per-session repeat. "If you say that to somebody a few times, they know it."
+// The in-memory ref resets every mount, so back it with localStorage (same
+// device/browser scope as LAST_GREETING + DEVICE_KEY). Once a user has heard
+// it on this device, they never hear it again on any future session.
+const LIST_CLOSE_EDUCATION_SHOWN_STORAGE_KEY = "aiasap.listCloseEducation.shown.v1";
+const loadListCloseEducationShown = (): boolean => {
+  try {
+    return window.localStorage.getItem(LIST_CLOSE_EDUCATION_SHOWN_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+const persistListCloseEducationShown = (): void => {
+  try {
+    window.localStorage.setItem(LIST_CLOSE_EDUCATION_SHOWN_STORAGE_KEY, "1");
+  } catch {
+    // best-effort; storage blocked just means it may repeat once more
+  }
+};
+// v2.1 (2026-05-28): voice magic-link sign-in + per-user memory ENABLED.
+// Was gated true on gold while the account flow was held back; flipped to
+// false here so startAccountSetup / handleAccountSetupSpeech / the email
+// readback UI / the /api/account/me resume path all go live.
+const ACCOUNT_BETA_DISABLED = false;
 
-const ACCOUNT_MEMORY_VALUE_LINES = [
-  "With an account, your lists stay intact, I remember the last conversation, and we pick up where we left off every time.",
-  "That account is how I remember your likes, dislikes, lists, and the thread of the conversation instead of acting like we just met.",
-  "If you've got a phone, you've got a friend. The account is what lets me remember you next time.",
-  "When you create an account, I will remember everything you ask me to keep.",
-];
+// G (2026-06-01): keep the typed-email fallback box DORMANT until the email
+// work is done. While false, the typed box never renders and the email flow
+// stays on the spell-on-chest path only. Flip to true to restore the typed box.
+const EMAIL_TYPED_FALLBACK_ENABLED = false;
 
-const RETURNING_GREETING_OPTIONS = [
-  "Hey{name}, good to see you. What are we working on today?",
-  "Welcome back{name}. What's going on today?",
-  "{namePrefix}I'm here. What do you want to tackle first?",
-  "Good to see you{name}. Where should we pick up?",
-];
+
+// Returning-user intros, tiered by how many times the user + 6 have met
+// (G 2026-05-31 "keep all + rotate"): random pick within the tier each return.
+// {name} renders as ", Scott" when known and "" when not, so every line reads
+// cleanly with or without a name.
+// G 2026-06-13: "we're going to be friends for life — if we're talking hundreds
+// of times I don't want you to say the same thing every time you come in." Big
+// pools per tier so a line rarely repeats. (pickReturningGreeting also avoids the
+// immediately-previous line — see below.)
+const RETURNING_GREETING_TIERS: Record<string, string[]> = {
+  second: [
+    "Hey{name} — you came back! I was hoping you would. So what are we getting after today?",
+    "Well, look who's back{name}! Good to see you again — still got your back. What's on your mind?",
+    "Round two{name}! I remember you now — that's the whole point. What can I do for you today?",
+    "Back so soon{name}? I'll take it. What are we building today?",
+    "There's the face I remember{name}. What's first?",
+    "Twice in a row{name} — you're stuck with me now. What do you need?",
+    "Good — you're back{name}. I held your spot. What's the plan?",
+    "Hey{name}, round two already? Let's get after it.",
+  ],
+  third: [
+    "Three times now{name} — I'd say we're officially a team. What's the mission today?",
+    "You're turning into a regular{name}, and I love it. Where do we start?",
+    "Hey{name} — every time you swing by, I get a little more useful. What are we tackling?",
+    "Look at us{name} — three deep. What are we knocking out today?",
+    "You keep coming back{name}, and I keep getting sharper. What's the job?",
+    "Third time's a habit now{name}. Where do we point it?",
+    "We're a real team now{name}. Hit me — what do you need?",
+  ],
+  regular: [
+    "There you are{name}. Feels like old times. What's the move today?",
+    "Back again{name}! You know the deal — I've got your back. What's up?",
+    "Good to have you back{name}. We've got a rhythm now — what can I take off your plate?",
+    "Hey{name}. What are we getting into today?",
+    "You're back{name} — let's make it count. What's up?",
+    "Right where we left off{name}. What's on deck?",
+    "There's my guy{name}. What do you need today?",
+    "Good to see you{name}. Where do we start?",
+    "Welcome back{name}. What's first today?",
+    "Alright{name}, I'm warmed up. What are we doing?",
+    "Let's roll{name}. What's the first thing?",
+    "Ready when you are{name} — what's the move?",
+  ],
+  longGap: [
+    "Long time{name}! Missed you, honestly — catch me up, what's new?",
+    "Been a minute{name}! Good to have you back. What's new?",
+    "There you are{name} — it's been a while. Catch me up?",
+    "Long time no talk{name}! I kept your stuff safe. What's going on?",
+    "Welcome back{name} — felt like forever. What do you need?",
+  ],
+};
+// Avoid repeating the line 6 used last time (per tier-pool) — the single biggest
+// "you keep saying the same thing" trigger. Persists across sessions in storage.
+const LAST_GREETING_STORAGE_KEY = "asap.lastReturningGreeting";
+
+function pickReturningGreeting(
+  name: string | null,
+  visitCount: number,
+  longGap: boolean,
+): string {
+  const tier = longGap
+    ? "longGap"
+    : visitCount <= 1
+      ? "second"
+      : visitCount === 2
+        ? "third"
+        : "regular";
+  const pool = RETURNING_GREETING_TIERS[tier];
+  // Never repeat the line he heard last time — the exact "you keep saying the
+  // same thing" complaint (G 2026-06-13).
+  let last: string | null = null;
+  try {
+    last = window.localStorage.getItem(LAST_GREETING_STORAGE_KEY);
+  } catch {
+    // storage blocked — fall back to plain random
+  }
+  const choices = pool.length > 1 ? pool.filter((t) => t !== last) : pool;
+  const template = choices[Math.floor(Math.random() * choices.length)];
+  try {
+    window.localStorage.setItem(LAST_GREETING_STORAGE_KEY, template);
+  } catch {
+    // best-effort
+  }
+  const namePart = name ? `, ${name}` : "";
+  return template.replace("{name}", namePart);
+}
 
 const DEFAULT_THOUGHT_PROMPTS = [
-  "Plan This Weekend",
-  "To Do List",
-  "Start a Grocery List",
-  "Explore aiASAP",
+  "Build Friendships",
+  "Financial Freedom",
+  "Set & Track Goals",
+  "Build Your Socials",
 ];
+
+// 2026-06-11 (G: "RESTORE ALL CODE AND BUILD EVERYTHING"): lists are BACK for
+// v2.1 — full-screen voice-list mode is the centerpiece of the voice/avatar
+// separation. Lookup popups stay dormant (separate feature, no order yet).
+const LIST_UI_DORMANT = false;
+const LOOKUP_UI_DORMANT = true;
+// Brand Builder pilot (G 2026-08-20): voice-first discovery interview.
+// While true, the 4 chest pillboxes go DORMANT - not rendered, so there is
+// nothing to see, focus, or tap - the LOOKUP_UI_DORMANT pattern above. All
+// pillbox code, handlers, and content stay intact for the general path.
+// DEFAULT FALSE: general aiASAP is byte-identical at runtime until a pilot
+// build flips this one line. When Brand Builder integration lands, derive
+// this from the engagement mode instead of editing it by hand.
+// 2026-08-21 ride (G, 08:08 ET, via 6): "there are still the pillboxes" -> ON.
+const BRAND_BUILDER_PILOT_MODE = true;
+// FULL-PAGE / SHOPPING MODE DORMANT (G 2026-06-14): "no full page lists, only
+// chest lists -- when 6's face is gone it's just not the same, it does not
+// work." Full-screen "shopping mode" tears the live avatar down so the list
+// fills the whole screen; G killed it. With this TRUE, EVERY list rides the
+// card on 6's CHEST and 6 STAYS on screen. The full-screen machinery
+// (enterVoiceListMode, the isShoppingMode render branch, the "show me 6"
+// comeback, voiceMode/intents.ts) stays in the repo, dormant behind this flag
+// -- flip to false to bring full-page back. [[feedback_dont_change_working_things]]
+const FULL_PAGE_LISTS_DORMANT = true;
 
 function keepExploreAiASAPLow(prompts: string[]): string[] {
   const explore = prompts.find((prompt) => /^explore\s+aiasap$/i.test(prompt));
@@ -95,88 +448,200 @@ const TAP_PROMPT_FONT_OPTIONS: Record<TapPromptFontVariant, React.CSSProperties>
   },
 };
 
-const PROMPT_SIZE_REQUEST_RE =
-  /\b(?:make|show|turn)\s+(?:the\s+)?prompts?\s+(?:bigger|larger|easier to read)|\b(?:bigger|larger)\s+prompts?\b|\breading glasses\b/i;
+// VOICE SIZING (2026-06-10): patterns + scale live in src/lib/uiSize.ts so
+// the harness pins them (the 23:15 bug was an untested in-component regex
+// rejecting 6's own coached words "make it bigger").
 
 const getThoughtPrompts = (text: string): string[] => {
   const value = text.toLowerCase();
 
-  if (
-    value.includes("todo") ||
-    value.includes("to-do") ||
-    value.includes("to do") ||
-    value.includes("task")
-  ) {
-    return [
-      "To Do List",
-      "Open Work To Do",
-      "Open Family To Do",
-      "Add Next Task",
-    ];
-  }
-
-  if (value.includes("birthday")) {
-    return [
-      "Birthday Gift List",
-      "Plan a Gift",
-      "Birthday To Do",
-      "Plan This Weekend",
-    ];
-  }
-
-  if (value.includes("anniversary")) {
-    return [
-      "Anniversary Gift List",
-      "Plan a Gift",
-      "Anniversary To Do",
-      "Plan This Weekend",
-    ];
-  }
+  // v1 keyword pool (2026-05-24): surfaces topics from G's 14-option pool
+  // based on what 6 is talking about. Mechanism is keyword-driven; for truly
+  // LLM-driven swaps see v2 runPromptBrain.
 
   if (
-    value.includes("shopping") ||
-    value.includes("grocery") ||
-    value.includes("store") ||
-    value.includes("home depot") ||
-    value.includes("walmart") ||
-    value.includes("list")
+    value.includes("money") ||
+    value.includes("income") ||
+    value.includes("earn") ||
+    value.includes("salary") ||
+    value.includes("wage")
   ) {
     return [
-      value.includes("walmart") ? "Open Walmart List" : "Open Grocery List",
-      "To Do List",
-      "Close List",
-      "Open Another List",
-    ];
-  }
-
-  if (
-    value.includes("hike") ||
-    value.includes("hiking") ||
-    value.includes("trail") ||
-    value.includes("park") ||
-    value.includes("outside") ||
-    value.includes("outdoor") ||
-    value.includes("weekend")
-  ) {
-    return [
-      "Find Local Hikes",
-      value.includes("weekend") ? "Check Weekend Weather" : "Check the Weather",
-      "Give ZIP Code",
-      "Easy Hikes",
+      "Make More Money",
+      "Build a Business",
+      "Build Relationships",
+      "Financial Freedom",
     ];
   }
 
   if (
     value.includes("business") ||
     value.includes("company") ||
-    value.includes("money") ||
-    value.includes("build")
+    value.includes("startup") ||
+    value.includes("venture") ||
+    value.includes("hustle") ||
+    value.includes("side gig")
   ) {
     return [
-      "Pick the Next Step",
-      "Make a Simple Plan",
-      "Find Helpful People",
-      "Make Money Ideas",
+      "Build a Business",
+      "Make More Money",
+      "Build Relationships",
+      "Market Yourself",
+    ];
+  }
+
+  if (
+    value.includes("partner") ||
+    value.includes("dating") ||
+    value.includes("spouse") ||
+    value.includes("wife") ||
+    value.includes("husband") ||
+    value.includes("girlfriend") ||
+    value.includes("boyfriend") ||
+    value.includes("crush") ||
+    value.includes("romance")
+  ) {
+    return [
+      "Find Your Life Partner",
+      "Build Relationships",
+      "Build Friendships",
+      "Set & Track Goals",
+    ];
+  }
+
+  if (
+    value.includes("friend") ||
+    value.includes("lonely") ||
+    value.includes("community") ||
+    value.includes("meet people")
+  ) {
+    return [
+      "Build Friendships",
+      "Build Relationships",
+      "Build Your Socials",
+      "Build a Better Life",
+    ];
+  }
+
+  if (
+    value.includes("social media") ||
+    value.includes("instagram") ||
+    value.includes("tiktok") ||
+    value.includes("youtube") ||
+    value.includes("facebook") ||
+    value.includes("brand") ||
+    value.includes("content") ||
+    value.includes("follower") ||
+    value.includes("influencer")
+  ) {
+    return [
+      "Build Your Socials",
+      "Build Your Brand",
+      "Market Yourself",
+      "Make More Money",
+    ];
+  }
+
+  if (
+    value.includes("product") ||
+    value.includes("inventory") ||
+    value.includes("merchandise")
+  ) {
+    return [
+      "Market Your Product",
+      "Build a Business",
+      "Build Your Brand",
+      "Make More Money",
+    ];
+  }
+
+  if (
+    value.includes("service") ||
+    value.includes("consulting") ||
+    value.includes("freelance") ||
+    value.includes("client") ||
+    value.includes("customer")
+  ) {
+    return [
+      "Market Your Service",
+      "Build a Business",
+      "Build Your Brand",
+      "Make More Money",
+    ];
+  }
+
+  if (
+    value.includes("weekend") ||
+    value.includes("saturday") ||
+    value.includes("sunday")
+  ) {
+    return [
+      "Plan Your Weekend",
+      "Next Vacation Ideas",
+      "Build Relationships",
+      "Set & Track Goals",
+    ];
+  }
+
+  if (
+    value.includes("vacation") ||
+    value.includes("trip") ||
+    value.includes("travel") ||
+    value.includes("getaway") ||
+    value.includes("holiday")
+  ) {
+    return [
+      "Next Vacation Ideas",
+      "Plan Your Weekend",
+      "Set & Track Goals",
+      "Build a Better Life",
+    ];
+  }
+
+  if (
+    value.includes("goal") ||
+    value.includes("achievement") ||
+    value.includes("target") ||
+    value.includes("milestone")
+  ) {
+    return [
+      "Set & Track Goals",
+      "Build a Better Life",
+      "Financial Freedom",
+      "Build Relationships",
+    ];
+  }
+
+  if (
+    value.includes("relationship") ||
+    value.includes("argue") ||
+    value.includes("fight") ||
+    value.includes("apology") ||
+    value.includes("family") ||
+    value.includes("parent") ||
+    value.includes("sibling")
+  ) {
+    return [
+      "Build Relationships",
+      "Build Friendships",
+      "Set & Track Goals",
+      "Build a Better Life",
+    ];
+  }
+
+  if (
+    value.includes("improve") ||
+    value.includes("better") ||
+    value.includes("change") ||
+    value.includes("self-help") ||
+    value.includes("self help") ||
+    value.includes("grow")
+  ) {
+    return [
+      "Build a Better Life",
+      "Set & Track Goals",
+      "Build Relationships",
+      "Financial Freedom",
     ];
   }
 
@@ -214,6 +679,12 @@ function normalizeThoughtPrompts(prompts: string[]): string[] {
     .filter((prompt) => !/^(?:confirm understanding|review key points|check understanding|summarize conversation)$/i.test(prompt))
     .filter((prompt) => !/^share (?:my )?location$/i.test(prompt))
     .filter((prompt) => !/^change subject$/i.test(prompt))
+    // r18 (G 12:46: "text got smaller... out of proportion... they changed
+    // when I looked away"): the compact-pill font budgets the LONGEST visible
+    // label — one rotated 19+-char brain prompt shrank every pill's text while
+    // the width stayed put. The defaults max at 18; suggestions longer than
+    // that get dropped (defaults backfill), so the font never jumps on rotation.
+    .filter((prompt) => prompt.length <= 18)
     .slice(0, 4);
 }
 
@@ -283,6 +754,12 @@ function getLookupPreferenceQuestion(query: string | null | undefined): string {
   return "Got it. What are the things you really like to do?";
 }
 
+// Compatibility wrapper for list-intent defense-in-depth. The authoritative
+// gate now lives in a pure, regression-tested seam and runs before every intent.
+function endsOnDanglingWord(text: string): boolean {
+  return isLikelyIncompleteSpeechFragment(text);
+}
+
 function isLookupPreferenceFiller(text: string): boolean {
   const cleaned = text
     .replace(/[^\p{L}0-9\s]/gu, " ")
@@ -316,6 +793,10 @@ type AssistantList = {
   accentColor: ListAccentColor;
   accentHex?: string;
   accentLabel?: string;
+  // G 2026-06-14: the list TEXT color, set separately from the box accent
+  // ("make the text blue", "make the words darker"). Undefined = inherit accent.
+  textHex?: string;
+  textLabel?: string;
   createdAt: number;
   updatedAt: number;
 };
@@ -339,6 +820,9 @@ type MemoryConversationLine = {
 type AccountMemorySnapshot = {
   greetingTopic: string | null;
   contextText: string;
+  name?: string | null;
+  visitCount?: number;
+  longGap?: boolean;
 };
 
 const ASSISTANT_LISTS_STORAGE_KEY = "aiasap.assistantLists.v1";
@@ -346,9 +830,7 @@ const ACCOUNT_PENDING_STATE_TOKEN_STORAGE_KEY =
   "aiasap.accountPendingStateToken.v1";
 const DEVICE_PROFILE_STORAGE_KEY = "aiasap.deviceProfile.v1";
 const MAX_LIST_ITEMS = 80;
-const MAX_PROMPT_SIZE_LEVEL = 3;
-const INTERNAL_SIGNAL_RE =
-  /^\s*\[(?:USER HAS BEEN SILENT|SILENT|OBJECT_NOT_VISIBLE)[^\]]*\]/i;
+const MAX_PROMPT_SIZE_LEVEL = UI_SIZE_MAX_LEVEL;
 const LIST_TRIGGER_RE =
   /\b(grocery|groceries|shopping|store|walmart|list|todo|to-do|to do|task|lista|listas|compras|mercado|tarea|tareas|liste|courses|einkaufsliste|einkauf|aufgaben)\b/i;
 const LIST_ITEM_PREFIX_RE =
@@ -361,53 +843,129 @@ const LIST_DELETE_RE =
   /\b(?:delete|get rid of|remove|trash|erase)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\b|\b(?:delete|get rid of|remove|trash|erase)\s+(?:it|that|this)\b/i;
 const LIST_NAV_NEXT_RE = /\b(?:next|another|toggle|switch)\s+list\b/i;
 const LIST_NAV_PREV_RE = /\b(?:previous|prior|last|back)\s+list\b/i;
-const LIST_CLOSE_RE =
-  /\b(?:close|hide|dismiss|drop|put away|take down|minimize|cierra|cerrar|oculta|ocultar|quita|quitar|ferme|fermer|cache|cacher|schliesse|schlie\u00dfe|ausblenden)\s+(?:the|my|this|that|la|mi|esta|esa|le|ma|cette|die|meine|diese)?\s*(?:grocery|shopping|walmart|to[-\s]?do|compras|mercado|tareas|courses|einkauf)?\s*(?:list|lists|lista|listas|liste)\b|\bmake\s+(?:the|my|this|that)?\s*(?:list|lists)\s+(?:disappear|go away)\b|\b(?:take|remove|drop)\s+(?:the|my|this|that)?\s*(?:grocery|shopping|walmart|to[-\s]?do)?\s*(?:list|lists)\s+(?:down|off|from)(?:\s+(?:the\s+)?screen)?\b|\bno\s+(?:visible\s+)?list\b|\bback\s+to\s+(?:the\s+)?(?:prompts|boxes)\b/i;
 const LIST_STYLE_BULLET_RE = /\b(?:bullet|bullets|bullet points)\b/i;
 const LIST_STYLE_NUMBER_RE = /\b(?:numbered|numbers|number list|numbered list)\b/i;
-const ACCOUNT_SETUP_TRIGGER_RE =
-  /\b(?:set up|setup|create|start|make|open)\s+(?:an?\s+)?account\b|\b(?:remember me|remember this next time|remember everything|save this for next time|sign me in|log me in)\b/i;
-const ACCOUNT_READY_YES_RE =
-  /\b(?:yes|yeah|yep|sure|ready|ok|okay|correct|that'?s correct|that is correct|that'?s right|that is right|that does|sounds right|looks right|looks good|do it|let'?s do it|set it up|send it)\b/i;
-const ACCOUNT_READY_NO_RE = /\b(?:no|not now|later|stop|never mind|cancel)\b/i;
-const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
-const EMAIL_ENTRY_REQUEST_RE =
-  /\b(?:type|typing|text|write|enter|keyboard|text box|textbox|input|pop up|popup)\b.*\b(?:email|address|it|that)\b|\b(?:can i|let me)\s+(?:type|text|write|enter)\s+(?:the\s+)?(?:email|address|it)\b/i;
 const LIST_DONE_RE =
   /\b(?:that'?s all|that is all|that'?s it|that is it|all done|done|finished|complete|nothing else|no more)\b/i;
-const ACCOUNT_SETUP_REOFFER_COOLDOWN_MS = 90_000;
-const END_CONVERSATION_RE =
-  /\b(?:end|stop|finish|quit|exit|close|shut\s+down|wrap up|done with)\s+(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6)\b|\b(?:i'?m done|all done|that'?s all)\s+(?:with\s+)?(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6|for now)\b/i;
-const END_SESSION_CONFIRM_RE =
-  /\b(?:yes|yeah|yep|yup|yea|sure|ok|okay|correct|right|do it|go ahead|close|stop|end|quit|exit|shut\s+(?:it\s+)?down|that'?s right|that is right|please)\b/i;
-const END_SESSION_CANCEL_RE =
-  /\b(?:no|nope|nah|not now|later|never mind|nevermind|cancel|keep going|continue|stay|don'?t|do not)\b/i;
+// --- Data deletion / close-account (G 2026-06-07): 6 walks a SIGNED-IN user
+// through erasing their data. DELETE_DATA_INTENT_RE catches the request;
+// ACCOUNT_CLOSE_RE marks the heavier "close my account" scope; DELETE_CONFIRM/
+// DELETE_CANCEL gate the irreversible step. ---
+const DELETE_DATA_INTENT_RE = new RegExp(
+  [
+    "\\bforget me\\b",
+    "\\bforget (?:everything|it all|all)(?: about me)?\\b",
+    "\\b(?:delete|erase|wipe|remove|clear|get rid of)\\b[^.?!]{0,30}\\b(?:my )?(?:account|data|info|information|memory|memories|profile)\\b",
+    "\\b(?:delete|erase|wipe|forget)\\b[^.?!]{0,30}\\beverything (?:you know|about me|i (?:told|gave) you|on me)\\b",
+    "\\b(?:close|cancel|shut down|deactivate|delete)\\b[^.?!]{0,20}\\b(?:my )?account\\b",
+    "\\b(?:delete|erase|wipe) (?:all )?my (?:data|info|information|stuff)\\b",
+  ].join("|"),
+  "i",
+);
+const ACCOUNT_CLOSE_RE =
+  /\b(?:close|cancel|shut down|deactivate|delete|remove|get rid of)\b[^.?!]{0,20}\b(?:my )?account\b/i;
+const DELETE_CONFIRM_RE =
+  /\b(?:yes|yeah|yep|yup|do it|delete it|erase it|wipe it|go ahead|i'?m sure|go for it)\b/i;
+const DELETE_CANCEL_RE =
+  /\b(?:no|nope|nah|cancel|stop|don'?t|do not|keep it|keep everything|never mind|nevermind|wait|hold on|changed my mind|leave it|not now)\b/i;
+// G 2026-06-08 false-close fix: a SIGNED-IN user COACHING 6 on wording ("you
+// should say...", "they just have to confirm they want to close their account")
+// must NEVER read as a real delete request OR a confirmation. This exact
+// 3rd-person / instructional phrasing wrongly closed G's account - "confirm" hit
+// DELETE_CONFIRM_RE and "close their account" hit DELETE_DATA_INTENT_RE.
+const DELETE_COACHING_RE =
+  /\b(?:you should|you could|you can say|you gotta|you'?ve got to|you have to|you need to|let them|they (?:just )?(?:have to|need to)|they do want|they want to|they don'?t|when (?:someone|somebody|a user|people|they)|for example|instead of|that'?s not well|i mean,? you|say something like|you say|their account)\b/i;
+// A1 fix (G 2026-06-14): "remove the [signed-in text / box / label / line / badge /
+// email address]" is on-SCREEN cleanup, NOT an account delete. G's "remove signed
+// in as sgd@pm.me right now" wrongly armed the 30-day account-delete. Any delete/
+// remove aimed at a UI element short-circuits the data-delete intent (below).
+const DELETE_UI_CLEANUP_RE =
+  /\b(?:text|box|boxes|screen|display|label|banner|button|badge|chip|line|tag|that says|on (?:the )?screen|at the top|the part|the thing|signed[\s-]?in|sign[\s-]?in|email (?:address|line|text))\b/i;
+
+// --- Data export / download (G 2026-06-07): a signed-in user can ask for a copy
+// of everything we hold on them, especially before deleting. DATA_EXPORT_INTENT_RE
+// catches the request; the app does the fetch + browser download. ---
+const DATA_EXPORT_INTENT_RE = new RegExp(
+  [
+    // Explicit DOWNLOAD/EXPORT requests only. A plain question like "what data do
+    // you collect on me?" or "I'd like to SEE my data" must NOT email anything -
+    // 6 answers those with info (G 2026-06-09 email flood). The send fires only
+    // on a real download/copy ask, or the offered->yes path in the handler.
+    "\\b(?:download|export)\\b[^.?!]{0,30}\\b(?:my )?(?:data|info|information|memory|memories|profile|stuff|everything)\\b",
+    "\\b(?:get|grab|send me|give me|email me|send)\\b[^.?!]{0,24}\\b(?:a )?copy\\b",
+    "\\b(?:download|export|email)\\b[^.?!]{0,16}\\b(?:link|copy)\\b",
+    "\\bcan i\\b[^.?!]{0,20}\\b(?:download|export|save)\\b[^.?!]{0,20}\\b(?:my )?(?:data|info|information)\\b",
+  ].join("|"),
+  "i",
+);
+// (BACKCHANNEL_ONLY_RE removed 2026-06-04: v2.1 now yields the floor on ANY user
+// speech while 6 is talking, matching the v1 domain build — see the unconditional
+// `if (isAvatarTalking) void interrupt()` in handleUserTranscription.)
+// G 2026-06-13 dogfood: "I have got 3 ideas for you" fired on the face-glow
+// feedback because the bare verbs "show" ("...show that you're there") and
+// "where" ("this is where your face...") passed the lookup intent test. Drop
+// the standalone "show|shows" topic word and the standalone "where" action word
+// -- they collide with ordinary conversation. "show me" (phrase), "where i am",
+// concerts/events/restaurants still cover real entertainment/place lookups.
 const ONLINE_LOOKUP_TOPIC_RE =
-  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|waterfall|waterfalls|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|show|shows|events?|restaurant|restaurants)\b/i;
+  /\b(?:hike|hikes|hiking|trail|trails|park|parks|walk|walking|outside|outdoor|outdoors|waterfall|waterfalls|weekend|cool things|things to do|places to go|place to go|weather|forecast|concert|concerts|events?|restaurant|restaurants)\b/i;
 const ONLINE_LOOKUP_ACTION_RE =
-  /\b(?:find|look up|search|show me|where|nearby|near me|check|help me find|plan)\b/i;
+  /\b(?:find|look up|search|show me|nearby|near me|check|help me find|plan)\b/i;
 const ONLINE_LOOKUP_DIRECT_RE =
-  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|waterfall|waterfalls|weekend|cool things to do|concert|concerts|show|shows|events?|restaurants?)\b/i;
-const ONLINE_LOOKUP_CLOSE_RE =
-  /\b(?:close|hide|dismiss|clear|stop|end|remove|take\s+(?:off|away|down)|get\s+rid\s+of)\s+(?:the|this|that|my|a|an)?\s*(?:search|results?|sources?|lookup|online\s+search|events?|pill\s*boxes?|pills?|location(?:\s+(?:box|popup|pop\s*up|panel|window))?|box|popup|pop\s*up|panel|window|things\s+that\s+came\s+up)(?:\s+(?:from|off)\s+(?:the\s+)?screen)?\b|\bmake\s+(?:the|this|that|my)?\s*(?:events?|search|results?|box|popup|pop\s*up|panel|pill\s*boxes?|pills?)\s+go\s+away\b/i;
+  /\b(?:nearby|near me|where i am|weather|forecast|hike|hiking|trail|park|waterfall|waterfalls|weekend|cool things to do|concert|concerts|events?|restaurants?)\b/i;
 const LOCATION_HINT_RE =
   /\b(?:near|around|in|by|close to|outside of)\s+([a-z0-9][a-z0-9\s,.'-]{1,70})/i;
 const LOCATION_SHARE_CHOICE_RE =
   /\b(?:share (?:my )?location|use (?:my )?location|current location|where i am|near me|around me)\b/i;
+// Recall question about the saved ZIP (2026-06-13): "what's my zip", "do you
+// know my zip", "you know my zip code", "what zip do you have". A RECALL ASK is
+// NOT the user GIVING a ZIP - never run the invalid-zip coach on it. The caller
+// also requires NO 5-digit run in the same breath, so "my zip is 21093" and ASR
+// jumbles like "do you know my zip it's 21093" stay on the GIVE path. The bare
+// "my zip" alternative excludes "my zip line / zip drive / zip file" so 6 never
+// blurts the ZIP over unrelated talk; "my zip code" always counts as recall.
+const ZIP_RECALL_RE =
+  /\b(?:what(?:'?s| is| are)?|do you (?:know|remember|have|recall)|you (?:know|remember|have)|tell me)\b[^?.!]*\bmy\s+zip\s*code\b|\b(?:what(?:'?s| is| are)?|do you (?:know|remember|have|recall)|you (?:know|remember|have)|tell me)\b[^?.!]*\bmy\s+zip\b(?!\s*(?:code|line|drive|file|lock|tie|ties|up|loc))|\bwhat\s+zip(?:\s*code)?\s+(?:do you have|did i (?:give|say)|is (?:it|mine|on file))\b/i;
 const SHOPPING_MODE_OPEN_RE =
   /\b(?:shopping mode|store mode|in the store|at the store|in the grocery store|at the grocery store|at walmart|in walmart|i'?m shopping|go shopping|shopping now|full screen list|make (?:the )?list full screen|open (?:the )?list full screen)\b/i;
-const SHOPPING_MODE_CLOSE_RE =
-  /\b(?:close|exit|leave|stop)\s+(?:shopping|store|full screen)\s*mode\b/i;
 const LIST_MUTATION_SIGNAL_RE =
-  /\b(?:need|want|have to get|gotta get|should get|add|put|grab|buy|pick up|also|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|tambien|tambi\u00e9n|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|aussi|ich brauche|ich will|fuege|f\u00fcge|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen|auch)\b/i;
+  /\b(?:need|want|have to get|gotta get|should get|i have|i'?ve had|i have had|i had|i'?ve got|i got|add|put|grab|buy|pick up|also|necesito|quiero|agrega|agregar|anade|a\u00f1ade|poner|pon|compra|comprar|tambien|tambi\u00e9n|j'?ai besoin de|je veux|ajoute|ajouter|achete|acheter|aussi|ich brauche|ich will|fuege|f\u00fcge|hinzufuegen|hinzuf\u00fcgen|kauf|kaufen|auch)\b/i;
 const LIST_START_WITH_REFERENCED_ITEMS_RE =
   /\b(?:start|make|create)\s+(?:a\s+)?list\s+with\s+(?:those|these|them|that)\b|\badd\s+(?:those|these|them|that)\s+(?:to|on)\s+(?:a\s+|the\s+)?list\b/i;
 const LIST_CONVERSATION_FRAGMENT_RE =
-  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|just put|on there|that'?s what|you mean|what are you|what is|what's)\b/i;
+  /\b(?:i mean|i know|you know|all those|all kinds of|did you|do you|didn'?t|am i|are they|they'?re|they are|what do you mean|ready to check out|check out|not on|put them on|put some on there|that'?s what|you mean|what are you|what is|what's|so close|close to be|close to being|for the record|for the records|made it|he just|she just|they just|it just|we just|it ought|it should|it would|the system|the system automatically)\b/i;
+const LIST_NAME_CAPTURE_INTENT_RE =
+  /\b(?:my name (?:is|'?s)|(?:i'?m|i am) called|you can call me)\b/i;
+const LIST_MID_SENTENCE_DASH_RE = /[–—]/;
 const LIST_FILLER_ITEM_RE =
   /^(?:no|nothing|that's all|that is all|anything else|yeah|yep|yes|ok|okay|sure|go ahead|great|thanks|thank you|i mean|i know|you know|i guess|actually|together|let'?s|lets|let'?s make|let'?s make a|make it|make it black|even darker|darker|lighter|half|some half|a couple more|couple more|a couple more things|couple more things|a few more|few more|more things|i need|i need half|i want|i want some|just put some on there|put some on there|some on there|on there|some|screenshot|screen shot|voice|voices|voz|all those|it|that|this|them|they|those|these|the|to|and|me|me on|god|got|well|so|you|six|avatar|stop|close|end|quit|exit|letter g|grocery|groceries|shopping|walmart|list|i have a grocery|take i have a grocery|a dad|that to)$/i;
 const LIST_VAGUE_BARE_ITEM_RE =
   /\b(?:stuff|things|thing|whatever|all kinds)\b/i;
+// G 2026-06-13 dogfood: greetings, address terms, and banter are NEVER grocery
+// items. "Hey there, buddy" got added as items "Hey there"+"Buddy"; "Let's see,
+// I want bananas..." added "See". Exact-match (^...$) so it only blocks a WHOLE
+// item that is pure banter — real groceries are untouched.
+const LIST_BANTER_ITEM_RE =
+  /^(?:hey|hi|hiya|yo|hey there|hi there|hello|hello there|howdy|hey buddy|hey bud|sup|what'?s up|buddy|bud|pal|friend|dude|man|bro|sir|ma'?am|six|you there|are you there|you still there|still there|you're there|see|let'?s see|lets see|wait|hold on|hang on|one sec|huh|what|hmm|uh huh|right|yeah|yep|yup|nah|nope|cool|nice|sweet|awesome|wonderful|great|perfect|exactly|correct|good|gotcha|got it|never mind|nevermind|question|idea|problem|thought|point|go|to go|something|anything|everything|minute|second|sec|moment)$/i;
+// G 2026-06-13 HARD STOP: the WHOLE utterance is a stop/quiet command ("stop",
+// "hey stop", "6 stop", "hold on", "wait a sec", "quiet", "shut up", "enough").
+// Anchored ^...$ at word level so groceries that merely CONTAIN the letters
+// (stopwatch, doorstop, non-stop) and longer real sentences ("don't stop adding
+// things", "wait until i get to the store") never match — only a bare command.
+// NOTE: "that's enough" is deliberately NOT here — it already closes the list
+// via LIST_DONE_RE (voiceMode/intents.ts); adding it would swallow that close.
+const STOP_NOW_RE =
+  /^(?:6[,\s]+|six[,\s]+|hey[,\s]+|ok[,\s]+|okay[,\s]+)*(?:stop(?:\s+(?:talking|please|now|it))?|stop talking|be quiet|quiet|shush|hush|shut up|hold on|hold up|wait(?:\s+a?\s*(?:sec|second|minute|moment))?|hang on|one sec|one second|let me talk|let me finish|enough)[.!?]*$/i;
+
+// G 2026-06-13 dogfood (session b2f1dd29 21:51): "This is my permanent list in
+// my account, right, Six?" SPAWNED a brand-new list named "Permanent List".
+// A QUESTION ("?") or a meta-confirmation tail ("...right, Six", "...correct")
+// is the user asking ABOUT a list, NEVER an order to create one. Only block the
+// CREATE when there is NO explicit list command verb (make/start/open/switch...,
+// via LIST_COMMAND_ONLY_RE) and NO mutation signal (need/want/add/put...). That
+// keeps real "make a Walmart list" and "can you open my todo list?" working.
+const LIST_QUESTION_META_RE =
+  /[?]|\b(?:right|correct|isn'?t it|is(?:n'?t)? (?:this|that|it)|does that|wouldn'?t that)\b[\s,]*(?:six|6|buddy|bud|pal)?\s*[?]?\s*$/i;
 
 const LIST_ACCENT_COLORS: Record<
   ListAccentColor,
@@ -530,8 +1088,26 @@ function softFromHex(hex: string, alpha = 0.2): string {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
 }
 
-function listColorThemeFor(_list: AssistantList | null): ListColorTheme {
-  return LIST_ACCENT_COLORS.amber;
+function listColorThemeFor(list: AssistantList | null): ListColorTheme {
+  // No list or no chosen accent -> keep the locked amber brand look.
+  if (!list) return LIST_ACCENT_COLORS.amber;
+  const named = LIST_ACCENT_COLORS[list.accentColor] ?? LIST_ACCENT_COLORS.amber;
+  // accentHex is the shade-adjusted value ("darker"/"lighter") and is the
+  // source of truth when present; otherwise fall back to the named swatch.
+  const hex =
+    (list.accentHex && hexToRgb(list.accentHex) ? list.accentHex : null) ??
+    named.solid;
+  // Default amber with no custom hex -> return the canonical amber theme
+  // untouched so the gold brand look is byte-identical when nothing was set.
+  if (list.accentColor === "amber" && !list.accentHex) {
+    return LIST_ACCENT_COLORS.amber;
+  }
+  return {
+    label: list.accentLabel ?? named.label,
+    foreground: hex,
+    solid: hex,
+    soft: softFromHex(hex, 0.2),
+  };
 }
 
 function titleCaseWords(value: string): string {
@@ -586,7 +1162,9 @@ function isAssistantList(value: unknown): value is AssistantList {
     Array.isArray(maybe.items) &&
     maybe.items.every((item) => typeof item === "string") &&
     (!maybe.accentHex || typeof maybe.accentHex === "string") &&
-    (!maybe.accentLabel || typeof maybe.accentLabel === "string")
+    (!maybe.accentLabel || typeof maybe.accentLabel === "string") &&
+    (!maybe.textHex || typeof maybe.textHex === "string") &&
+    (!maybe.textLabel || typeof maybe.textLabel === "string")
   );
 }
 
@@ -637,26 +1215,6 @@ function storeDeviceProfile(profile: DeviceProfile) {
   }
 }
 
-function isInternalSignal(text: string): boolean {
-  return INTERNAL_SIGNAL_RE.test(text.trim());
-}
-
-function hasEndSessionIntent(text: string): boolean {
-  if (isInternalSignal(text)) return false;
-  if (
-    LIST_CLOSE_RE.test(text) ||
-    SHOPPING_MODE_CLOSE_RE.test(text) ||
-    ONLINE_LOOKUP_CLOSE_RE.test(text)
-  ) {
-    return false;
-  }
-  return END_CONVERSATION_RE.test(text);
-}
-
-function confirmsEndSession(text: string): boolean {
-  if (END_SESSION_CANCEL_RE.test(text)) return false;
-  return END_SESSION_CONFIRM_RE.test(text) || hasEndSessionIntent(text);
-}
 
 function isListRoutingOnlyCommand(text: string): boolean {
   const value = text.trim().toLowerCase();
@@ -695,92 +1253,6 @@ function correctListItem(item: string): string {
   return item;
 }
 
-const DEVICE_NAME_STOP_WORDS = new Set([
-  "yes",
-  "no",
-  "just",
-  "okay",
-  "ok",
-  "grocery",
-  "groceries",
-  "list",
-  "todo",
-  "to-do",
-  "walmart",
-  "shopping",
-  "store",
-  "at",
-  "in",
-  "on",
-  "to",
-  "for",
-  "from",
-  "going",
-  "looking",
-  "trying",
-  "working",
-  "doing",
-  "having",
-  "making",
-  "building",
-  "planning",
-  "here",
-  "back",
-  "ready",
-  "fine",
-  "good",
-  "excited",
-  "reminder",
-  "birthday",
-  "weekend",
-  "hike",
-  "hikes",
-  "hiking",
-  "email",
-  "phone",
-  "help",
-  "nothing",
-  "later",
-  "cancel",
-]);
-
-function cleanDeviceName(value: string): string | null {
-  let name = value
-    .replace(/\b(?:the\s+letter|letter)\s+([a-z])\b/i, "$1")
-    .replace(/^(?:is|it's|its|this is)\s+/i, "")
-    .replace(/[.,!?;:]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!name || name.length > 40 || /[@\d?]/.test(name)) return null;
-  const words = name.split(/\s+/).filter(Boolean);
-  if (words.length > 3) return null;
-  if (words.some((word) => DEVICE_NAME_STOP_WORDS.has(word.toLowerCase()))) {
-    return null;
-  }
-  if (!words.every((word) => /^[a-z][a-z'.-]*$/i.test(word))) return null;
-
-  name = words
-    .map((word) =>
-      word.length === 1
-        ? word.toUpperCase()
-        : word.charAt(0).toUpperCase() + word.slice(1),
-    )
-    .join(" ");
-  return name;
-}
-
-function extractDeviceNameCandidate(text: string, allowPlainAnswer: boolean): string | null {
-  const explicit =
-    text.match(/\bmy name is\s+([^,.!?]{1,40})/i)?.[1] ??
-    text.match(/\b(?:you can )?call me\s+([^,.!?]{1,40})/i)?.[1] ??
-    text.match(/\b(?:i am|i'm|im)\s+([^,.!?]{1,40})/i)?.[1] ??
-    null;
-  if (explicit) return cleanDeviceName(explicit);
-  if (!allowPlainAnswer) return null;
-  if (text.length > 40 || /[?@]/.test(text)) return null;
-  return cleanDeviceName(text);
-}
 
 function cleanMemoryText(value: unknown, maxLength = 240): string | null {
   if (typeof value !== "string") return null;
@@ -800,17 +1272,9 @@ function cleanMemoryConversation(
       const text = cleanMemoryText(row.text, 220);
       return role && text ? [{ role, text }] : [];
     })
-    .slice(-12);
+    .slice(-30);
 }
 
-function buildAccountMemoryOffer(customSpoken: string | undefined, seed: number): string {
-  const valueLine =
-    ACCOUNT_MEMORY_VALUE_LINES[seed % ACCOUNT_MEMORY_VALUE_LINES.length];
-  const base = customSpoken?.trim()
-    ? customSpoken.replace(/\s+You ready\??$/i, "").trim()
-    : "Account setup is optional, but it makes this feel more human.";
-  return `${base} ${valueLine} You ready?`;
-}
 
 function summarizeMemoryTopic(value: string | null): string | null {
   if (!value) return null;
@@ -819,20 +1283,43 @@ function summarizeMemoryTopic(value: string | null): string | null {
     .slice(0, 80);
 }
 
+// A returning user has ALREADY finished signup. Resume context captured
+// mid-signup ("Before I send the account email…", "spell your email", "magic
+// link", "is that email address correct") must NOT be replayed — doing so makes
+// 6 re-offer signup + re-send the link to someone already signed in (the "not
+// smooth" returning bleed, found 2026-06-03 via the start-session DIAG log).
+const ACCOUNT_SETUP_RESUME_RE =
+  /\b(account email|magic link|spell (?:your |the )?email|email address|first time signing up|already have an account|signing up|set(?:ting)? up (?:your |an )?account|send (?:you |the )?(?:the )?link)\b/i;
+function isAccountSetupResumeLine(text: string | null | undefined): boolean {
+  return Boolean(text) && ACCOUNT_SETUP_RESUME_RE.test(text as string);
+}
+
 function buildAccountMemorySnapshot(args: {
   lists: AssistantList[];
   resumeState: Record<string, unknown> | null;
   restoredList: AssistantList | null;
   onlineQuery: string | null;
   onlineLocation: string | null;
+  name: string | null;
+  zip: string | null;
+  visitCount: number;
+  longGap: boolean;
 }): AccountMemorySnapshot | null {
-  const lastUserText = cleanMemoryText(args.resumeState?.lastUserText);
-  const lastAssistantText = cleanMemoryText(
+  const rawLastUserText = cleanMemoryText(args.resumeState?.lastUserText);
+  const rawLastAssistantText = cleanMemoryText(
     args.resumeState?.lastAssistantText,
   );
+  // Drop signup-phase lines so a returning (already signed-in) user never gets
+  // 6 resuming the account-setup offer.
+  const lastUserText = isAccountSetupResumeLine(rawLastUserText)
+    ? null
+    : rawLastUserText;
+  const lastAssistantText = isAccountSetupResumeLine(rawLastAssistantText)
+    ? null
+    : rawLastAssistantText;
   const recentConversation = cleanMemoryConversation(
     args.resumeState?.recentConversation,
-  );
+  ).filter((line) => !isAccountSetupResumeLine(line.text));
   const listSummaries = args.lists.slice(0, 5).map((list) => {
     const items = list.items.slice(0, 6).join(", ");
     return `${list.title}${items ? `: ${items}` : ""}`;
@@ -843,6 +1330,9 @@ function buildAccountMemorySnapshot(args: {
     summarizeMemoryTopic(lastUserText) ??
     (args.lists[0] ? `your ${args.lists[0].title}` : null);
   const contextParts = [
+    args.zip
+      ? `Saved ZIP code on file: ${args.zip}. If the user asks what their ZIP is, just tell them ${args.zip} — do NOT ask for it. Use it as the default location for local lookups (weather, nearby places) unless the user names a different place.`
+      : null,
     lastUserText ? `Last user message: ${lastUserText}` : null,
     lastAssistantText ? `Last 6 response: ${lastAssistantText}` : null,
     args.onlineQuery
@@ -860,28 +1350,40 @@ function buildAccountMemorySnapshot(args: {
       : null,
   ].filter(Boolean);
 
-  if (contextParts.length === 0) return null;
+  // BUG (G 2026-06-14): a signed-in, NAMED user with no resume memory / no lists
+  // yet got a NULL snapshot here, so the IDENTITY line ("ALREADY SIGNED IN - do
+  // NOT ask their name") was never injected and the brain re-asked the name. This
+  // builder only runs inside the authenticated branch, so always emit identity
+  // even with no other memory; return null only when we truly have nothing.
+  if (contextParts.length === 0 && !args.name) return null;
   return {
     greetingTopic: topic,
     contextText: [
+      // Identity rides the SAME reliable channel as the memory (the CW dynamic
+      // vars ${user_name}/${user_signed_in} were NOT reaching 6 — he kept asking
+      // the name and saying "pleasure to meet you" to a returning user, G
+      // 2026-06-03). Put it here so 6 actually knows who he's talking to.
+      args.name
+        ? `IDENTITY: You are talking with ${args.name}, a returning user who is ALREADY SIGNED IN with a COMPLETE account. Greet them by name like a friend picking back up. Do NOT ask their name, do NOT say "pleasure to meet you," and do NOT ask them to sign up or for their email - that is already done.`
+        : `IDENTITY: This is a returning user, ALREADY SIGNED IN with a COMPLETE account. Do NOT say "pleasure to meet you" and do NOT ask them to sign up or for their email - that is already done. Their name isn't on file; you may ask it once, warmly.`,
       "SIGNED-IN USER MEMORY. Use this quietly so the conversation feels like friends picking back up.",
       "Do not recite this memory dump. Do not reopen lists, search, location, or other UI unless the user asks.",
       ...contextParts,
     ].join("\n"),
+    name: args.name,
+    visitCount: args.visitCount,
+    longGap: args.longGap,
   };
 }
 
 function buildReturningGreeting(
   profile: DeviceProfile,
-  _memory: AccountMemorySnapshot | null,
+  memory: AccountMemorySnapshot | null,
 ): string {
-  const template =
-    RETURNING_GREETING_OPTIONS[
-      profile.greetingCount % RETURNING_GREETING_OPTIONS.length
-    ];
-  const name = profile.name ? `, ${profile.name}` : "";
-  const namePrefix = profile.name ? `${profile.name}, ` : "";
-  return template.replace("{name}", name).replace("{namePrefix}", namePrefix);
+  const name = memory?.name ?? profile.name ?? null;
+  const visitCount = memory?.visitCount ?? 1;
+  const longGap = memory?.longGap ?? false;
+  return pickReturningGreeting(name, visitCount, longGap);
 }
 
 function cleanListItem(
@@ -891,13 +1393,45 @@ function cleanListItem(
   if (/[?]/.test(value) || LIST_CONVERSATION_FRAGMENT_RE.test(value)) {
     return null;
   }
+  if (LIST_NAME_CAPTURE_INTENT_RE.test(value)) return null;
+  if (LIST_MID_SENTENCE_DASH_RE.test(value)) return null;
 
   const item = value
     .replace(/^let'?s work on this next:\s*/i, "")
+    // G 2026-06-13 dogfood: extractListItems splits on /[,.;]|and/ which leaves a
+    // LEADING SPACE on every non-first chunk (" let's put blackberries"). The
+    // ^-anchored strips below ("let's", LIST_ITEM_PREFIX_RE, leading article) then
+    // see the space, not the word, and silently no-op -> "let's"/"a couple of"
+    // leaked as items. Drop the leading edge FIRST so those strips actually fire.
+    .replace(/^[\s,.;:\-–—]+/, "")
+    // G 2026-06-13: strip natural lead-ins so "Yeah, I'll put toothbrush" cleans
+    // to "toothbrush" instead of garbage like "Yeah I'll toothbrush".
+    .replace(/^(?:yeah|yep|yup|okay|ok|so|well|alright|all right|sure|now|and|but|um|uh)[\s,]+/i, "")
+    // G BUG D (filler-as-item family, 2026-06-14): conversational command openers
+    // that WRAP a real add ("can you add X", "could you put X", "go ahead and add
+    // X", "i'd like X") leaked as items ("Can you", "I'd bananas") or got dropped
+    // by the lossy post-filter that took the real noun ("cheese") with them. Strip
+    // them at this shared chokepoint so the real item survives.
+    .replace(/\b(?:can|could|would|will)\s+(?:you|ya)\s+(?:please\s+)?/gi, " ")
+    .replace(/\bgo\s+ahead\s+and\s+/gi, " ")
+    .replace(/\b(?:i'?d|id)\s+like\s+(?:to\s+(?:add|get|have)\s+)?/gi, " ")
+    .replace(/\b(?:i'?ll|i will|i'?m gonna|i'?m going to|let me|gonna|wanna)\s+/gi, " ")
+    // G 2026-06-13: strip the bare possessive opener "I have / I've got / I got /
+    // we have / I had X" so "I have toothbrush" cleans to "toothbrush" (was
+    // leaking the malformed item "I have toothbrush"). The (?!\s+to\b) guard
+    // leaves "have to get" for the existing need/want/have-to-get prefix strip.
+    .replace(/\b(?:i|we)\s+(?:'?ve\s+(?:got|had)|have\s+(?:got|had)|have(?!\s+to\b)|had|got)\s+/gi, " ")
     .replace(/\b(?:i need|i want|i'd like|id like)\s+(?:a\s+)?(?:grocery|shopping|walmart|to[-\s]?do|todo)?\s*list\b/gi, " ")
     .replace(/\b(?:for when i go to the grocery store|you mentioned creating an account|take the grocery list off the screen|take grocery list off the screen)\b/gi, " ")
     .replace(/\b(?:just\s+)?put\s+some\s+on\s+there\b/gi, " ")
     .replace(/\bi\s+know\b/gi, " ")
+    // G 2026-06-13 dogfood: the vague COUNT phrase a user says before naming items
+    // ("let's put a couple more things", "add a couple of things", "a few more")
+    // is never an item - strip it anywhere so it can't survive as "couple of" /
+    // "a couple more". The (?:things?|items?)? tail is OPTIONAL so "a few apples"
+    // and "a couple eggs" keep the real noun (only the quantifier word is removed).
+    .replace(/\b(?:a\s+)?(?:couple|few)\s+(?:of|more)?\s*(?:things?|items?)?\b/gi, " ")
+    .replace(/\bsome\s+more\s+(?:things?|items?)?\b/gi, " ")
     .replace(/^(?:let'?s|lets)\s+(?:on\s+)?(?:(?:their|there|the|my|our)\s+)?/i, "")
     .replace(/^on\s+(?:(?:their|there|the|my|our)\s+)?/i, "")
     .replace(/\bfor\s+tacos?\b/gi, (match) =>
@@ -912,6 +1446,16 @@ function cleanListItem(
       "",
     )
     .replace(/^(?:some|a|an|the|their|there|my|our|el|la|los|las|un|una|le|la|les|des|du|der|die|das|ein|eine)\s+/i, "")
+    // r32 (G live 2026-06-12 20:48: "rice and yogurt ON the list" \u2192 item
+    // "Yogurt on"; "put yogurt as the next thing on the list" \u2192 the whole
+    // phrase): dangling tails are never part of a grocery item.
+    .replace(/\s+as the next thing(?:\s+on)?\s*$/i, "")
+    // G 2026-06-13: after the count-phrase strip, a chunk like "add a couple of
+    // things to the Walmart list" reduces to a dangling "to the" - kill a trailing
+    // preposition+article even when it is now the WHOLE remaining string (no
+    // leading space) so the orphan drops instead of becoming an item.
+    .replace(/(?:^|\s)(?:on|off|onto|to|from|in|into|for|with|at)\s+(?:the|this|that|my|there|here|a|an)\s*$/i, "")
+    .replace(/\s+(?:on|off|onto|to|from|in)\s*(?:the|this|that|my|there|here)?\s*$/i, "")
     .replace(/[.!?]+$/g, "")
     .replace(/^[\s,.;:\-\u2013\u2014]+|[\s,.;:\-\u2013\u2014]+$/g, "")
     .replace(/\s+/g, " ")
@@ -931,6 +1475,7 @@ function cleanListItem(
     return null;
   }
   if (LIST_FILLER_ITEM_RE.test(item)) return null;
+  if (LIST_BANTER_ITEM_RE.test(item)) return null; // greetings/banter are never items
   if (!options.fromExplicitCommand && LIST_VAGUE_BARE_ITEM_RE.test(item)) {
     return null;
   }
@@ -943,6 +1488,25 @@ function cleanListItem(
     return null;
   }
   if (LIST_COMMAND_ONLY_RE.test(item)) return null;
+  // G 2026-06-14 (regression net): profanity, "talking-about-it" words, bare
+  // numbers, and lone connectives are venting scraps, never grocery items. These
+  // caught today's junk-adds ("Same","Problems","Fucking problems") at the
+  // chokepoint, so BOTH the bare path AND explicit-verb adds ("add the same
+  // problems") are protected — not just a gate-side deny-list.
+  if (
+    /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|same|stuck|keep|saying)\b/i.test(
+      item,
+    ) ||
+    // Herm TASK_008: vague-quantity + app-problem words EXACT-only, so real
+    // items survive ("everything bagels", "bug spray") but bare venting dies.
+    /^(?:nothing|anything|something|everything|people|problem|problems|bug|bugs|crash|crashes|crashing|broken|failing|error|errors)$/i.test(
+      item.trim(),
+    ) ||
+    /^\d+$/.test(item.trim()) ||
+    /^(?:through|except|up|down|over|under|then|also)$/i.test(item.trim())
+  ) {
+    return null;
+  }
 
   const corrected = correctListItem(item);
   return corrected.charAt(0).toUpperCase() + corrected.slice(1);
@@ -953,15 +1517,37 @@ function canInferListItems(
   options: { allowBareItems?: boolean } = {},
 ): boolean {
   if (isInternalSignal(text) || LIST_COMMAND_ONLY_RE.test(text)) return false;
+  if (LIST_NAME_CAPTURE_INTENT_RE.test(text)) return false;
+  if (LIST_MID_SENTENCE_DASH_RE.test(text)) return false;
   if (hasEndSessionIntent(text)) return false;
   if (isListRoutingOnlyCommand(text)) return false;
   if (REMOVE_COMMAND_RE.test(text)) return false;
   if (detectListAccentUpdate(text, null)) return false;
-  if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return false;
+  if (
+    isSpokenListQuestion(text) ||
+    LIST_CONVERSATION_FRAGMENT_RE.test(text)
+  ) {
+    return false;
+  }
   const hasExplicitMutation = LIST_MUTATION_SIGNAL_RE.test(text);
+  const hasDestinationDictation = isDestinationListDictation(text);
+  if (
+    hasExplicitMutation &&
+    !shouldTreatAsListMutation(text, {
+      hasActiveList: Boolean(options.allowBareItems),
+    })
+  ) {
+    return false;
+  }
+  if (hasDestinationDictation) return true;
   if (LIST_TRIGGER_RE.test(text) && !hasExplicitMutation) return false;
   if (hasExplicitMutation) return true;
   if (!options.allowBareItems) return false;
+  // INTENT-FIRST (G 2026-06-14, regression b5781651): reject meta/"talking-about-
+  // it" speech + banter on the RAW text BEFORE the comma/"and" shortcut, so venting
+  // that happens to contain "and" or a comma ("I keep saying the same things and
+  // nothing works") can't bypass the intent gate via the series early-return.
+  if (META_TALK_RE.test(text) || LIST_BANTER_ITEM_RE.test(text.trim())) return false;
   if (/[,;\n]|\band\b/i.test(text)) return true;
   const cleaned = cleanListItem(text);
   if (!cleaned) return false;
@@ -1035,6 +1621,14 @@ function extractLocationHint(text: string): string | null {
   return cleaned.length >= 2 ? cleaned.slice(0, 80) : null;
 }
 
+// G 2026-06-13 dogfood: during a pending lookup waiting for a ZIP, the QUESTION
+// "what's my zip" was accepted as a typed location (STT drops the "?", so it is
+// all letters) and fired the pending waterfall search -> "I have got 3 ideas for
+// you." Reject question-shaped / self-referential phrases. Real city names
+// (Timonium, Ellicott City, Winston-Salem) and ZIPs are untouched.
+const NON_LOCATION_PHRASE_RE =
+  /^(?:what|where|when|why|who|how|which|whose|is|are|am|do|does|did|can|could|would|should|will|tell me|say|read|repeat)\b|\bmy (?:zip|name|email|account|list|number)\b/i;
+
 function isLikelyTypedLocation(text: string): boolean {
   const value = text.trim();
   if (value.length < 2 || value.length > 80) return false;
@@ -1043,6 +1637,7 @@ function isLikelyTypedLocation(text: string): boolean {
   if (ACCOUNT_READY_YES_RE.test(value) || ACCOUNT_READY_NO_RE.test(value)) {
     return false;
   }
+  if (NON_LOCATION_PHRASE_RE.test(value)) return false;
   return /\b\d{5}(?:-\d{4})?\b/.test(value) || /^[a-z][a-z\s,.'-]+$/i.test(value);
 }
 
@@ -1050,6 +1645,9 @@ function soundsLikeInvalidZipCode(text: string): boolean {
   const value = text.trim();
   if (!/\d/.test(value)) return false;
   if (/\b\d{5}(?:-\d{4})?\b/.test(value)) return false;
+  // A doubled/garbled ZIP we CAN recover is not invalid — never coach it
+  // (2026-06-14): "321093"/"2109321093" hold a real ZIP.
+  if (extractSpokenZip(value)) return false;
   const digits = value.replace(/\D/g, "");
   return digits.length > 0 && digits.length < 5;
 }
@@ -1108,14 +1706,30 @@ function getOnlineLookupResultLines(answer: string): string[] {
 }
 
 function formatOnlineLookupSpeech(lines: string[], query: string): string {
+  // v1: LOOKUP_UI_DORMANT — no on-screen popup. 6 says results verbally instead.
   if (lines.length === 0) {
     return "I found a few options. Want me to narrow them down?";
   }
   if (/\b(?:weather|forecast)\b/i.test(query)) {
-    return "I put the weekend weather on the screen. Want me to use that to pick the best day?";
+    return "Here is the weekend weather. Want me to use that to pick the best day?";
   }
-  return `I found ${lines.length} quick ideas and put them on the screen. Want one of these, or a few more?`;
+  // G 2026-06-13 critic: these are PLACES, not "ideas" — say "spots" so 6 never
+  // sounds like the coaching idea-cards (and "3 ideas for you" stops reading as
+  // a non-sequitur when a lookup resolves).
+  return `I found ${lines.length} ${lines.length === 1 ? "spot" : "spots"} near you. Want me to run through ${lines.length === 1 ? "it" : "them"}?`;
 }
+
+// G 2026-06-13 dogfood (21:51:16 "watermelon and half and half" -> lost "half
+// and half"): the split below treats EVERY "and" as an item separator, so
+// compound grocery names that legitimately contain "and" get torn apart.
+// Protect a known set by gluing their inner whitespace to an ASCII-word
+// sentinel BEFORE the split, then restore " and " inside the map. The sentinel
+// MUST be an ASCII word char (\b is zero-width and still fires between a word
+// char and a non-word char). "milk and eggs" is NOT here, so it still splits.
+const COMPOUND_LIST_ITEM_RE =
+  /\b(?:half\s+and\s+half|mac(?:aroni)?\s+and\s+cheese|peanut\s+butter\s+and\s+jelly|salt\s+and\s+pepper|bread\s+and\s+butter|cream\s+and\s+sugar|oil\s+and\s+vinegar|chips\s+and\s+salsa|rice\s+and\s+beans|biscuits\s+and\s+gravy|spaghetti\s+and\s+meatballs|fish\s+and\s+chips|pork\s+and\s+beans|ham\s+and\s+cheese|sweet\s+and\s+sour)\b/gi;
+const COMPOUND_AND_SENTINEL = "zqzandzqz";
+const COMPOUND_AND_SENTINEL_RE = /zqzandzqz/g;
 
 function extractListItems(
   text: string,
@@ -1125,13 +1739,20 @@ function extractListItems(
   const fromExplicitCommand = LIST_MUTATION_SIGNAL_RE.test(text);
 
   const normalized = text
+    .replace(COMPOUND_LIST_ITEM_RE, (m) =>
+      m.replace(/\s+and\s+/gi, COMPOUND_AND_SENTINEL),
+    )
     .replace(/\b(?:and then|also|tambien|tambi\u00e9n|aussi|auch)\b/gi, ",")
     .replace(/\b(?:i need|i want|add|grab|buy|pick up|necesito|quiero|agrega|agregar|anade|a\u00f1ade|comprar|compra|j'?ai besoin de|je veux|ajoute|ajouter|acheter|achete|ich brauche|ich will|fuege|f\u00fcge|kauf|kaufen)\b/gi, ", $&")
     .replace(/\s+/g, " ");
 
   return normalized
     .split(/[,.;\n]|\b(?:and|y|e|et|und)\b/gi)
-    .map((item) => cleanListItem(item, { fromExplicitCommand }))
+    .map((item) =>
+      cleanListItem(item.replace(COMPOUND_AND_SENTINEL_RE, " and "), {
+        fromExplicitCommand,
+      }),
+    )
     .filter((item): item is string => Boolean(item));
 }
 
@@ -1152,9 +1773,19 @@ function formatListItemsForSpeech(items: string[]): string {
   if (cleanItems.length === 0) return "that";
   if (cleanItems.length === 1) return cleanItems[0];
   if (cleanItems.length === 2) return `${cleanItems[0]} and ${cleanItems[1]}`;
-  const shown = cleanItems.slice(0, 3).join(", ");
-  const remaining = cleanItems.length - 3;
-  return remaining > 0 ? `${shown}, and ${remaining} more` : shown;
+  // G 2026-06-13 dogfood: NAME every item (he hated "and 1 more" / "Added
+  // those" — couldn't tell what landed). Name up to 9 with a natural Oxford
+  // comma ("Milk, Eggs, Pancakes, and Waffles"); his real lists hit 9 items.
+  // Only past 9 do we fall back to "and N more".
+  const MAX_NAMED = 9;
+  if (cleanItems.length <= MAX_NAMED) {
+    const head = cleanItems.slice(0, -1).join(", ");
+    const last = cleanItems[cleanItems.length - 1];
+    return `${head}, and ${last}`;
+  }
+  const shown = cleanItems.slice(0, MAX_NAMED).join(", ");
+  const remaining = cleanItems.length - MAX_NAMED;
+  return `${shown}, and ${remaining} more`;
 }
 
 function cleanRemoveListItem(value: string): string | null {
@@ -1310,31 +1941,52 @@ function detectListIntent(text: string): {
   return null;
 }
 
-function itemKeysMatch(a: string, b: string): boolean {
-  const normalize = (value: string) =>
-    value
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^\p{L}0-9\s]/gu, " ")
-      .replace(/\b(?:a|an|the|some|el|la|los|las|un|una|le|les|des|du|der|die|das|ein|eine)\b/gu, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .replace(/s\b/g, "");
-  const left = normalize(a);
-  const right = normalize(b);
-  return Boolean(
-    left &&
-      right &&
-      (left === right || left.includes(right) || right.includes(left)),
-  );
-}
 
 function findMentionedListItem(
   list: AssistantList | null,
   text: string,
 ): string | null {
   if (!list) return null;
+  if (!shouldLookupListItem(text)) return null;
+  // G 2026-06-13 dogfood: questions and banter are NOT item references. "What do
+  // you see?" matched the item "See"; "...right, buddy?" matched "Buddy". Never
+  // mine an item out of a question or a conversational turn — let those go to the
+  // brain for a real answer instead of "I found X on the list."
+  if (/[?]/.test(text) || LIST_CONVERSATION_FRAGMENT_RE.test(text)) return null;
+  // G 2026-06-13 dogfood: a readback correction is NOT an item lookup. "Waffles
+  // is number four, not one more" was correcting the spoken "...and 1 more"
+  // summary (which hid Waffles), but the item name matched and we said "I found
+  // Waffles on the list." The shapes "X is number N" and "...not one more" mean
+  // the user is fixing what we read back, not asking us to find an item — let it
+  // go to the brain.
+  if (
+    /\bnot\s+(?:just\s+)?(?:one|1)\s+more\b|\bis\s+number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(
+      text,
+    )
+  ) {
+    return null;
+  }
+  // G 2026-06-14 ride: narrating list POSITIONS is not an item lookup. "You got
+  // number one, toothbrush. Okay, number two, toothpaste." was G reading the list
+  // back to confirm it, but "toothbrush" matched and we said "I found Toothbrush on
+  // the list." The shapes "you got number N, X" / "number N, X" / "that's number N"
+  // mean the user is reading positions aloud, not asking us to find an item. The
+  // delimiter (comma/colon/dash) after the number keeps a real item that merely
+  // contains a digit ("aisle 7 toothbrush") from matching.
+  if (
+    /\b(?:you(?:['’]?ve)?\s+(?:got|have)\s+)?number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*[,:–—-]|\bthat['’]?s\s+number\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(
+      text,
+    )
+  ) {
+    return null;
+  }
+  if (
+    /^\s*(?:what|where|when|why|who|how|are|is|do|does|did|can|could|would|should|tell me)\b/i.test(
+      text.trim(),
+    )
+  ) {
+    return null;
+  }
   const value = text.toLowerCase();
   return (
     list.items.find((item) => {
@@ -1342,7 +1994,7 @@ function findMentionedListItem(
         .toLowerCase()
         .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       if (new RegExp(`\\b${escaped}\\b`, "i").test(value)) return true;
-      return itemKeysMatch(item, text);
+      return listItemKeysMatch(item, text);
     }) ?? null
   );
 }
@@ -1441,113 +2093,27 @@ function speakEmailAddress(email: string): string {
   return `${speakChars(local)} at ${domainSpoken}`;
 }
 
-const SPOKEN_EMAIL_NOISE_WORDS = new Set([
-  "email",
-  "e",
-  "mail",
-  "address",
-  "is",
-  "its",
-  "it",
-  "my",
-  "the",
-  "send",
-  "link",
-  "to",
-]);
-
-function isValidEmailCandidate(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value);
-}
-
-function extractSpokenEmailCandidate(text: string): string | null {
-  const direct = text.match(EMAIL_RE)?.[0]?.trim().toLowerCase();
-  if (direct && isValidEmailCandidate(direct)) return direct;
-
-  const normalized = text
-    .toLowerCase()
-    .replace(/[']/g, "")
-    .replace(/[\u2013\u2014]+/g, " ")
-    .replace(/\b(?:at sign|at)\b/g, " @ ")
-    .replace(/\b(?:dot|period|point)\b/g, " . ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const atIndex = normalized.indexOf("@");
-  if (atIndex < 1) return null;
-
-  const localTokens = normalized
-    .slice(0, atIndex)
-    .split(/[^a-z0-9._%+-]+/g)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .filter((token) => !SPOKEN_EMAIL_NOISE_WORDS.has(token));
-  const local = localTokens
-    .slice(-6)
-    .join("")
-    .replace(/[^a-z0-9._%+-]/g, "");
-  if (local.length < 2) return null;
-
-  const domainWords = normalized
-    .slice(atIndex + 1)
-    .replace(/\s*\.\s*/g, ".")
-    .replace(/[^a-z0-9.\s-]/g, " ")
-    .split(/\s+/g)
-    .map((word) => word.trim())
-    .filter(Boolean);
-  let domain: string | null = null;
-  for (let count = 1; count <= Math.min(domainWords.length, 5); count += 1) {
-    const candidate = domainWords
-      .slice(0, count)
-      .join("")
-      .replace(/[^a-z0-9.-]/g, "");
-    if (/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(candidate)) {
-      const tld = candidate.split(".").at(-1) ?? "";
-      if (tld.length >= 2) {
-        domain = candidate;
-        break;
-      }
-    }
-  }
-  if (!domain) return null;
-
-  const candidate = `${local}@${domain}`;
-  return isValidEmailCandidate(candidate) ? candidate : null;
-}
-
-function mergeEmailDomainCorrection(
-  text: string,
-  previousEmail: string | null,
-): string | null {
-  if (!previousEmail || !previousEmail.includes("@")) return null;
-  const local = previousEmail.split("@")[0];
-  if (!local || local.length < 2) return null;
-  const normalized = text
-    .toLowerCase()
-    .replace(/[']/g, "")
-    .replace(/\b(?:dot|period|point)\b/g, ".")
-    .replace(/[^a-z0-9.\s-]/g, " ")
-    .replace(/\s*\.\s*/g, ".")
-    .replace(/\s+/g, " ")
-    .trim();
-  const domain = normalized.match(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b/)?.[0];
-  if (!domain) return null;
-  const candidate = `${local}@${domain}`;
-  return isValidEmailCandidate(candidate) ? candidate : null;
-}
-
-function extractAccountEmailCandidate(
-  text: string,
-  fallbackEmail: string | null,
-): string | null {
-  return extractSpokenEmailCandidate(text) ?? fallbackEmail?.trim().toLowerCase() ?? null;
-}
 
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
+  microphonePreflightGranted?: boolean;
   onSessionStopped: (opts?: SessionStoppedReason) => void;
   onExit?: (completeExit?: boolean) => void;
-}> = ({ mode, onSessionStopped, onExit }) => {
+  /** STOP: tear the session down but land on tap-to-return, not Session Ended. */
+  onPause?: () => void;
+  /** Top-right button: drop the avatar, keep talking. Mints nothing. */
+  onVoiceOnly?: () => void;
+}> = ({
+  mode,
+  microphonePreflightGranted = false,
+  onSessionStopped,
+  onExit,
+  onPause,
+  onVoiceOnly,
+}) => {
   const [message, setMessage] = useState("");
+  const [wildWorksOfferState, setWildWorksOfferState] = useState<WildWorksOfferState>("idle");
+  const wildWorksOfferStateRef = useRef<WildWorksOfferState>("idle");
   const {
     sessionState,
     isStreamReady,
@@ -1571,12 +2137,1255 @@ const LiveAvatarSessionComponent: React.FC<{
     unmute,
   } = useVoiceChat();
 
-  const { interrupt, repeat, startListening, stopListening } =
-    useAvatarActions(mode);
+  const {
+    interrupt: sessionInterrupt,
+    repeat: sessionRepeat,
+    startListening: sessionStartListening,
+    stopListening: sessionStopListening,
+  } = useAvatarActions(mode);
 
-  const { sendMessage } = useTextChat(mode);
-  const { sessionRef } = useLiveAvatarContext();
+  // r25: bridge so the brain's replies (born inside useTextChat) land in
+  // conversation_messages — assigned below once voiceLogTurn exists.
+  const assistantLogRef = useRef<
+    (text: string, context: { utteranceId: string | null }) => void
+  >(() => {});
+  // r26: ref-bridge to rememberConversationLine (declared later — TDZ-safe).
+  const rememberLineRef = useRef<(role: "user" | "assistant", text: string) => void>(
+    () => {},
+  );
+  // r26: running conversation for the brain — without it every call looked
+  // like first contact and 6 re-introduced himself on every turn.
+  const getBrainHistory = useCallback(
+    () =>
+      recentConversationRef.current.map((l) => ({
+        role: l.role,
+        content: l.text,
+      })),
+    [],
+  );
+  const { sendMessage: sessionSendMessage } = useTextChat(
+    mode,
+    (text, context) => assistantLogRef.current(text, context),
+    getBrainHistory,
+    // r32: the brain always knows the captured name (ref-read at call time —
+    // deviceProfileRef is declared later; closures only read when called).
+    () => deviceProfileRef.current?.name ?? null,
+    // r34: and the signed-in state, for the same reason.
+    () => accountEmailRef.current,
+    () => canAdvanceBuildInterview(buildInterestStateRef.current, Boolean(accountEmailRef.current)),
+    (utteranceId) => currentUtteranceIdRef.current === utteranceId,
+  );
+  const { sessionRef, sessionEpoch, renewSessionToken } = useLiveAvatarContext();
+
+  // ═══════════ VOICE-LIST MODE (2026-06-11, G's voice/avatar separation) ═══
+  // "When the lists come up... the avatar disappears, voice stays a constant."
+  // While the full-screen list is up the LiveAvatar session is hard-STOPPED
+  // (credits stop immediately); our own ears (mic → /api/voice-transcribe) and
+  // mouth (/api/elevenlabs-text-to-speech → WebAudio) keep the SAME
+  // conversation flowing through the SAME dispatcher. Tapping 6's photo or any
+  // close/come-back phrase renews the session (fresh token) — and the voice
+  // keeps talking right through the reconnect.
+  const [voicePresence, setVoicePresence] = useState<
+    "avatar" | "voice" | "returning"
+  >("avatar");
+  const voicePresenceRef = useRef<"avatar" | "voice" | "returning">("avatar");
+  const setPresence = useCallback(
+    (p: "avatar" | "voice" | "returning") => {
+      voicePresenceRef.current = p;
+      setVoicePresence(p);
+    },
+    [],
+  );
+  const [voiceUserTalking, setVoiceUserTalking] = useState(false);
+  const [voiceSixTalking, setVoiceSixTalking] = useState(false);
+  const voiceReturnKeepsListRef = useRef(false);
+  const voiceSpokenCounterRef = useRef(0);
+  const voiceAudioCtxRef = useRef<AudioContext | null>(null);
+  // r35: sup must never go blind — when no avatar session was ever minted,
+  // voice turns log under a per-page local id instead of being dropped.
+  const localSessionIdRef = useRef<string | null>(null);
+  const voiceTtsBusyRef = useRef(false);
+  const voiceTtsQueueRef = useRef<string[]>([]);
+  // BARGE-IN P0 (Herm review 2026-06-14): bumped on every cut. A TTS line that
+  // was already fetching/decoding when the user barged has no voiceCurrentSourceRef
+  // to stop yet, so it would start speaking AFTER the cut. voicePlayNext captures
+  // this at line start and abandons the line if it changed across any await.
+  const voiceCutEpochRef = useRef(0);
+  // G 2026-06-13 (HARD RULE: 6 must NEVER say the same line twice): a single
+  // output chokepoint that drops any line identical to the one just spoken
+  // within a short window. This is the last line of defense BEHIND the
+  // per-source one-shots (one greeting per session, one list-open line) — if any
+  // path ever double-fires the SAME sentence, the user still hears it once.
+  const lastSpokenLineRef = useRef<{ text: string; at: number }>({
+    text: "",
+    at: 0,
+  });
+  const shouldSkipDuplicateSpeech = useCallback((text: string): boolean => {
+    const norm = (text ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!norm) return false;
+    const now = Date.now();
+    const last = lastSpokenLineRef.current;
+    if (norm === last.text && now - last.at < 3500) {
+      reportCustomVoiceDiag(
+        `[dedup] blocked repeat line within 3.5s: "${norm.slice(0, 70)}"`,
+      );
+      return true;
+    }
+    lastSpokenLineRef.current = { text: norm, at: now };
+    return false;
+  }, []);
+  // r24 (G live: "tap to mute 6"): silences 6's VOICE in list mode — his ears
+  // stay on, the conversation keeps logging, he just stops talking out loud.
+  const [voiceMuted, setVoiceMuted] = useState(false);
+  const voiceMutedRef = useRef(false);
+  // 2026-08-21 ride, G said it out loud: "the mute didn't work the first time".
+  // MUTE is the MIRROR IMAGE of the speaker mute above — QUIET owns 6's mouth,
+  // MUTE owns the user's microphone. Before this, MUTE had no variable of its
+  // own: the button ran handleVoiceStartStop, whose off-branch is a full voice
+  // loop teardown (stop() destroys the mic track), and whose on-branch is a
+  // cold start WITH the greeting. So MUTE was a second STOP wearing a mic icon,
+  // and un-muting made 6 introduce himself again — three times in 85 seconds.
+  // This flag touches NOTHING that keeps the session alive. STOP is one button
+  // away and STOP is the only control allowed to end anything.
+  //
+  // Ref AND state on purpose: the ref is read from inside long-lived closures
+  // (the speech dispatcher, the barge-in poll, the browser recognizer) that
+  // must NOT re-subscribe when the flag flips; the state only paints the button.
+  const [micMuted, setMicMuted] = useState(false);
+  const micMutedRef = useRef(false);
+  // Separate from UI mute: this marks the one explicit gesture-owned preflight
+  // that is allowed to arm CUSTOM's independent barge-in capture.
+  const [hasExplicitMicStartGrant, setHasExplicitMicStartGrant] = useState(false);
+  const [microphonePermissionNotice, setMicrophonePermissionNotice] = useState<string | null>(null);
+  const [microphonePermissionState, setMicrophonePermissionState] =
+    useState<MicrophonePermissionState | null>(null);
+  // The live browser SpeechRecognition instance, so MUTE can stop and restart
+  // it IMPERATIVELY. Putting micMuted in that effect's dep array instead would
+  // destroy and rebuild the recognizer on every toggle — and a rebuild that
+  // races the old instance's stop() throws InvalidStateError, whose only
+  // handler hands authority to the SDK forever with no re-arm. That is 6 going
+  // permanently deaf on a double-tap, which is worse than the bug we are here
+  // to fix.
+  //
+  // The handle also carries clearRestart(), because the recognizer effect owns
+  // a 350ms restart timer that applyMicMute could not see. The sequence that
+  // deafened 6 for a whole session with no throw anywhere applyMicMute could
+  // catch: silent user -> "no-speech" -> onend arms the timer; MUTE inside that
+  // window (stop() on an inactive recognizer is a no-op); UNMUTE inside the
+  // same window (start() succeeds, so no rebuild); the timer fires, passes the
+  // un-muted guard, and start() on the now-running instance throws
+  // InvalidStateError INSIDE THE TIMER -> fatal flag set, authority handed to
+  // the SDK, onend returns early forever, MUTE paints a live mic. So every tap
+  // kills the pending timer first.
+  const speechRecognitionRef = useRef<{
+    recognition: any;
+    clearRestart: () => void;
+  } | null>(null);
+  // Bumped ONLY when un-muting fails to restart the recognizer. That is the one
+  // path in this design that could leave 6 silently deaf, so it gets a real
+  // rebuild instead of a console.warn.
+  const [recognizerEpoch, setRecognizerEpoch] = useState(0);
+  const voiceEarsRef = useRef<{
+    stream: MediaStream;
+    ctx: AudioContext;
+    analyser: AnalyserNode;
+    recorder: MediaRecorder | null;
+    poll: ReturnType<typeof setInterval>;
+    speaking: boolean;
+    speechMs: number;
+    silenceMs: number;
+    chunks: Blob[];
+  } | null>(null);
+  const voiceDispatchRef = useRef<((text: string) => Promise<void>) | null>(
+    null,
+  );
+  const voiceReturnRef = useRef<((keepList: boolean) => Promise<void>) | null>(
+    null,
+  );
+  // Forward-ref so the voice/list-mode handler (defined ABOVE handleEndSession)
+  // can route a real session-close to the SAME end path the avatar handler uses.
+  // (G 2026-06-14: "Close this session" while a list was up wrongly brought the
+  // avatar back instead of ending — list mode had no end-session branch.)
+  const handleEndSessionRef = useRef<((opts?: {
+    pause?: boolean;
+    toVoice?: boolean;
+    awaitProviderStop?: boolean;
+  }) => Promise<void>) | null>(null);
+  const avatarSpeechFailureReportedRef = useRef(false);
+  const voiceEnteredAtRef = useRef(0);
+  const voiceCurrentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  // Durable correlation id for the accepted user turn currently being handled.
+  const currentUtteranceIdRef = useRef<string | null>(null);
+  // Set only when a brain reply is about to enter HeyGen's speech path. The
+  // AVATAR_SPEAK_STARTED event consumes it so unrelated scripted speech cannot
+  // be attributed to a stale user turn.
+  const pendingSpeechUtteranceIdRef = useRef<string | null>(null);
+
+  // r19: voice turns land in conversation_messages (same table, same session
+  // id as the avatar leg) so sup pulls show the WHOLE conversation. Fire and
+  // forget — logging never blocks the conversation.
+  const voiceLogTurn = useCallback(
+    (
+      role: "user" | "assistant",
+      text: string,
+      utteranceIdOverride?: string | null,
+    ) => {
+      let sid = dbSessionIdRef.current;
+      if (!sid) {
+        // r35 (G 2026-06-12 21:55: "is anything coming into sup from me
+        // currently?" — NO, every turn was silently dropped because no avatar
+        // session id existed after a mid-list reload): never drop transcript.
+        if (!localSessionIdRef.current) {
+          localSessionIdRef.current = `local-${Math.random().toString(36).slice(2, 10)}`;
+        }
+        sid = localSessionIdRef.current;
+      }
+      const utteranceId =
+        utteranceIdOverride === undefined
+          ? currentUtteranceIdRef.current
+          : utteranceIdOverride;
+      const eventId = utteranceId
+        ? transcriptEventId(utteranceId, role, text)
+        : createClientEventId(`transcript-${role}`);
+      void fetch("/api/voice-mode/log-turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: sid,
+          role,
+          message: text,
+          utteranceId,
+          eventId,
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    },
+    [],
+  );
+
+  // Mouth: sequential TTS queue. Each line fetches ElevenLabs PCM and plays it
+  // through WebAudio — no LiveAvatar session involved, so it works while the
+  // avatar is stopped AND while he's reconnecting (G: "keep the smooth
+  // conversation flowing").
+  const voicePlayNext = useCallback(async () => {
+    if (voiceTtsBusyRef.current) return;
+    voiceTtsBusyRef.current = true;
+    try {
+      for (;;) {
+        const text = voiceTtsQueueRef.current.shift();
+        if (!text) break;
+        const myCutEpoch = voiceCutEpochRef.current;
+        // (drives the gold presence ring while 6 speaks via the WebAudio mouth)
+        setVoiceSixTalking(true);
+        try {
+          const res = await fetch("/api/elevenlabs-text-to-speech", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          // Barged while this line was in flight -> drop it; the queue was cleared
+          // by the cut, so the next shift() breaks the loop.
+          if (voiceCutEpochRef.current !== myCutEpoch) continue;
+          if (!res.ok) {
+            throw new Error(
+              `voice tts ${res.status}: ${(await res.text()).slice(0, 120)}`,
+            );
+          }
+          const { audio } = (await res.json()) as { audio?: string };
+          if (voiceCutEpochRef.current !== myCutEpoch) continue;
+          if (typeof audio !== "string" || audio.length < 50) {
+            throw new Error("voice tts empty/invalid audio");
+          }
+          if (!voiceAudioCtxRef.current) {
+            voiceAudioCtxRef.current = new AudioContext();
+          }
+          const ctx = voiceAudioCtxRef.current;
+          // r35 (G mid-list after a reload: 6 "thinking" but mute — the
+          // browser keeps audio locked until the page is touched, and a
+          // gesture-less resume() can hang): try once, then SKIP the line
+          // instead of damming the whole turn chain behind a locked player.
+          if (ctx.state === "suspended") {
+            try {
+              await Promise.race([
+                ctx.resume(),
+                new Promise((resolve) => setTimeout(resolve, 1500)),
+              ]);
+            } catch {
+              // needs a user gesture — the pointerdown unlock will catch it
+            }
+            if ((ctx.state as string) !== "running") {
+              throw new Error("audio locked until the page is tapped");
+            }
+          }
+          const buffer = pcm16Base64ToAudioBuffer(ctx, audio);
+          if (voiceCutEpochRef.current !== myCutEpoch) continue;
+          await new Promise<void>((resolve) => {
+            const src = ctx.createBufferSource();
+            voiceCurrentSourceRef.current = src;
+            src.buffer = buffer;
+            // Barge landed between decode and start -> don't start; bail clean.
+            if (voiceCutEpochRef.current !== myCutEpoch) {
+              if (voiceCurrentSourceRef.current === src) {
+                voiceCurrentSourceRef.current = null;
+              }
+              resolve();
+              return;
+            }
+            // r23b (G: "and YOUR voice too" — the studio meter): meter 6's own
+            // audio through an analyser and drive the face circle in real time.
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            src.connect(analyser);
+            analyser.connect(ctx.destination);
+            const meterData = new Uint8Array(analyser.fftSize);
+            const meter = setInterval(() => {
+              const circle = document.getElementById("six-voice-circle");
+              const glow = document.getElementById("six-voice-glow");
+              if (!circle && !glow) return;
+              analyser.getByteTimeDomainData(meterData);
+              let sum = 0;
+              for (let i = 0; i < meterData.length; i++) {
+                const v = (meterData[i] - 128) / 128;
+                sum += v * v;
+              }
+              const level = Math.min(1, Math.sqrt(sum / meterData.length) * 6);
+              // G 2026-06-14: the golden glow lives in the un-clipped ring layer
+              // AROUND the face, so it shows in the SPACE around the circle.
+              if (glow)
+                glow.style.boxShadow = `0 0 0 ${(2 + level * 4.5).toFixed(1)}px rgba(244,208,134,${(0.45 + level * 0.4).toFixed(2)}), 0 0 ${(11 + level * 27).toFixed(0)}px ${(4 + level * 8).toFixed(0)}px rgba(255,233,194,${(0.25 + level * 0.45).toFixed(2)})`;
+              // G 2026-06-13: face HOLDS STILL — no zoom. Only the gold glow
+              // pulses. 1.7 = the class base scale, pinned.
+              if (circle) circle.style.transform = "scale(1.7)";
+            }, 60);
+            src.onended = () => {
+              clearInterval(meter);
+              const circle = document.getElementById("six-voice-circle");
+              if (circle) circle.style.transform = "";
+              if (voiceCurrentSourceRef.current === src) {
+                voiceCurrentSourceRef.current = null;
+              }
+              resolve();
+            };
+            try {
+              src.start();
+            } catch {
+              if (voiceCurrentSourceRef.current === src) {
+                voiceCurrentSourceRef.current = null;
+              }
+              resolve();
+            }
+          });
+          voiceCurrentSourceRef.current = null;
+        } catch (e) {
+          void captureClientError(e, { where: "voice-mode", what: "tts" });
+        } finally {
+          setVoiceSixTalking(false);
+        }
+      }
+    } finally {
+      voiceTtsBusyRef.current = false;
+    }
+  }, []);
+
+  const voiceSay = useCallback(
+    // F5 2026-08-21: utteranceIdOverride is threaded straight through to
+    // voiceLogTurn, which already treats `undefined` as "use the current turn"
+    // — so every existing caller is byte-identical. Pass null for SCRIPTED
+    // speech (see repeat() below).
+    async (text: string, utteranceIdOverride?: string | null) => {
+      const t = (text ?? "").trim();
+      if (!t) return;
+      if (shouldSkipDuplicateSpeech(t)) return; // never voice the same line twice
+      voiceSpokenCounterRef.current += 1;
+      // r28: voice-mode lines must enter the echo-firewall registry too — an
+      // unregistered voiceSay line echoed into the mic, dispatched as the
+      // user, and re-opened the grocery list G never asked for (02:03:04).
+      registerSixSpokenLine(t);
+      voiceLogTurn("assistant", t, utteranceIdOverride);
+      if (voiceMutedRef.current) return; // muted: logged, not spoken
+      voiceTtsQueueRef.current.push(t);
+      void voicePlayNext();
+    },
+    [voicePlayNext, voiceLogTurn, shouldSkipDuplicateSpeech],
+  );
+
+  // r19 barge-in support: cut 6 off mid-sentence — drop the queue AND the
+  // line that's already playing (stop() fires onended, the play loop drains).
+  const voiceCutSpeech = useCallback(() => {
+    // BARGE-IN P0 (Herm review 2026-06-14): bump FIRST so any TTS line mid
+    // fetch/decode in voicePlayNext sees the change and never starts speaking
+    // after the user took the floor.
+    voiceCutEpochRef.current += 1;
+    voiceTtsQueueRef.current = [];
+    try {
+      voiceCurrentSourceRef.current?.stop();
+    } catch {
+      // already ended
+    }
+    voiceCurrentSourceRef.current = null;
+    // G 2026-06-13: also cut the WebAudio FALLBACK path (what 6 uses in list
+    // mode after the avatar session stops) — without this, barge-in/interrupt
+    // can't stop 6 and he talks over you ("he would not stop").
+    cutCustomVoiceFallback();
+  }, []);
+
+  // ROUTED AVATAR ACTIONS: every one of the dispatcher's ~50 repeat()/
+  // interrupt() call sites keeps working in voice mode — speech reroutes to
+  // the ElevenLabs mouth, session-only calls become safe no-ops.
+  const repeat = useCallback(
+    async (text: string, utteranceIdOverride?: string | null) => {
+      const spokenText =
+        mode === "CUSTOM" ? formatSixSpeechForTts(text) : text;
+      if (voicePresenceRef.current !== "avatar")
+        return voiceSay(spokenText, utteranceIdOverride);
+      if (shouldSkipDuplicateSpeech(spokenText)) return; // never voice the same line twice
+      // r25: CUSTOM avatar-mode machine lines also land in the transcript
+      // (no official LiveAvatar transcript exists for these sessions).
+      //
+      // F5 2026-08-21: pass null here for SCRIPTED speech — a greeting is not
+      // an answer to any user turn. With no override, voiceLogTurn falls back
+      // to currentUtteranceIdRef, which is written ONLY on an accepted user
+      // turn and is never cleared, so the 21:07:10 greeting was filed under the
+      // 21:06:45 user turn COMPLAINING about the greeting. Worse than a wrong
+      // label: /api/voice-mode/log-turn upserts on_conflict=event_id with
+      // resolution=ignore-duplicates, and the assistant event id is
+      // `${utteranceId}:transcript:assistant:${fingerprint(text)}` — so two
+      // identical greetings under one stale id collide and the SECOND IS
+      // SILENTLY DROPPED. The sup transcript under-reports the exact repeat we
+      // use it to find.
+      if (mode === "CUSTOM") voiceLogTurn("assistant", spokenText, utteranceIdOverride);
+      // G 2026-06-13 SILENT-IN-LIST ROOT CAUSE: when a list opens, the dispatcher
+      // speaks "I started the X..." via sessionRepeat WHILE enterVoiceListMode is
+      // concurrently stopping the avatar session. sessionRepeat then awaits a
+      // completion event the dying session never fires -> it HANGS FOREVER. Every
+      // turn shares one single-file chain, so that one stuck turn dammed the whole
+      // queue and every later list turn ("add blueberries", "you there?") waited
+      // behind it -> 6 permanently mute the moment a list appeared. The line still
+      // plays; we just never await it past 4s so a tearing-down session can't jam
+      // the queue. (Tracers proved it: ht_list_enter fired for the open turn, then
+      // never again, while vu_post_dispatch timed out at 7s.)
+      await Promise.race([
+        Promise.resolve(sessionRepeat(spokenText)),
+        new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+      ]);
+    },
+    [sessionRepeat, voiceSay, mode, voiceLogTurn, shouldSkipDuplicateSpeech],
+  );
+  const interrupt = useCallback(async () => {
+    if (voicePresenceRef.current !== "avatar") {
+      voiceCutSpeech();
+      return;
+    }
+    // A real avatar-mode barge-in must also invalidate the detached repeat
+    // watchdog. Otherwise its stale timeout can fire after the interruption
+    // and falsely classify the session as a silent speech failure.
+    cutCustomVoiceFallback();
+    return sessionInterrupt();
+  }, [sessionInterrupt, voiceCutSpeech]);
+
+  // CATASTROPHIC BARGE-IN FIX (G 2026-06-14, said it 4x across the ride +
+  // "this is catastrophic... stop him from talking over the user 100% of the
+  // time"): in CUSTOM/avatar mode 6 speaks through the WebAudio fallback and the
+  // SDK MUTES its own mic track while he talks (echo armor) -- so the SDK never
+  // hears the user and can't interrupt him, and the only client-side barge-in
+  // (startVoiceEars) was gated to the now-dormant voice mode. This is an
+  // INDEPENDENT mic stream (a separate track the SDK can't mute, echoCancellation
+  // on) that listens WHILE 6 is speaking; a sustained, clearly-louder-than-echo
+  // user voice cuts him off instantly -- voiceCutSpeech() drops the queue + the
+  // WebAudio fallback, sessionInterrupt() stops the avatar pipe. The 2.5x bar +
+  // 350ms hold + browser echo cancellation keep 6's own speaker audio from
+  // tripping it. Runs only while 6's full face is up (the single live mode now).
+  useEffect(() => {
+    if (mode !== "CUSTOM") return;
+    if (sessionState !== SessionState.CONNECTED || !isStreamReady) return;
+    // This is an independent capture stream. It must never be the thing that
+    // asks Android for microphone permission during provider loading: only the
+    // live-stage gesture may do that. Once the explicit preflight and SDK start
+    // succeed, this effect re-runs and can safely arm barge-in.
+    if (!hasExplicitMicStartGrant) return;
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    const POLL_MS = 60;
+    const BARGE_RMS = 0.05; // ~2.3x the ears' 0.022 voice-onset floor
+    const BARGE_HOLD_MS = 240; // snappier cut; AEC + this hold still reject echo
+    let bargeMs = 0;
+    void (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        ctx = new AudioContext();
+        const src = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        src.connect(analyser);
+        const data = new Uint8Array(analyser.fftSize);
+        poll = setInterval(() => {
+          // MUTE 2026-08-21: a muted mic cannot cut 6 off either. This poll owns
+          // an INDEPENDENT getUserMedia stream that no SDK mute can reach, so
+          // without this a "muted" user who turns and talks to someone in the
+          // room still stops 6 mid-sentence — a mute that visibly does not
+          // work, which is the exact complaint. If he cannot hear you, you
+          // cannot interrupt him.
+          //
+          // Gated by REF inside the poll, deliberately NOT by adding micMuted to
+          // this effect's deps: a dep change tears the stream down and
+          // re-acquires it on every toggle, and the catch below is a bare
+          // comment — a failed re-acquire is silent and permanent.
+          //
+          // Only watch while 6 is actually speaking (WebAudio fallback queue or
+          // the voiceSay TTS path). Idle -> reset the hold so nothing lingers.
+          if (
+            micMutedRef.current ||
+            !(isCustomVoiceFallbackBusy() || voiceTtsBusyRef.current)
+          ) {
+            bargeMs = 0;
+            return;
+          }
+          analyser.getByteTimeDomainData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / data.length);
+          if (rms > BARGE_RMS) {
+            bargeMs += POLL_MS;
+            if (bargeMs >= BARGE_HOLD_MS) {
+              bargeMs = 0;
+              voiceCutSpeech();
+              void sessionInterrupt();
+              logAppEvent("barge_in", { where: "avatar", rms: Number(rms.toFixed(3)) });
+            }
+          } else {
+            bargeMs = 0;
+          }
+        }, POLL_MS);
+      } catch {
+        // mic unavailable -> barge-in simply won't fire; never break the session
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (poll) clearInterval(poll);
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (ctx) void ctx.close();
+    };
+  }, [
+    mode,
+    sessionState,
+    isStreamReady,
+    hasExplicitMicStartGrant,
+    voiceCutSpeech,
+    sessionInterrupt,
+  ]);
+  const startListening = useCallback(() => {
+    if (voicePresenceRef.current !== "avatar") return;
+    return sessionStartListening();
+  }, [sessionStartListening]);
+  const stopListening = useCallback(() => {
+    if (voicePresenceRef.current !== "avatar") return;
+    return sessionStopListening();
+  }, [sessionStopListening]);
+
+  // r19 (G's first live session: "Session needs to be connected to send
+  // command event" — every unhandled turn after the list closed THREW and 6
+  // went completely silent): in voice mode, forwarding to "the brain" means
+  // the chat endpoint + the ElevenLabs mouth, never the dead session socket.
+  const sendMessage = useCallback(
+    async (text: string, utteranceId: string | null = null) => {
+      if (voicePresenceRef.current !== "avatar") {
+        try {
+          rememberLineRef.current("user", text);
+          const r = await fetch("/api/openai-chat-complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: text,
+              listMode: true,
+              history: getBrainHistory(),
+              userName: deviceProfileRef.current?.name ?? null,
+              signedInEmail: accountEmailRef.current,
+            }),
+          });
+          if (r.ok) {
+            const data = (await r.json()) as { response?: string };
+            if (data.response) {
+              rememberLineRef.current("assistant", data.response);
+              void voiceSay(data.response);
+            }
+          }
+        } catch (e) {
+          void captureClientError(e, {
+            where: "voice-mode",
+            what: "sendMessage",
+          });
+        }
+        return;
+      }
+      return sessionSendMessage(text, undefined, utteranceId);
+    },
+    [sessionSendMessage, voiceSay, getBrainHistory],
+  );
+
+  const stopVoiceEars = useCallback(() => {
+    const ears = voiceEarsRef.current;
+    if (!ears) return;
+    voiceEarsRef.current = null;
+    clearInterval(ears.poll);
+    try {
+      if (ears.recorder && ears.recorder.state !== "inactive") {
+        ears.recorder.ondataavailable = null;
+        ears.recorder.onstop = null;
+        ears.recorder.stop();
+      }
+    } catch {
+      // already stopped
+    }
+    try {
+      ears.stream.getTracks().forEach((t) => t.stop());
+    } catch {
+      // already released
+    }
+    try {
+      void ears.ctx.close();
+    } catch {
+      // already closed
+    }
+    setVoiceUserTalking(false);
+  }, []);
+
+  const processVoiceUtterance = useCallback(
+    async (blob: Blob) => {
+      if (voicePresenceRef.current === "avatar") return;
+      try {
+        const form = new FormData();
+        form.append("audio", blob, "utterance.webm");
+        const res = await fetch("/api/voice-transcribe", {
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) throw new Error(`voice transcribe ${res.status}`);
+        const { text } = (await res.json()) as { text?: string };
+        let heard = (text ?? "").trim();
+        if (!heard) return;
+        const intake = resolveTurnIntake({
+          incoming: heard,
+          pending: pendingSpeechFragmentRef.current,
+          now: Date.now(),
+        });
+        pendingSpeechFragmentRef.current = intake.pending;
+        if (intake.kind === "hold") {
+          voiceCutSpeech();
+          logAppEvent(
+            "user_turn_held",
+            { where: "list", chars: intake.pending.text.length },
+            "low",
+            { outcome: "held" },
+          );
+          return;
+        }
+        heard = intake.text;
+        // r33: STT sometimes ships the same utterance twice back-to-back —
+        // one turn, one response (the avatar path has had this guard since
+        // 2026-06-11; the list ears were open).
+        if (
+          isDuplicateUtterance(
+            lastListHeardRef.current?.text ?? null,
+            lastListHeardRef.current?.at ?? 0,
+            heard,
+            Date.now(),
+          )
+        ) {
+          logAppEvent(
+            "user_turn_dropped",
+            { where: "list", reason: "duplicate" },
+            "low",
+            { outcome: "dropped" },
+          );
+          return;
+        }
+        // Snapshot the prior fragment BEFORE overwriting, so the close-stitch
+        // below can join STT chunks of the same utterance (G 2026-06-14).
+        const priorListHeard = lastListHeardRef.current;
+        lastListHeardRef.current = { text: heard, at: Date.now() };
+        // G 2026-06-13 HARD STOP (list/voice mode): if the whole utterance is a
+        // stop command, go silent NOW — cut the TTS queue AND the WebAudio
+        // fallback — and return before any dispatch/brain routing. No reply, no
+        // list mutation. (voiceCutSpeech is defined above at module-render scope
+        // and already drops the queue + calls cutCustomVoiceFallback().)
+        if (STOP_NOW_RE.test(heard)) {
+          voiceCutSpeech();
+          logAppEvent("t6", { p: "hard_stop", where: "list", heard: heard.slice(0, 40) });
+          return;
+        }
+        // r28: echo firewall for the voice-mode ears too (avatar-mode got it
+        // in r26; this path was open and 6 answered his own speaker audio).
+        if (wasRecentlySpokenBySix(heard)) {
+          reportCustomVoiceDiag(`[echo-dropped:list] ${heard.slice(0, 80)}`);
+          logAppEvent(
+            "user_turn_dropped",
+            { where: "list", reason: "assistant_echo" },
+            "low",
+            { outcome: "dropped" },
+          );
+          return;
+        }
+        const utteranceId = createClientEventId("utt");
+        currentUtteranceIdRef.current = utteranceId;
+        logAppEvent(
+          "user_turn_accepted",
+          { where: "list", length: heard.length },
+          "low",
+          {
+            eventId: `${utteranceId}:accepted`,
+            utteranceId,
+            outcome: "accepted",
+          },
+        );
+        voiceLogTurn("user", heard);
+        rememberLineRef.current("user", heard);
+        logAppEvent("t6", { p: "vu_start", pres: voicePresenceRef.current, shop: isShoppingMode, heard: heard.slice(0, 50) });
+        // r29 telemetry (G 2026-06-12): complaints ARE bug reports — file
+        // silently, never hijack the conversation. Frustration counter too.
+        noteUserTurnForFrustration(heard);
+        maybeSubmitBugReport({
+          triggerText: heard,
+          transcript: getBrainHistory().map((l) => ({
+            role: l.role,
+            text: l.content,
+          })),
+          listSnapshot: activeListSnapshotRef.current,
+          mode,
+        });
+        maybeSubmitUserFeedback({
+          triggerText: heard,
+          transcript: getBrainHistory().map((l) => ({
+            role: l.role,
+            text: l.content,
+          })),
+          mode,
+        });
+        // r30: voice sign-out works from list mode too.
+        if (LOGOUT_COMMAND_RE.test(heard)) {
+          rememberLineRef.current("assistant", ACCOUNT_SIGNOUT_LINE);
+          voiceLogTurn("assistant", ACCOUNT_SIGNOUT_LINE);
+          void voiceSay(ACCOUNT_SIGNOUT_LINE);
+          performSignOut();
+          return;
+        }
+        const wildWorks = resolveWildWorksLinkTurn(heard, wildWorksOfferStateRef.current);
+        if (wildWorks) {
+          wildWorksOfferStateRef.current = wildWorks.nextState;
+          setWildWorksOfferState(wildWorks.nextState);
+          if (wildWorks.handled && wildWorks.spoken) {
+            rememberLineRef.current("assistant", wildWorks.spoken);
+            voiceLogTurn("assistant", wildWorks.spoken);
+            void voiceSay(wildWorks.spoken);
+            return;
+          }
+        }
+        const avatarSite = resolveAvatarSiteIntent(heard);
+        if (avatarSite) {
+          rememberLineRef.current("assistant", avatarSite);
+          voiceLogTurn("assistant", avatarSite);
+          void voiceSay(avatarSite);
+          return;
+        }
+        // SESSION-CLOSE wins over avatar-return in list mode (G 2026-06-14):
+        // "close the session" / "close this session" / "end session" must END the
+        // experience (Session Ended screen), not bring 6 back. hasEndSessionIntent
+        // is narrow — it fires on session/conversation/app/avatar close, and is
+        // FALSE for list-close phrases ("close the list", "take it down") and bare
+        // "stop"/"done", so legit list closes still fall through to wantsAvatarBack.
+        // STT-SHARD CLOSE STITCH (G 2026-06-14): same split-close fix as the
+        // avatar path — a bare "session" tail that follows a recent close-verb
+        // head ends the session instead of waking the brain in list mode.
+        if (
+          priorListHeard?.text &&
+          Date.now() - priorListHeard.at < 6000 &&
+          isStitchedSessionClose(priorListHeard.text, heard)
+        ) {
+          void handleEndSessionRef.current?.();
+          return;
+        }
+        if (hasEndSessionIntent(heard) && !END_SESSION_BLOCK_RE.test(heard)) {
+          void handleEndSessionRef.current?.(
+            isDirectAvatarStopCommand(heard) ? { pause: true } : undefined,
+          );
+          return;
+        }
+        if (wantsAvatarBack(heard)) {
+          // r32 (G 20:49: "take down the Walmart list and make a grocery
+          // list" — the close won and the create vanished, his berries went
+          // to the brain): a new-list ask in the same breath means SWAP
+          // lists in place, never leave list mode.
+          if (detectListIntent(heard)) {
+            await voiceDispatchRef.current?.(heard);
+            return;
+          }
+          // r29 (G 2026-06-12 09:01: "let's go back to six" brought the
+          // grocery list BACK with him): face-back = clean stage. The list
+          // survives ONLY an explicit "keep".
+          const keepList =
+            AVATAR_RETURN_RE.test(heard) &&
+            !VOICE_LIST_DONE_RE.test(heard) &&
+            /\bkeep\b/i.test(heard);
+          void voiceReturnRef.current?.(keepList);
+          return;
+        }
+        const before = voiceSpokenCounterRef.current;
+        logAppEvent("t6", { p: "vu_pre_dispatch" });
+        // G 2026-06-13 ("make ElevenLabs speak when a list comes up"): a slow or
+        // STUCK dispatcher would leave 6 mute in a list. Cap the wait SHORT (4s)
+        // so the GUARANTEED reply below fires before the user gives up. The gate
+        // (`counter === before`) blocks double-speak — if the dispatcher already
+        // spoke, the counter moved and we stay quiet.
+        await Promise.race([
+          Promise.resolve(voiceDispatchRef.current?.(heard)),
+          new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+        ]);
+        // The ref can flip to "avatar" DURING the await (a handler may have
+        // triggered the return) — widen past TS's narrowing before comparing.
+        const presenceNow = voicePresenceRef.current as unknown as string;
+        logAppEvent("t6", { p: "vu_post_dispatch", pres: presenceNow, spoke: voiceSpokenCounterRef.current !== before });
+        if (presenceNow !== "avatar" && voiceSpokenCounterRef.current === before) {
+          // No handler spoke. BULLETPROOF: whatever happens to the fetch, 6 says
+          // SOMETHING — a silent list is the worst outcome. (Blueberries proved
+          // the old code got a 200 then went silent: the fetch/json could throw
+          // or the brain could return empty for a command, and either way 6 stayed
+          // mute. Now an empty/failed brain still gets a spoken fallback line.)
+          const brainT0 = Date.now();
+          logAppEvent("t6", { p: "vu_brain_call" });
+          let replyText = "";
+          try {
+            const r = await fetch("/api/openai-chat-complete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                message: heard,
+                listMode: true,
+                history: getBrainHistory(),
+                userName: deviceProfileRef.current?.name ?? null,
+                signedInEmail: accountEmailRef.current,
+              }),
+            });
+            if (r.ok) {
+              const data = (await r.json()) as { response?: string };
+              replyText = (data.response ?? "").trim();
+            }
+          } catch {
+            // network/parse hiccup — fall through to the default line
+          }
+          logAppEvent("t6", {
+            p: "vu_brain_reply",
+            ms: Date.now() - brainT0,
+            len: replyText.length,
+          });
+          if (!replyText) {
+            replyText = "I'm right here. Tell me what to add, or say close the list.";
+          }
+          rememberLineRef.current("assistant", replyText);
+          void voiceSay(replyText);
+        }
+      } catch (e) {
+        void captureClientError(e, { where: "voice-mode", what: "utterance" });
+      }
+    },
+    [voiceSay, voiceLogTurn, getBrainHistory],
+  );
+
+  // r33: list-ears turns join the SAME one-at-a-time chain as avatar turns —
+  // two quick utterances answer in order, never on top of each other.
+  // r35: each link races a 25s timeout so one hung turn (dead session, locked
+  // audio) can never dam every turn behind it.
+  const handleVoiceUtterance = useCallback(
+    (blob: Blob): Promise<void> => {
+      turnChainRef.current = turnChainRef.current
+        .then(() => {
+          // G 2026-06-13: on a 25s timeout 6 used to go SILENTLY dead. Now he
+          // recovers out loud + logs it (console.warn = no red dev badge).
+          let done = false;
+          return Promise.race([
+            processVoiceUtterance(blob).then(() => {
+              done = true;
+            }),
+            new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
+          ]).then(() => {
+            if (!done) {
+              console.warn("[turn-timeout] voice turn exceeded 25s — recovering");
+              try {
+                voiceSay("Hmm, I lost the thread there. Say that again?");
+              } catch {}
+            }
+          });
+        })
+        .catch((e) => {
+          // G 2026-06-13: a thrown turn used to be swallowed SILENTLY — 6 went
+          // mute with no trace. Now log it + recover out loud.
+          logAppEvent("turn_error", {
+            where: "avatar",
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          console.warn("[turn-error] voice turn threw — recovering", e);
+          try {
+            voiceSay("Hmm, I hit a snag there. Say that again?");
+          } catch {}
+        });
+      return turnChainRef.current;
+    },
+    [processVoiceUtterance, voiceSay],
+  );
+
+  // Ears: RMS voice-activity detection over the raw mic; records one
+  // utterance at a time and ships it to /api/voice-transcribe. Half-duplex by
+  // design — frames are ignored while 6's own audio is playing so his voice
+  // never transcribes itself (echoCancellation helps too).
+  const startVoiceEars = useCallback(async () => {
+    if (voiceEarsRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      const ctx = new AudioContext();
+      const srcNode = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      srcNode.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      // r19: 60ms poll (was 100) trims first-syllable clipping; barge-in lets
+      // the user talk OVER 6 — a clearly-louder sustained voice cuts him off
+      // (the 2.5x bar + 350ms hold keep his own speaker audio from triggering
+      // it; echoCancellation does the rest).
+      const POLL_MS = 60;
+      const START_RMS = 0.022;
+      const BARGE_RMS = START_RMS * 2.5;
+      const BARGE_HOLD_MS = 350;
+      const STOP_SILENCE_MS = 850;
+      const MIN_SPEECH_MS = 350;
+      const ears = {
+        stream,
+        ctx,
+        analyser,
+        recorder: null as MediaRecorder | null,
+        poll: 0 as unknown as ReturnType<typeof setInterval>,
+        speaking: false,
+        speechMs: 0,
+        silenceMs: 0,
+        bargeMs: 0,
+        chunks: [] as Blob[],
+      };
+      ears.poll = setInterval(() => {
+        if (voicePresenceRef.current === "avatar") return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        // r23 (G: "the voice should pulse with my voice... like in a music
+        // studio"): drive the face circle's glow straight off the live mic
+        // level — direct DOM write, no React re-render at 60ms.
+        // (While 6's own audio is playing, HIS meter owns the glow.)
+        if (!voiceTtsBusyRef.current) {
+          const circle = document.getElementById("six-voice-circle");
+          const glow = document.getElementById("six-voice-glow");
+          if (circle || glow) {
+            const level = Math.min(1, rms * 14);
+            // G 2026-06-14: glow in the un-clipped ring layer around the face,
+            // pulsing straight off the live mic level.
+            if (glow)
+              glow.style.boxShadow = `0 0 0 ${(2 + level * 5).toFixed(1)}px rgba(244,208,134,${(0.5 + level * 0.45).toFixed(2)}), 0 0 ${(12 + level * 30).toFixed(0)}px ${(4 + level * 9).toFixed(0)}px rgba(255,233,194,${(0.28 + level * 0.5).toFixed(2)})`;
+            // G 2026-06-13: face HOLDS STILL — no zoom. Only the gold glow
+            // pulses with the voice level.
+            if (circle) circle.style.transform = "scale(1.7)";
+          }
+        }
+        // G 2026-06-13 INTERRUPT FIX: barge-in must also trigger while 6 speaks
+        // through the WebAudio fallback (list mode), which doesn't flip
+        // voiceTtsBusyRef. Without isCustomVoiceFallbackBusy() here, 6 "would
+        // not stop" when talked over in a list.
+        if (
+          (voiceTtsBusyRef.current || isCustomVoiceFallbackBusy()) &&
+          !ears.speaking
+        ) {
+          if (rms > BARGE_RMS) {
+            ears.bargeMs += POLL_MS;
+            if (ears.bargeMs < BARGE_HOLD_MS) return;
+            voiceCutSpeech();
+          } else {
+            ears.bargeMs = 0;
+            return;
+          }
+        }
+        const loud = rms > START_RMS;
+        if (loud) {
+          ears.silenceMs = 0;
+          ears.speechMs += POLL_MS;
+          if (!ears.speaking) {
+            ears.speaking = true;
+            setVoiceUserTalking(true);
+            ears.chunks = [];
+            try {
+              const rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+              rec.ondataavailable = (ev) => {
+                if (ev.data.size > 0) ears.chunks.push(ev.data);
+              };
+              rec.onstop = () => {
+                const blob = new Blob(ears.chunks, { type: "audio/webm" });
+                ears.chunks = [];
+                if (blob.size > 1500) void handleVoiceUtterance(blob);
+              };
+              rec.start(250);
+              ears.recorder = rec;
+            } catch (e) {
+              void captureClientError(e, {
+                where: "voice-mode",
+                what: "recorder",
+              });
+            }
+          }
+        } else if (ears.speaking) {
+          ears.silenceMs += POLL_MS;
+          if (ears.silenceMs >= STOP_SILENCE_MS) {
+            ears.speaking = false;
+            setVoiceUserTalking(false);
+            const longEnough = ears.speechMs >= MIN_SPEECH_MS;
+            ears.speechMs = 0;
+            ears.silenceMs = 0;
+            ears.bargeMs = 0;
+            try {
+              if (ears.recorder && ears.recorder.state !== "inactive") {
+                if (!longEnough) {
+                  ears.recorder.ondataavailable = null;
+                  ears.recorder.onstop = null;
+                }
+                ears.recorder.stop();
+              }
+            } catch {
+              // recorder already gone
+            }
+            ears.recorder = null;
+          }
+        }
+      }, POLL_MS);
+      voiceEarsRef.current = ears;
+    } catch (e) {
+      void captureClientError(e, { where: "voice-mode", what: "mic" });
+      // Mic denied/broken — never strand the user deaf; bring 6 back.
+      void voiceReturnRef.current?.(true);
+    }
+  }, [handleVoiceUtterance, voiceCutSpeech]);
+
+  const enterVoiceListMode = useCallback(
+    async (listTitle: string, wasNew: boolean) => {
+      // FULL_PAGE_LISTS_DORMANT (G 2026-06-14): never tear the avatar down for a
+      // full-screen list -- chest lists only, 6 stays on screen. The sole caller
+      // is already gated on the flag; this guard makes full-page impossible to
+      // reach even if a future path calls in.
+      if (FULL_PAGE_LISTS_DORMANT) return;
+      if (voicePresenceRef.current !== "avatar") return;
+      setPresence("voice");
+      voiceReturnKeepsListRef.current = false;
+      voiceEnteredAtRef.current = Date.now();
+      voiceReturnAttemptsRef.current = 0; // fresh stay, fresh comeback budget
+      void captureClientWarn(new Error("voice-mode"), {
+        where: "voice-mode",
+        what: "enter",
+        list: listTitle,
+      });
+      logAppEvent("voice_list_enter", { list: listTitle, wasNew });
+      try {
+        await sessionInterrupt();
+      } catch {
+        // avatar may already be silent
+      }
+      // G 2026-06-13: 6 went MUTE/deaf right after the list intro with NO trace
+      // (no turn, no error fires). Await the ears so they're confirmed live, and
+      // log each step so the next list entry pinpoints exactly where it dies.
+      try {
+        await startVoiceEars();
+        logAppEvent("list_enter_step", { step: "ears_started", list: listTitle });
+      } catch (e) {
+        logAppEvent("list_enter_step", {
+          step: "ears_failed",
+          list: listTitle,
+          msg: e instanceof Error ? e.message : String(e),
+        });
+      }
+      // G 2026-06-13: the list-open announcement now comes SOLELY from the
+      // dispatcher's "I started the {title}..." line. enterVoiceListMode used to
+      // ALSO speak "Here's your {title}. Just tell me what to add." — so every
+      // list open said the same thing twice ("a bunch of extra stuff... he does
+      // not need to say all that"). One clean announcement now. (The dispatcher
+      // line rides the same voiceSay path as every add/remove confirmation, so
+      // it's proven reliable in list mode.)
+      logAppEvent("list_enter_step", {
+        step: "announce_deferred_to_dispatcher",
+        list: listTitle,
+      });
+      try {
+        await stopSession();
+        logAppEvent("list_enter_step", { step: "session_stopped", list: listTitle });
+      } catch (e) {
+        logAppEvent("list_enter_step", {
+          step: "session_stop_failed",
+          list: listTitle,
+          msg: e instanceof Error ? e.message : String(e),
+        });
+        void captureClientError(e, {
+          where: "voice-mode",
+          what: "stop-session",
+        });
+      }
+    },
+    [setPresence, sessionInterrupt, startVoiceEars, voiceSay, stopSession],
+  );
+
+  // r27 (copilot 2026-06-12, the 01:39 runaway: "bringing my face back" spoken
+  // ~60x in 7 seconds): return attempts are now counted; the belt effect stops
+  // auto-retrying after 3 and the spoken lines only play on the first try.
+  const voiceReturnAttemptsRef = useRef(0);
+  const beginAvatarReturn = useCallback(
+    async (keepList: boolean) => {
+      if (voicePresenceRef.current !== "voice") return;
+      const attempt = ++voiceReturnAttemptsRef.current;
+      setPresence("returning");
+      voiceReturnKeepsListRef.current = keepList;
+      // Never replay the full scripted intro on a comeback.
+      greetingTriggeredRef.current = true;
+      // r31 (G's explicit script order, 2026-06-12 09:02: "Don't have six
+      // say, bring my face back, say, I'm bringing myself back"): SACRED
+      // wording — never say "face back".
+      if (attempt === 1) {
+        void voiceSay("You got it - one sec, bringing myself back.");
+      }
+      void captureClientWarn(new Error("voice-mode"), {
+        where: "voice-mode",
+        what: "return",
+        keepList,
+      });
+      logAppEvent("face_return", { phase: "attempt", attempt, keepList });
+      try {
+        // r27: the comeback must mint the SAME mode the page runs. This used
+        // to always hit /api/start-session (FULL) — which the localhost credit
+        // guard 429s — so on localhost the face could NEVER return and the
+        // belt effect looped the failure line forever.
+        let res: Response;
+        if (mode === "CUSTOM") {
+          res = await fetch("/api/start-custom-session", { method: "POST" });
+        } else {
+          const requestedLang =
+            typeof window !== "undefined"
+              ? new URLSearchParams(window.location.search).get("lang")
+              : null;
+          let deviceTz: string | null = null;
+          try {
+            deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+          } catch {
+            // no clock, no zone
+          }
+          res = await fetch("/api/start-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ lang: requestedLang, tz: deviceTz }),
+          });
+        }
+        if (!res.ok) throw new Error(`voice renew mint ${res.status}`);
+        const data = (await res.json()) as { session_token?: string };
+        if (!data.session_token) throw new Error("voice renew mint empty");
+        renewSessionToken(data.session_token);
+        // The context resets to INACTIVE → the auto-start effect below starts
+        // the fresh session → the handoff effect finishes when video is live.
+      } catch (e) {
+        void captureClientError(e, { where: "voice-mode", what: "renew" });
+        logAppEvent(
+          "face_return",
+          { phase: "mint_failed", attempt },
+          "high",
+        );
+        setPresence("voice");
+        if (attempt <= 2) {
+          void voiceSay(
+            "Hmm - I couldn't bring myself back just now. We can keep talking, or tap my photo to try again.",
+          );
+        }
+      }
+    },
+    [setPresence, voiceSay, renewSessionToken, mode],
+  );
+
+  useEffect(() => {
+    voiceReturnRef.current = beginAvatarReturn;
+  }, [beginAvatarReturn]);
+
+  // Handoff: the fresh session is live → ears off, overlay down, avatar talks.
+  useEffect(() => {
+    if (voicePresence !== "returning") return;
+    if (sessionState !== SessionState.CONNECTED || !isStreamReady) return;
+    stopVoiceEars();
+    setPresence("avatar");
+    voiceReturnAttemptsRef.current = 0; // comeback landed — reset the budget
+    logAppEvent("face_return", { phase: "landed" });
+    setIsShoppingMode(false);
+    if (!voiceReturnKeepsListRef.current) {
+      setActiveListId(null);
+    }
+    // r20 (G 21:37: "the tab click was on the screen... it should not be"):
+    // the user already tapped and talked this visit — the comeback must land
+    // mid-conversation, never behind the tap gate. Voice chat restarts itself.
+    setHasUserPressedVoiceStart(true);
+    // r28 (G 2026-06-12 08:48: comeback = face moving, no voice, no pillboxes,
+    // deaf): the begin-tap hold effect re-armed on the fresh session and
+    // stop()ed the mic the same commit this start()ed it, and CUSTOM mode
+    // never got isCustomVoiceActive back — so the pillboxes (gated on
+    // voiceIsActive) stayed hidden and 6 heard nothing. Mark the tap gate as
+    // already passed BEFORE that effect runs (same commit, declaration order)
+    // and restore the CUSTOM-active flag.
+    voiceHeldUntilUserStartRef.current = true;
+    void start();
+    if (mode === "CUSTOM") {
+      setIsCustomVoiceActive(true);
+    }
+    const line =
+      AVATAR_BACK_LINES[Math.floor(Date.now() / 1000) % AVATAR_BACK_LINES.length];
+    void sessionRepeat(line);
+  }, [voicePresence, sessionState, isStreamReady, stopVoiceEars, setPresence, sessionRepeat, start, mode]);
+
+  // Leave nothing running if the whole component unmounts mid-voice-mode.
+  useEffect(() => {
+    return () => {
+      stopVoiceEars();
+      try {
+        void voiceAudioCtxRef.current?.close();
+      } catch {
+        // already closed
+      }
+    };
+  }, [stopVoiceEars]);
+  // ═══════════ end voice-list mode block ═══════════
   const videoRef = useRef<HTMLVideoElement>(null);
+  // SDK stream readiness can precede the first frame painted by Android's
+  // video element. Keep phone lifecycle UI behind the loading badge until the
+  // media element itself proves that it has renderable current data.
+  const [hasRenderableAvatarFrame, setHasRenderableAvatarFrame] = useState(false);
+  const avatarFrameProvenRef = useRef(false);
+  const avatarFrameRequestRef = useRef<{
+    video: HTMLVideoElement;
+    id: number;
+  } | null>(null);
+  const [isPhoneLifecycleViewport, setIsPhoneLifecycleViewport] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 599px)").matches,
+  );
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraPreviewRef = useRef<HTMLVideoElement>(null);
@@ -1599,26 +3408,135 @@ const LiveAvatarSessionComponent: React.FC<{
   const fallbackImageInputRef = useRef<HTMLInputElement>(null);
   const isDebugProcessingRef = useRef<boolean>(false);
   const lastAvatarResponseRef = useRef<string>("");
+  // Partial STT finals are held and stitched before any name/list/brain intent.
+  const pendingSpeechFragmentRef = useRef<PendingSpeechFragment | null>(null);
+  const prevUserSpeechRef = useRef<{ text: string; at: number }>({
+    text: "",
+    at: 0,
+  });
+
+  const authoritativeAvatarSpeechSourceRef = useRef<AvatarSpeechSource>(
+    selectAvatarSpeechSource(mode, false),
+  );
+  const sessionEpochRef = useRef(sessionEpoch);
+  sessionEpochRef.current = sessionEpoch;
+  useEffect(() => {
+    pendingSpeechFragmentRef.current = null;
+    prevUserSpeechRef.current = { text: "", at: 0 };
+    authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+      mode,
+      false,
+    );
+  }, [mode, sessionEpoch]);
+  // Stable bridges keep SDK and browser listeners attached only for their real
+  // transport lifecycles while the underlying turn closure remains current.
+  const sdkUserTranscriptionDispatchRef = useRef<
+    (event: { text: string }) => unknown
+  >(() => undefined);
+  const dispatchAuthoritativeAvatarSpeech = useCallback(
+    (source: AvatarSpeechSource, event: { text: string }) => {
+      const text = event.text.trim();
+      if (!text || isInternalSignal(text)) return;
+      // MUTE 2026-08-21: THIS is the mute. Both live ears funnel through here —
+      // the SDK's USER_TRANSCRIPTION forwarder and the browser recognizer — so
+      // this is the one place the gate cannot be routed around. Gating only the
+      // recognizer would not hold: its onerror deliberately falls authority back
+      // to "liveavatar_sdk" on any network/device/permission failure, and the
+      // SDK forwarder would then be accepted with nothing standing in front of
+      // it. Gating only the LiveKit track would not hold either — in CUSTOM
+      // that track is not the transcript transport at all (sourceAuthority
+      // elects "app_browser" and the SDK's transcripts are dropped), AND
+      // customVoiceDelivery's echo gate re-opens the track ~300ms after every
+      // fallback line without consulting any user flag.
+      //
+      // Dropped BEFORE the arbitration on purpose: muted input must have zero
+      // effect on any state. (arbitrateAvatarSpeechSource is a pure accept/
+      // reject — it never changes authority — so nothing is lost by returning
+      // early here.) Logged so "he heard me while I was muted" has a row.
+      if (micMutedRef.current) {
+        logAppEvent(
+          "user_turn_dropped",
+          { where: "avatar", reason: "mic_muted", source },
+          "low",
+          { outcome: "dropped" },
+        );
+        return;
+      }
+      const decision = arbitrateAvatarSpeechSource(
+        authoritativeAvatarSpeechSourceRef.current,
+        source,
+      );
+      authoritativeAvatarSpeechSourceRef.current =
+        decision.authoritativeSource;
+      if (!decision.accepted) return;
+      void sdkUserTranscriptionDispatchRef.current({ text });
+    },
+    [],
+  );
+  const latestInterruptRef = useRef(interrupt);
+  latestInterruptRef.current = interrupt;
   const lastUserTextRef = useRef<string>("");
+  // The immediately-preceding user speech fragment + when it arrived. Used to
+  // stitch STT chunks of the SAME utterance back together before deciding a
+  // close (G 2026-06-03: a question "if I close this out, would you remember
+  // me" split across chunks and the bare "close this out" fragment eager-closed).
   const recentConversationRef = useRef<MemoryConversationLine[]>([]);
+  // r33: one turn = one memory line (kills the doubled bug-report transcripts).
+  const lastRememberedLineRef = useRef<{ key: string; at: number } | null>(
+    null,
+  );
+  // r33 (G 2026-06-12 21:15, "two voices" + doubled lines): ALL user turns —
+  // avatar ears and list ears — run through ONE chain, one at a time, in
+  // arrival order. Racing handlers were answering two quick utterances on
+  // top of each other through two different voice pipes.
+  const turnChainRef = useRef<Promise<void>>(Promise.resolve());
+  // r35: any first touch unlocks the voice player (browsers keep audio
+  // suspended until a gesture — 6 looked alive but mute after a reload).
+  useEffect(() => {
+    const unlock = () => {
+      const ctx = voiceAudioCtxRef.current;
+      if (ctx && ctx.state === "suspended") {
+        void ctx.resume().catch(() => {});
+      }
+    };
+    document.addEventListener("pointerdown", unlock);
+    return () => document.removeEventListener("pointerdown", unlock);
+  }, []);
+  const lastListHeardRef = useRef<{ text: string; at: number } | null>(null);
   const lastFullModeMessageRef = useRef<{ text: string; at: number } | null>(
     null,
   );
   const lastVisionResponseTimeRef = useRef<number>(0);
   const hasAutoAnalyzedRef = useRef<boolean>(false);
-  // Tracks the specific problem the user is trying to fix (persists across vision calls so
-  // Grok can stay laser-focused on the object/problem the user named at the start).
+  // Tracks the specific problem the user is trying to fix across vision calls.
   const currentProblemRef = useRef<string>("");
-  // Tracks the last non-silent vision analysis so Grok can compare frames and only break
+  // Tracks the last non-silent vision analysis so the system can compare frames and only break
   // silence when something meaningful has actually changed.
   const lastAnalysisRef = useRef<string>("");
 
+
   const isAttachedRef = useRef<boolean>(false);
   const greetingTriggeredRef = useRef<boolean>(false);
+  // G 2026-06-14 DOUBLE-GREET FIX: the live begin surface (shouldShowBeginSurface)
+  // has NO disabled attribute, so a second tap during the ~2.5s
+  // ensureAudioOutputReady() await re-enters handleVoiceStartStop before the
+  // first run claims postVerifyGreetingSpokenRef (set only AFTER
+  // pickReturningGreeting returns) -> two returning greetings. This synchronous
+  // ref blocks re-entry into the start+greeting sequence until the first tap
+  // finishes.
+  const voiceStartInProgressRef = useRef<boolean>(false);
+  // Latest spoken text from 6 (AVATAR_TRANSCRIPTION). Used to skip the
+  // completion injection when the LLM already re-delivered the greeting on
+  // its own (e.g., user said "What did you just say?" and LLM repeats it).
+  const lastAvatarTranscriptionRef = useRef<string>("");
   const audioUnlockedRef = useRef<boolean>(false);
+  const avatarAudioPresentationProbeRef =
+    useRef<AvatarAudioPresentationProbe | null>(null);
   const wasMutedBeforeRecordingRef = useRef<boolean>(false);
   /** LiveAvatar server session id — used for DB + official transcript API (set when CONNECTED). */
   const dbSessionIdRef = useRef<string | null>(null);
+  /** Tester slug from ?tester=<slug>, persisted via sessionStorage. Threaded into write paths for attribution. */
+  const testerLabelRef = useRef<string | null>(null);
   /** Cursor for GET /v1/sessions/{id}/transcript (LiveAvatar `next_timestamp`). */
   const transcriptCursorRef = useRef<number | null>(null);
   const lastSyncedLaSessionIdRef = useRef<string | null>(null);
@@ -1626,17 +3544,85 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceHeldUntilUserStartRef = useRef(false);
   const [hasUserPressedVoiceStart, setHasUserPressedVoiceStart] = useState(false);
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
+
+  useEffect(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    const probe = createBrowserAvatarAudioPresentationProbe({
+      session,
+      getElement: () => videoRef.current,
+      isAudioUnlocked: () => audioUnlockedRef.current,
+      isIntentionallyMuted: () => voiceMutedRef.current,
+    });
+    const unbind = bindAvatarAudioPresentationProbe(session, probe);
+    avatarAudioPresentationProbeRef.current = probe;
+    return () => {
+      if (avatarAudioPresentationProbeRef.current === probe) {
+        avatarAudioPresentationProbeRef.current = null;
+      }
+      unbind();
+    };
+  }, [sessionEpoch, sessionRef]);
   const [thoughtPrompts, setThoughtPrompts] = useState(
     normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS),
   );
   const [dissolvingPrompt, setDissolvingPrompt] = useState<string | null>(null);
-  const [assistantLists, setAssistantLists] =
+  const [assistantLists, setAssistantListsState] =
     useState<AssistantList[]>(loadAssistantLists);
-  const [activeListId, setActiveListId] = useState<string | null>(null);
+  const assistantListsLiveRef = useRef<AssistantList[]>(assistantLists);
+  const listRevisionRef = useRef(0);
+  const commitAssistantLists = useCallback(
+    (
+      update:
+        | AssistantList[]
+        | ((current: AssistantList[]) => AssistantList[]),
+    ): AssistantList[] => {
+      const current = assistantListsLiveRef.current;
+      const next = typeof update === "function" ? update(current) : update;
+      assistantListsLiveRef.current = next;
+      setAssistantListsState(next);
+      return next;
+    },
+    [],
+  );
+  useEffect(() => {
+    assistantListsLiveRef.current = assistantLists;
+  }, [assistantLists]);
+  const [activeListIdRaw, setActiveListId] = useState<string | null>(null);
+  // ITEM 5 (2026-06-14, G asked twice): the "list of lists" index on 6's chest.
+  // listIndexOnChest drives the render; listIndexPickRef makes the next-turn pick
+  // ("the first one" / "Walmart") staleness-proof regardless of the effect deps.
+  const [listIndexOnChest, setListIndexOnChest] = useState<
+    ListIndexEntry[] | null
+  >(null);
+  const listIndexPickRef = useRef<ListIndexEntry[] | null>(null);
+  // v1 LIST_UI_DORMANT: force activeListId to null so even if code paths set it
+  // (e.g., LIST_TRIGGER_RE matched on user text), nothing downstream sees a list,
+  // 6 doesn't narrate a phantom list, and pillboxes stay in their narrow layout.
+  const activeListId = LIST_UI_DORMANT ? null : activeListIdRaw;
   const [isShoppingMode, setIsShoppingMode] = useState(false);
   const [deviceProfile, setDeviceProfile] =
     useState<DeviceProfile>(loadDeviceProfile);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  // r34: ref mirror — stale-closure callbacks (signup gate, brain calls)
+  // need the live signed-in state.
+  const accountEmailRef = useRef<string | null>(null);
+  useEffect(() => {
+    accountEmailRef.current = accountEmail;
+  }, [accountEmail]);
+
+  // G 2026-06-14: the signed-in email badge shows top-center for ~2.5s at the
+  // start (so you know which account you're in), then fades out to stay clean.
+  const [signedInBadgeShown, setSignedInBadgeShown] = useState(false);
+  useEffect(() => {
+    if (!accountEmail) {
+      setSignedInBadgeShown(false);
+      return;
+    }
+    setSignedInBadgeShown(true);
+    const t = setTimeout(() => setSignedInBadgeShown(false), 2600);
+    return () => clearTimeout(t);
+  }, [accountEmail]);
   const [accountAuthChecked, setAccountAuthChecked] = useState(true);
   const [accountNotice, setAccountNotice] = useState<string | null>(null);
   const [accountVerificationUrl, setAccountVerificationUrl] = useState<
@@ -1644,6 +3630,17 @@ const LiveAvatarSessionComponent: React.FC<{
   >(null);
   const [emailEntryOpen, setEmailEntryOpen] = useState(false);
   const [typedAccountEmail, setTypedAccountEmail] = useState("");
+  // FIX 1 (2026-06-01): the email the user is SPELLING, shown live on 6's chest
+  // (above the top pillbox). 6 never reads this back by voice — the box on
+  // screen is the source of truth. showChestEmail controls visibility.
+  const [chestEmailText, setChestEmailText] = useState("");
+  const [showChestEmail, setShowChestEmail] = useState(false);
+  // FIX (2026-06-01): when set, the on-chest box shows this status text
+  // (e.g. "Account Link Sent") in place of the email label + address, then fades.
+  const [chestEmailStatus, setChestEmailStatus] = useState<string | null>(null);
+  const [sendLinkFallbackStatus, setSendLinkFallbackStatus] =
+    useState<SendLinkFallbackStatus>("hidden");
+  const [sendLinkFallbackEmail, setSendLinkFallbackEmail] = useState<string | null>(null);
   const [onlineLookupNotice, setOnlineLookupNotice] = useState<string | null>(
     null,
   );
@@ -1660,7 +3657,49 @@ const LiveAvatarSessionComponent: React.FC<{
   const [postVerifyGreeting, setPostVerifyGreeting] = useState<string | null>(
     null,
   );
-  const [promptSizeLevel, setPromptSizeLevel] = useState(0);
+  // v1 2026-05-24 (G): pillbox font 2 sizes larger. Each level = +0.06rem (list mode) or +0.1rem (open mode).
+  const [promptSizeLevel, setPromptSizeLevel] = useState(loadUiSizeLevel);
+  // G 2026-06-14: list touch gestures — two-finger pinch-zoom resizes the list
+  // (shared size levels), one-finger horizontal swipe flips between lists. The
+  // handlers live after moveActiveList/playWhoosh (below) so they can use both;
+  // these refs hold the in-flight gesture. touch-pan-y keeps vertical scroll.
+  const pinchStartRef = useRef<{ dist: number; level: number } | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  // G 2026-06-14 (iPad smoke: "it wants to zoom the entire app"): iOS Safari
+  // ignores the viewport user-scalable lock, so kill its pinch page-zoom gesture
+  // events here. Our own two-finger handler on the list still resizes the list.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prevent = (e: Event) => e.preventDefault();
+    const opts = { passive: false } as AddEventListenerOptions;
+    document.addEventListener("gesturestart", prevent, opts);
+    document.addEventListener("gesturechange", prevent, opts);
+    document.addEventListener("gestureend", prevent, opts);
+    return () => {
+      document.removeEventListener("gesturestart", prevent);
+      document.removeEventListener("gesturechange", prevent);
+      document.removeEventListener("gestureend", prevent);
+    };
+  }, []);
+  // Persist the voice-chosen size so older eyes set it ONCE per device — and
+  // onto the ACCOUNT for signed-in users so it follows them to any device
+  // (G 2026-06-10). Debounced; fire-and-forget.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(UI_SIZE_STORAGE_KEY, String(promptSizeLevel));
+    } catch {
+      // Private mode etc. — session-only sizing is fine.
+    }
+    if (!accountSignedInRef.current) return;
+    const id = setTimeout(() => {
+      void fetch("/api/account/prefs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uiSizeLevel: promptSizeLevel }),
+      }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(id);
+  }, [promptSizeLevel]);
   const tapPromptFont = useMemo<React.CSSProperties>(() => {
     if (typeof window === "undefined") return TAP_PROMPT_FONT_OPTIONS.default;
     const requested = new URLSearchParams(window.location.search).get(
@@ -1676,6 +3715,17 @@ const LiveAvatarSessionComponent: React.FC<{
   const promptBrainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  useEffect(
+    () => () => {
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+      }
+      if (promptBrainTimeoutRef.current) {
+        clearTimeout(promptBrainTimeoutRef.current);
+      }
+    },
+    [],
+  );
   const onlineLookupLocationRef = useRef<string | null>(null);
   const onlineLookupPendingQueryRef = useRef<string | null>(null);
   const listScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1686,6 +3736,18 @@ const LiveAvatarSessionComponent: React.FC<{
     action: "add" | "remove" | "mention";
   } | null>(null);
   const pendingListDeleteRef = useRef<string | null>(null);
+  // ITEM 4 (2026-06-14): when 6 OFFERS to add an item ("Want me to add milk?"),
+  // park the offered item(s) here so the next bare "yes" lands the add BEFORE the
+  // brain sees it. Armed in the AVATAR_TRANSCRIPTION handler (where 6's brain
+  // offers actually land), one-shot, 45s expiry, resolved in the dispatcher
+  // AFTER every other yes/no confirm so it never steals a delete/send/end "yes".
+  const pendingAddRef = useRef<{
+    items: string[];
+    listId: string | null;
+    at: number;
+  } | null>(null);
+  // Live mirror of activeListId for the stable AVATAR_TRANSCRIPTION closure.
+  const activeListIdLiveRef = useRef<string | null>(null);
   const lastEnsuredListRef = useRef<{
     id: string;
     title: string;
@@ -1695,17 +3757,115 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountMemorySnapshotRef = useRef<AccountMemorySnapshot | null>(null);
   const accountMemoryContextInjectedRef = useRef(false);
   const postVerifyGreetingSpokenRef = useRef(false);
+  // Anonymous users get the opening line once per real provider session. Voice
+  // loop stops/restarts are not session boundaries and must not clear this.
+  const anonymousGreetingSpokenRef = useRef(false);
+  // Audio is muted until the user unlocks it (gesture). Greetings MUST wait for
+  // this or 6 mouths them silently during the muted-load window. (G 2026-06-03)
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const accountSetupAwaitingReadyRef = useRef(false);
   const accountSetupAwaitingEmailRef = useRef(false);
+  // True once a signed-in account loads. Gates account-setup OFF for returning
+  // users so the email-on-chest box + email parsing never fire on the return.
+  const accountSignedInRef = useRef(false);
+  // True between "ask the name" and "got the name" during account setup, so the
+  // next utterance is taken as the user's name even if 6's spoken line didn't
+  // match the name-ask regex. Guarantees deviceProfile.name is set BEFORE the
+  // email step, so startAccountSetup sends a real fullName (live bug: it was
+  // NULL because 6 jumped straight to email). 2026-06-01 name-capture fix.
+  const accountSetupAwaitingNameRef = useRef(false);
   const accountSetupPendingEmailRef = useRef<string | null>(null);
   const accountSetupRejectedEmailRef = useRef<string | null>(null);
+  // Keep the last explicitly confirmed address separate from the mutable
+  // candidate and one-shot send gate. A stop/correction can cancel sending
+  // without corrupting the field that the user already verified.
+  const accountSetupConfirmedEmailRef = useRef<string | null>(null);
+  // Explicit "send the link?" consent gate AFTER the email is confirmed correct
+  // (G 2026-06-03: "you need to ask permission before sending — the user says
+  // yes, THEN send"). The confirmed address waits here until they say send it.
+  const accountSetupAwaitingSendRef = useRef(false);
+  const accountSetupSendEmailRef = useRef<string | null>(null);
+  // STT echo guard (2026-06-11): the utterance + moment that armed the send
+  // gate — a duplicate of it can never also fire the gate (machine enforces).
+  const accountSetupSendArmedAtRef = useRef(0);
+  const accountSetupSendArmedByTextRef = useRef<string | null>(null);
+  // Cooldown so rapid "download my data" repeats don't blast multiple emails
+  // (G 2026-06-09 flood). Holds the last export-request fire time (ms).
+  const lastExportRequestAtRef = useRef(0);
+  // Dedupe magic-link sends so the sign-in link isn't emailed several times in a
+  // row (G 2026-06-09: repeated "sending the link now" + duplicate emails).
+  const lastAccountLinkSendRef = useRef<{ email: string; at: number } | null>(null);
   const accountSetupOfferMadeRef = useRef(false);
   const accountSetupDeclinedAtRef = useRef(0);
+  const [buildInterestState, setBuildInterestState] = useState<BuildInterestState>(
+    EMPTY_BUILD_INTEREST_STATE,
+  );
+  const buildInterestStateRef = useRef<BuildInterestState>(EMPTY_BUILD_INTEREST_STATE);
+  const pendingBuildAccountConsumedRef = useRef(false);
   const accountSetupEmailMissCountRef = useRef(0);
+  // Voice data-deletion (G 2026-06-07): when 6 asks "are you sure?" before
+  // erasing a user's data, the next utterance is the yes/no — these track that
+  // confirm gate and which scope ("memory" wipe vs "account" close) was asked.
+  const accountDeleteAwaitingConfirmRef = useRef(false);
+  const accountDeleteScopeRef = useRef<"memory" | "account">("memory");
+  // G 2026-06-08: every destructive delete now runs the SAME 30-day grace
+  // (account close). This flag exists ONLY so 6's wording matches what the user
+  // asked - "closing your account" vs "deleting your data" - never to change
+  // what actually happens (always grace).
+  const accountDeleteSaidCloseRef = useRef(true);
+  // FIX (2026-06-01): letter-by-letter on-chest email reveal + typewriter click.
+  // chestRevealTimerRef holds the pending per-letter timer so a new spoken chunk
+  // can cancel/continue cleanly. tickAudioCtxRef lazily holds the AudioContext
+  // for the synthesized typewriter click. chestStatusTimerRef fades the box after
+  // the "Account Link Sent" status shows.
+  const chestRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chestRevealActiveRef = useRef(false);
+  const tickAudioCtxRef = useRef<AudioContext | null>(null);
+  const chestStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendLinkFallbackDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // CHANGE 1 (2026-06-01): the address last parsed out of 6's spoken readback
+  // (AVATAR_TRANSCRIPTION). Used to dedupe so the box only re-reveals when 6
+  // confirms a DIFFERENT address, never on every line he speaks.
+  const lastAvatarParsedEmailRef = useRef<string | null>(null);
+  // Mirror of chestEmailText so the AVATAR_TRANSCRIPTION event handler (a stable
+  // closure) can read the currently shown address without stale state.
+  const chestEmailTextRef = useRef<string>("");
+  // CHANGE 2 (2026-06-01): live mirror of isAvatarTalking so the email handlers
+  // (stable useCallbacks) can tell whether 6 is mid-sentence — and stay quiet
+  // instead of talking over him — without re-creating on every talk toggle.
+  const isAvatarTalkingRef = useRef(false);
   const accountPendingStateTokenRef = useRef<string | null>(null);
+  // Cross-device sign-in poll (ported from iSolve 2026-08-21).
+  const accountPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const accountPollInFlightRef = useRef(false);
+  const accountReturnGreetedRef = useRef(false);
+  const accountReturnGreetingInFlightRef = useRef(false);
+  // The session id we SENT with the magic link, snapshotted. Deliberately not
+  // read from dbSessionIdRef at poll time - that one is nulled and reassigned
+  // when the avatar leg ends, and the row is keyed by what we sent.
+  const accountLinkSessionIdRef = useRef<string | null>(null);
   const endSessionConfirmationPendingRef = useRef(false);
   const endSessionConfirmationAskedAtRef = useRef(0);
   const explicitEndSessionRef = useRef(false);
+  // FIX #2 (2026-06-01, G "close the old session, only after 6 says take care"):
+  // single-active-session "newest wins" baton. When a newer session starts (e.g.
+  // the magic-link return opens a fresh tab), it announces a baton; OLDER
+  // sessions hear it and close gracefully (6 says a quick goodbye, THEN stops) so
+  // the user never has two live sessions burning credits. sessionStartedAtRef
+  // stamps this session's age; the guard "incoming.startedAt > mine" means the
+  // NEWEST session can never be told to stop — only strictly-older ones close.
+  // Same-browser via BroadcastChannel now; cross-browser via Supabase Realtime is
+  // the next step (G: critically important, but he tests same-browser until this
+  // is smooth).
+  const sessionStartedAtRef = useRef(Date.now());
+  const telemetrySessionLifecycleRef = useRef<{
+    sessionId: string;
+    startedAt: number;
+  } | null>(null);
+  const supersedeStoppingRef = useRef(false);
+  const sessionBatonChannelRef = useRef<BroadcastChannel | null>(null);
+  // Seeded from localStorage in the account-bootstrap effect so a returning
+  // user (same device/browser) never re-hears the close-list tip (G 2026-06-13).
   const listCloseEducationSpokenRef = useRef(false);
   const pendingListCustomizationPromptRef = useRef<{
     id: string;
@@ -1725,6 +3885,75 @@ const LiveAvatarSessionComponent: React.FC<{
     () => assistantLists.find((list) => list.id === activeListId) ?? null,
     [activeListId, assistantLists],
   );
+  // r29 telemetry: ref mirror so fire-and-forget bug reports can snapshot the
+  // on-screen list from inside stale-closure callbacks.
+  const activeListSnapshotRef = useRef<string[] | null>(null);
+  // G 2026-06-14: prompt-brain list context (title + items) as a ref so the
+  // delayed/stable brain callback always reads the CURRENT visible list (the
+  // pills become list-relevant — "Add Toothpaste" — not the life-goals).
+  const activeListPromptContextRef = useRef<{
+    title: string;
+    items: string[];
+  } | null>(null);
+  useEffect(() => {
+    activeListSnapshotRef.current = activeList ? [...activeList.items] : null;
+    activeListPromptContextRef.current = activeList
+      ? {
+          title: activeList.title,
+          items: activeList.items.slice(0, MAX_LIST_ITEMS),
+        }
+      : null;
+    activeListIdLiveRef.current = activeListId;
+    // G 2026-06-13 ("can you see all that are written on the lists, not just what
+    // I describe?"): log the FULL list so telemetry always shows the exact items,
+    // not just the spoken add/remove deltas.
+    if (activeList) {
+      logAppEvent("list_snapshot", {
+        listId: activeList.id,
+        title: activeList.title,
+        items: activeList.items.slice(0, 60),
+        count: activeList.items.length,
+      });
+    }
+  }, [activeList]);
+
+  // r34 (G's page-load crash 2026-06-12 21:44: "Not permitted in LITE mode"
+  // — a direct .message() resume-inject fired for the first signed-in return
+  // on localhost): context/signal injections via .message() are hosted-brain
+  // commands. FULL mode only, and armored so a refusal can never crash a
+  // render effect. CUSTOM brains already get this context through
+  // buildMemoryAugmentedMessage + history.
+  const injectFullModeContext = useCallback(
+    (text: string) => {
+      if (mode !== "FULL") return;
+      try {
+        sessionRef.current?.message(text);
+      } catch (e) {
+        void captureClientWarn(e, { where: "context-inject" });
+      }
+    },
+    [mode, sessionRef],
+  );
+
+  // r30: full voice sign-out — Supabase browser session + legacy account
+  // cookie both cleared, then a clean reload to anonymous so no
+  // half-signed-in state lingers. The delay lets 6 finish his confirm line.
+  const performSignOut = useCallback(() => {
+    logAppEvent("voice_logout", {});
+    void (async () => {
+      try {
+        await getSupabaseBrowserOrNull()?.auth.signOut();
+      } catch {
+        // server cookie clear + the reload below are the backstops
+      }
+      try {
+        await fetch("/api/account/logout", { redirect: "manual" });
+      } catch {
+        // reload anyway
+      }
+    })();
+    window.setTimeout(() => window.location.replace("/"), 4500);
+  }, []);
   const visibleThoughtPrompts = useMemo(() => {
     const listIsVisible = Boolean(activeList || isShoppingMode);
     return normalizeThoughtPrompts(
@@ -1736,23 +3965,40 @@ const LiveAvatarSessionComponent: React.FC<{
     );
   }, [activeList, isShoppingMode, thoughtPrompts]);
   const activeListTheme = listColorThemeFor(activeList);
+  // G 2026-06-14: list TEXT color is separate from the box accent. textHex (if a
+  // valid hex was set by voice) drives the words; otherwise text inherits the
+  // accent foreground (byte-identical to before for every existing list).
+  const activeListTextColor =
+    activeList?.textHex && hexToRgb(activeList.textHex)
+      ? activeList.textHex
+      : activeListTheme.foreground;
   const activeListUsesBlackTheme =
     activeListTheme.label.toLowerCase().includes("black") ||
     activeListTheme.foreground.toLowerCase() === "#050505";
+  // G 2026-06-14 (chose "brown base + strong color wash"): when the list has a
+  // NON-default accent (blue/green/rose/purple or a darkened/lightened shade),
+  // wash that color visibly over the brand-brown card so "make it blue" actually
+  // reads blue. The DEFAULT amber list keeps its LOCKED gold-standard look (gate
+  // off #e8b46b), so the brown card G locked in r35 is untouched.
+  const accentIsCustomColor =
+    !activeListUsesBlackTheme &&
+    activeListTheme.foreground.toLowerCase() !== "#e8b46b";
   const compactListPanelStyle = useMemo<React.CSSProperties>(
     () => ({
-      color: activeListTheme.foreground,
+      color: activeListTextColor,
       borderColor: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.42)"
-        : "rgba(232,180,107,0.56)",
+        : softFromHex(activeListTheme.foreground, 0.56),
       background: activeListUsesBlackTheme
         ? "linear-gradient(180deg, rgba(246,241,231,0.88), rgba(210,200,184,0.76))"
-        : "radial-gradient(circle at 18% 0%, rgba(232,180,107,0.28), transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))",
+        : accentIsCustomColor
+          ? `radial-gradient(circle at 32% 8%, ${softFromHex(activeListTheme.foreground, 0.22)}, transparent 62%), linear-gradient(160deg, rgba(58,33,8,0.93) 0%, rgba(46,26,8,0.94) 55%, rgba(34,20,10,0.95) 100%)`
+          : `radial-gradient(circle at 32% 8%, ${softFromHex(activeListTheme.foreground, 0.14)}, transparent 60%), linear-gradient(160deg, rgba(58,33,8,0.93) 0%, rgba(46,26,8,0.94) 55%, rgba(34,20,10,0.95) 100%)`,
       boxShadow: activeListUsesBlackTheme
         ? "inset 0 1px 20px rgba(255,255,255,0.36), 0 18px 42px rgba(0,0,0,0.42)"
-        : "inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px rgba(232,180,107,0.18)",
+        : `inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px ${softFromHex(activeListTheme.foreground, 0.18)}`,
     }),
-    [activeListTheme, activeListUsesBlackTheme],
+    [activeListTheme, activeListTextColor, activeListUsesBlackTheme, accentIsCustomColor],
   );
   const compactListMutedStyle = useMemo<React.CSSProperties>(
     () => ({
@@ -1766,24 +4012,24 @@ const LiveAvatarSessionComponent: React.FC<{
     () => ({
       background: activeListUsesBlackTheme
         ? "rgba(255,255,255,0.48)"
-        : "linear-gradient(180deg, rgba(255,226,176,0.08), rgba(0,0,0,0.24))",
+        : `linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, accentIsCustomColor ? 0.18 : 0.08)}, rgba(0,0,0,0.24))`,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.12)"
-        : "rgba(232,180,107,0.28)",
+        : softFromHex(activeListTheme.foreground, accentIsCustomColor ? 0.45 : 0.28),
       boxShadow: activeListUsesBlackTheme
         ? "0 10px 24px rgba(0,0,0,0.12)"
         : "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
     }),
-    [activeListUsesBlackTheme],
+    [activeListTheme.foreground, activeListUsesBlackTheme, accentIsCustomColor],
   );
   const compactListBadgeStyle = useMemo<React.CSSProperties>(
     () => ({
       background: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.08)"
-        : "linear-gradient(180deg, rgba(232,180,107,0.24), rgba(232,180,107,0.08))",
+        : `linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.24)}, ${softFromHex(activeListTheme.foreground, 0.08)})`,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.14)"
-        : "rgba(232,180,107,0.32)",
+        : softFromHex(activeListTheme.foreground, 0.32),
       color: activeListTheme.foreground,
     }),
     [activeListTheme.foreground, activeListUsesBlackTheme],
@@ -1796,7 +4042,7 @@ const LiveAvatarSessionComponent: React.FC<{
       color: activeListTheme.foreground,
       borderColor: activeListUsesBlackTheme
         ? "rgba(5,5,5,0.12)"
-        : "rgba(232,180,107,0.22)",
+        : softFromHex(activeListTheme.foreground, 0.22),
     }),
     [activeListTheme.foreground, activeListUsesBlackTheme],
   );
@@ -1805,17 +4051,78 @@ const LiveAvatarSessionComponent: React.FC<{
     (role: MemoryConversationLine["role"], text: string) => {
       const cleaned = cleanMemoryText(text, 220);
       if (!cleaned || isInternalSignal(cleaned)) return;
+      // Don't pollute conversation memory with the account-setup exchange —
+      // spelling the email, name capture, the send-confirm. That signup
+      // mechanics used to FLOOD the resume snapshot, so on return 6 recalled
+      // "we were working on your email setup" instead of the user's real topic
+      // (G 2026-06-07, hit on every return test). Skip those turns; the real
+      // conversation before and after signup is what we keep. The 30-line
+      // window alone didn't help — a long email-spell still buried the topic.
+      if (
+        accountSetupAwaitingEmailRef.current ||
+        accountSetupAwaitingNameRef.current ||
+        accountSetupAwaitingSendRef.current ||
+        accountSetupPendingEmailRef.current !== null
+      ) {
+        return;
+      }
+      // Keep the last 30 lines (was 12): a short account-setup tail used to push
+      // the user's actual TOPIC out of memory, so on return 6 only recalled the
+      // signup mechanics, not what they came to build (G 2026-06-03: came in
+      // about isolveyourproblems.ai, 6 only remembered "you were giving me your
+      // email"). 30 lines keeps the real subject in the resume snapshot.
+      // r33 (G 2026-06-12 21:15, the doubled bug-report transcript — "why is
+      // so much written twice?"): same role + same text inside 5s is a
+      // double-writer artifact, never a real repeat. One turn, one line.
+      const dupKey = `${role}:${cleaned.toLowerCase()}`;
+      if (
+        lastRememberedLineRef.current &&
+        lastRememberedLineRef.current.key === dupKey &&
+        Date.now() - lastRememberedLineRef.current.at < 5000
+      ) {
+        return;
+      }
+      lastRememberedLineRef.current = { key: dupKey, at: Date.now() };
       recentConversationRef.current = [
         ...recentConversationRef.current,
         { role, text: cleaned },
-      ].slice(-12);
+      ].slice(-30);
     },
     [],
   );
 
+  // Brain replies share one authoritative boundary: CUSTOM turns retain their
+  // speech correlation ID, all turns land in recent conversation history, and
+  // CUSTOM transcript logging remains intact.
+  useEffect(() => {
+    rememberLineRef.current = rememberConversationLine;
+    assistantLogRef.current = (text, context) => {
+      recordAssistantTurn({
+        mode,
+        text,
+        utteranceId: context.utteranceId,
+        pendingSpeechUtteranceIdRef,
+        logTurn: voiceLogTurn,
+        rememberLine: rememberConversationLine,
+      });
+    };
+  }, [mode, voiceLogTurn, rememberConversationLine]);
+
+  // v2.1 resume-bug fix (part b): this used to be a no-op (`return message`),
+  // so a returning signed-in user's memory snapshot never reached 6's brain.
+  // Now it prepends the resume context (built in the /api/account/me effect)
+  // to the FIRST brain message after a return, then flips the injected flag
+  // so we don't re-send the dump on every turn. Part (a)'s connect-time
+  // effect is the primary delivery path; this is belt-and-suspenders for the
+  // case where the user speaks before that effect fires.
   const buildMemoryAugmentedMessage = useCallback(
     (message: string) => {
-      return message;
+      if (accountMemoryContextInjectedRef.current) return message;
+      const snapshot = accountMemorySnapshotRef.current;
+      const contextText = snapshot?.contextText?.trim();
+      if (!contextText) return message;
+      accountMemoryContextInjectedRef.current = true;
+      return `${contextText}\n\nThe user just said: ${message}`;
     },
     [],
   );
@@ -1893,28 +4200,28 @@ const LiveAvatarSessionComponent: React.FC<{
       : listScrollRef.current;
     if (!container) return;
 
+    // G 2026-06-14: ONLY auto-scroll when an item is actually ADDED. Mentions
+    // (6 referencing an existing item) and other re-renders must NOT yank the
+    // list — that was the "it jumped to number 6 and then went back" bug.
     const focus = latestListMutationRef.current;
+    if (focus?.listId !== activeList.id || !focus.item || focus.action !== "add") {
+      return;
+    }
     requestAnimationFrame(() => {
-      if (
-        focus?.listId === activeList.id &&
-        focus.item &&
-        (focus.action === "add" || focus.action === "mention")
-      ) {
-        const itemIndex = activeList.items.findIndex((item) =>
-          itemKeysMatch(item, focus.item ?? ""),
-        );
-        const row =
-          itemIndex >= 0
-            ? container.querySelector<HTMLElement>(
-                `[data-list-index="${itemIndex}"]`,
-              )
-            : null;
-        if (row) {
-          row.scrollIntoView({ block: "center", behavior: "smooth" });
-          return;
-        }
+      const itemIndex = activeList.items.findIndex((item) =>
+        listItemKeysMatch(item, focus.item ?? ""),
+      );
+      const row =
+        itemIndex >= 0
+          ? container.querySelector<HTMLElement>(
+              `[data-list-index="${itemIndex}"]`,
+            )
+          : null;
+      if (row) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+      } else {
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
       }
-      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     });
   }, [activeList, isShoppingMode, listFocusNonce]);
 
@@ -1966,7 +4273,10 @@ const LiveAvatarSessionComponent: React.FC<{
     promptBrainHistoryRef.current = recentUserTexts;
 
     const sequence = ++promptBrainSeqRef.current;
-    setThoughtPrompts(fallbackPrompts);
+    // Note: we used to call setThoughtPrompts(fallbackPrompts) here before the brain
+    // fetch. Removed per G's "old goes out, new comes in" — current pills stay until
+    // brain returns. fallbackPrompts is still passed in the request body as
+    // currentPrompts context. If brain fails entirely, current pills stay (no flash).
 
     try {
       const response = await fetch("/api/prompt-brain", {
@@ -1978,6 +4288,13 @@ const LiveAvatarSessionComponent: React.FC<{
           latestUserText,
           recentUserTexts,
           currentPrompts: fallbackPrompts,
+          // G 2026-06-14: when a list is on screen, send it so the pills become
+          // list-relevant ("Add Toothpaste") instead of the life-goals.
+          ...(activeListPromptContextRef.current
+            ? { listContext: activeListPromptContextRef.current }
+            : {}),
+          sessionId: dbSessionIdRef.current,
+          testerLabel: testerLabelRef.current,
         }),
       });
 
@@ -2019,9 +4336,11 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      setThoughtPrompts(
-        normalizeThoughtPrompts(getThoughtPrompts(latestUserText)),
-      );
+      // Note: we used to call setThoughtPrompts(getThoughtPrompts(text)) here as an
+      // immediate keyword-match update before brain runs. That caused a flash where
+      // defaults briefly appeared when no keyword matched, then real brain output
+      // replaced them. Removed per G's "old goes out, new comes in" — current pills
+      // stay until brain returns the next set.
 
       if (promptBrainTimeoutRef.current) {
         clearTimeout(promptBrainTimeoutRef.current);
@@ -2051,7 +4370,7 @@ const LiveAvatarSessionComponent: React.FC<{
       setAccountNotice(null);
       setAccountVerificationUrl(null);
       setPostVerifyGreeting(null);
-      setAssistantLists([]);
+      commitAssistantLists([]);
       setActiveListId(null);
       setIsShoppingMode(false);
       try {
@@ -2066,20 +4385,149 @@ const LiveAvatarSessionComponent: React.FC<{
     }
 
     let cancelled = false;
-    fetch("/api/account/me")
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return response.json();
+
+    // One-time close-list education: if this device already heard it in any
+    // past session, start this session already-shown so 6 never repeats it
+    // (G 2026-06-13). Seeded here (client-only effect) — no SSR concern.
+    if (loadListCloseEducationShown()) {
+      listCloseEducationSpokenRef.current = true;
+    }
+
+    // Magic-link return: aiASAP's OTP send issues an IMPLICIT-flow link, so the
+    // session token lands in the URL hash (#access_token=...). The server
+    // callback can't read a fragment, so it forwards us here with the hash
+    // intact. Before asking /api/account/me "are we signed in?", give the
+    // browser Supabase client a chance to parse that hash and PERSIST the
+    // session to cookies — otherwise the very first account/me reads anonymous
+    // (cookies not written yet) and 6 greets the returning user as brand-new
+    // this session. Awaiting getSession() resolves the SDK's URL-detection
+    // initialize step, which writes the cookies the server route then reads.
+    // (2026-06-01 magic-link recall fix.) Best-effort + short-bounded so a
+    // hung Supabase init never blocks 6's greeting.
+    const hasAuthHashOrCode = () => {
+      if (typeof window === "undefined") return false;
+      const hash = INITIAL_URL_HASH || window.location.hash || "";
+      const search = window.location.search || "";
+      return (
+        hash.includes("access_token") ||
+        hash.includes("refresh_token") ||
+        /[?&#](code|token_hash)=/.test(`${search}${hash}`)
+      );
+    };
+
+    const ensureSessionFromUrl = async () => {
+      if (!hasAuthHashOrCode()) return;
+      const supabase = getSupabaseBrowserOrNull();
+      if (!supabase) return;
+      try {
+        // ROOT CAUSE (2026-06-01 LIVE, DB-confirmed): the magic link is IMPLICIT
+        // flow — the session token comes back in the URL *hash*
+        // (#access_token=...&refresh_token=...). The browser client is configured
+        // flowType:"pkce", under which detectSessionInUrl does NOT parse an
+        // implicit hash. So Supabase signed the user in SERVER-side (auth.users
+        // last_sign_in updated) but the BROWSER never persisted the session →
+        // /api/account/me read anonymous → 6 greeted a returning user as a
+        // stranger and used the first-timer intro. (My earlier "wait for the
+        // session" fix had nothing to wait for.)
+        //
+        // FIX: parse the hash OURSELVES and setSession() explicitly. With
+        // @supabase/ssr that writes the auth cookies the server route reads —
+        // deterministic, and independent of flowType (so PKCE ?code= OAuth still
+        // works via the SDK's own detection in the else branch).
+        const liveHash = INITIAL_URL_HASH || window.location.hash || "";
+        const rawHash = liveHash.startsWith("#") ? liveHash.slice(1) : liveHash;
+        const hp = new URLSearchParams(rawHash);
+        const accessToken = hp.get("access_token");
+        const refreshToken = hp.get("refresh_token");
+        if (accessToken && refreshToken) {
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          // The browser setSession above did NOT reliably land a SERVER-readable
+          // cookie (DB-confirmed 2026-06-02: /api/account/me saw authCookies=0 on
+          // the magic-link return, same browser → 6 greeted a returning user as
+          // new). Hand the tokens to a server route that writes the auth cookies
+          // onto its response, so /api/account/me sees the signed-in user on this
+          // same load. Best-effort; the client session is the backstop.
+          try {
+            await fetch("/api/auth/set-cookie", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              }),
+            });
+          } catch {
+            // ignore — client session + account/me retry remain backstops
+          }
+        } else {
+          // No implicit hash tokens (?code= PKCE, or already detected) — let the
+          // SDK finish its own URL detection.
+          await supabase.auth.getSession();
+        }
+        // Confirm a session is actually present (cookies written) before we ask
+        // account/me, so the very first account/me sees the signed-in user.
+        const deadline = Date.now() + 6000;
+        while (Date.now() < deadline) {
+          const { data } = await supabase.auth.getSession();
+          if (data.session) return;
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      } catch {
+        // Detection failed — fall through; account/me + the SIGNED_IN listener
+        // in AuthProvider remain the backstops.
+      }
+    };
+
+    // Magic-link return hardening (2026-06-02): account/me's getUser() is raced
+    // against a server-side timeout, and on a cold serverless start the first
+    // call can resolve "anonymous" before the session is readable → 6 greets a
+    // just-returned user as brand-new. When we KNOW we just landed an auth
+    // hash/code, retry account/me a few times so a slow cold-start gets a chance
+    // to resolve before we accept anonymous. Normal first-visits (no hash) make
+    // exactly one call, so 6's greeting speed is unchanged for new users.
+    const fetchAccountMe = async () => {
+      const expectSignedIn = hasAuthHashOrCode();
+      const maxTries = expectSignedIn ? 4 : 1;
+      for (let attempt = 1; attempt <= maxTries; attempt++) {
+        try {
+          const response = await fetch("/api/account/me", { cache: "no-store" });
+          if (response.ok) {
+            const data = await response.json();
+            if (data?.authenticated || !expectSignedIn || attempt === maxTries) {
+              return data;
+            }
+          } else if (!expectSignedIn || attempt === maxTries) {
+            return null;
+          }
+        } catch {
+          if (!expectSignedIn || attempt === maxTries) return null;
+        }
+        if (attempt < maxTries) {
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+      return null;
+    };
+
+    void ensureSessionFromUrl()
+      .then(() => {
+        if (cancelled) return null;
+        return fetchAccountMe();
       })
       .then((data) => {
         if (cancelled) return;
         if (!data?.authenticated) {
+          accountSignedInRef.current = false;
           accountListsLoadedRef.current = true;
           setAccountAuthChecked(true);
           return;
         }
         if (typeof data.user?.email === "string") {
           setAccountEmail(data.user.email);
+          accountSignedInRef.current = true;
           accountPendingStateTokenRef.current = null;
           try {
             window.localStorage.removeItem(
@@ -2088,11 +4536,73 @@ const LiveAvatarSessionComponent: React.FC<{
           } catch {
             // Ignore storage cleanup failures.
           }
+          // NEW-DEVICE ALERT (2026-06-11, G's yes): every signed-in visit
+          // reports its device marker; first touch from a new device emails
+          // the owner. Fire-and-forget.
+          try {
+            const DEVICE_KEY = "aiasap.deviceId.v1";
+            let deviceId = window.localStorage.getItem(DEVICE_KEY);
+            if (!deviceId) {
+              deviceId = window.crypto.randomUUID();
+              window.localStorage.setItem(DEVICE_KEY, deviceId);
+            }
+            const ua = window.navigator.userAgent;
+            const browser = /Edg\//.test(ua)
+              ? "Edge"
+              : /Chrome\//.test(ua)
+                ? "Chrome"
+                : /Safari\//.test(ua)
+                  ? "Safari"
+                  : /Firefox\//.test(ua)
+                    ? "Firefox"
+                    : "Browser";
+            const platform = /Windows/.test(ua)
+              ? "Windows"
+              : /Mac/.test(ua)
+                ? "Mac"
+                : /Android/.test(ua)
+                  ? "Android"
+                  : /iPhone|iPad/.test(ua)
+                    ? "iPhone/iPad"
+                    : "Device";
+            void fetch("/api/account/device-check", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                deviceId,
+                label: `${browser} on ${platform}`,
+              }),
+            }).catch(() => {});
+          } catch {
+            // device marker is best-effort
+          }
+          // Returning users get THEIR size back on any device (G 2026-06-10:
+          // "the pill boxes stay the size of when last used... if they have
+          // an account and are returning"). Account beats this device's
+          // localStorage when both exist. (Bound was a stale <=3 after round
+          // 14 raised the max to 4 — a saved max size was ignored on load.)
+          if (
+            typeof data.uiSizeLevel === "number" &&
+            data.uiSizeLevel >= 0 &&
+            data.uiSizeLevel <= UI_SIZE_MAX_LEVEL
+          ) {
+            setPromptSizeLevel(data.uiSizeLevel);
+          }
+          // Voice-set timezone follows the account (timezone ladder rung 2).
+          if (typeof data.timezone === "string" && data.timezone) {
+            sessionTimezoneRef.current = data.timezone;
+          }
         }
-        const accountFullName =
+        const rawAccountFullName =
           typeof data.user?.fullName === "string"
             ? cleanDeviceName(data.user.fullName)
             : null;
+        // Drop stored JUNK names (e.g. "Call Me" / "My Name" captured from a
+        // lead-in phrase) so 6 never greets "Welcome back, Call Me" - nameless
+        // beats wrong (G 2026-06-08). Forward-fixed in extractDeviceNameCandidate.
+        const accountFullName = isJunkPersonName(rawAccountFullName)
+          ? null
+          : rawAccountFullName;
         if (accountFullName) {
           setDeviceProfile((current) =>
             current.name === accountFullName
@@ -2166,8 +4676,29 @@ const LiveAvatarSessionComponent: React.FC<{
           restoredList,
           onlineQuery: restoredOnlineQuery,
           onlineLocation: restoredOnlineLocation,
+          name: accountFullName,
+          zip:
+            typeof data.zip === "string" && /^\d{5}$/.test(data.zip)
+              ? data.zip
+              : null,
+          visitCount: typeof data.visitCount === "number" ? data.visitCount : 1,
+          longGap: data.longGap === true,
         });
         accountMemoryContextInjectedRef.current = false;
+        accountZipRef.current =
+          typeof data.zip === "string" && /^\d{5}$/.test(data.zip)
+            ? data.zip
+            : null;
+        // NEW-2 (G 2026-06-14 12:52 "why would you ask my zip"): if the load didn't
+        // surface a top-level zip, recover it from the memory snapshot we just built
+        // (it embeds "Saved ZIP code on file: NNNNN") so the ref is never empty for
+        // a user who has one on file. Read-only, fires only when the ref is empty.
+        if (!accountZipRef.current) {
+          const _snapZip = accountMemorySnapshotRef.current?.contextText?.match(
+            /\bZIP code on file:\s*(\d{5})\b/i,
+          )?.[1];
+          if (_snapZip) accountZipRef.current = _snapZip;
+        }
 
         onlineLookupPendingQueryRef.current = null;
         onlineLookupLocationRef.current = null;
@@ -2176,7 +4707,7 @@ const LiveAvatarSessionComponent: React.FC<{
         setOnlineLookupNotice(null);
 
         if (cleanedLists.length > 0) {
-          setAssistantLists(cleanedLists);
+          commitAssistantLists(cleanedLists);
           setActiveListId(null);
           setIsShoppingMode(false);
         } else {
@@ -2184,8 +4715,18 @@ const LiveAvatarSessionComponent: React.FC<{
           setIsShoppingMode(false);
         }
         if (accountStatus === "verified") {
+          // Hard-coded return greeting. Now greets BY NAME when we have a clean
+          // one — the old "First Time"/"It Is" name-capture leak is fixed
+          // (stop-words reject those), so a saved name here is real. The name
+          // MUST ride this greeting: it's spoken INSTANTLY, while 6's memory
+          // snapshot (which also carries the name) can land a beat late — so an
+          // early "do you remember my name?" used to hit before memory was ready
+          // and 6 asked for it again (G 2026-06-04: "you should have used my
+          // name in that intro"). Falls back to name-less if we have no name.
           setPostVerifyGreeting(
-            "You're back. Account is set, and I can remember you now. We can pick up like friends.",
+            accountFullName
+              ? `Welcome back, ${accountFullName}! It's 6 — still got your back. Want to pick up right where we left off, or start something new?`
+              : `Welcome back! It's 6 — still got your back. Want to pick up right where we left off, or start something new?`,
           );
           window.history.replaceState(
             {},
@@ -2213,18 +4754,78 @@ const LiveAvatarSessionComponent: React.FC<{
       !postVerifyGreeting ||
       postVerifyGreetingSpokenRef.current ||
       sessionState !== SessionState.CONNECTED ||
-      !isStreamReady
+      !isStreamReady ||
+      !audioUnlocked // wait for audio unlock so the welcome-back is HEARD, not mouthed
     ) {
       return;
     }
     postVerifyGreetingSpokenRef.current = true;
     setAccountNotice("Account verified");
-    void repeat(postVerifyGreeting).then(() => {
+    console.log("[return-greeting DIAG] speaking hard-coded welcome-back (audio unlocked)");
+    // Cut off 6's own CW opener FIRST so the hard-coded welcome-back is the
+    // SOLE greeting. Without this the brain's default "What's on your mind
+    // today?" played right alongside the welcome-back on return (G 2026-06-03:
+    // "he just launched right into it, not the hard-coded return intro").
+    void (async () => {
+      try {
+        await interrupt();
+      } catch {
+        // never block the greeting on an interrupt hiccup
+      }
+      await repeat(postVerifyGreeting);
       lastAvatarResponseRef.current = postVerifyGreeting;
       rememberConversationLine("assistant", postVerifyGreeting);
       lastVisionResponseTimeRef.current = Date.now();
-    });
-  }, [isStreamReady, postVerifyGreeting, rememberConversationLine, repeat, sessionState]);
+    })();
+  }, [interrupt, isStreamReady, postVerifyGreeting, rememberConversationLine, repeat, sessionState, audioUnlocked]);
+
+  // v2.1 resume-bug fix (part a): once the LiveAvatar session is CONNECTED and
+  // the resume snapshot hasn't been injected yet, feed the SIGNED-IN USER
+  // MEMORY (contextText) into 6's brain via sessionRef.message() and — unless
+  // the ?account=verified welcome already spoke (postVerifyGreeting) — speak a
+  // buildReturningGreeting() line so 6 actually resumes instead of acting like
+  // a brand-new session. Sets accountMemoryContextInjectedRef so it fires once
+  // and so buildMemoryAugmentedMessage stops re-prepending the dump.
+  useEffect(() => {
+    if (
+      ACCOUNT_BETA_DISABLED ||
+      accountMemoryContextInjectedRef.current ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady ||
+      !audioUnlocked // don't inject/greet into the muted-load window
+    ) {
+      return;
+    }
+    const snapshot = accountMemorySnapshotRef.current;
+    const contextText = snapshot?.contextText?.trim();
+    if (!contextText) return;
+
+    // When the hard-coded ?account=verified welcome is the opener, do NOT inject
+    // the resume dump via .message() — LiveAvatar treats it as a turn, so 6
+    // babbles filler ("Okay… I'm all…") OVER the greeting. Let the hard-coded
+    // welcome open clean; durable memory rides the CW dynamic vars. (G 2026-06-03)
+    if (postVerifyGreeting || postVerifyGreetingSpokenRef.current) {
+      accountMemoryContextInjectedRef.current = true;
+      return;
+    }
+
+    accountMemoryContextInjectedRef.current = true;
+
+    // Inject the resume context so 6's brain knows who's back — but do NOT speak
+    // a greeting here. (G 2026-06-13 DOUBLE-GREET ROOT CAUSE: audioUnlocked flips
+    // true INSIDE ensureAudioOutputReady(), which the tap handler calls BEFORE it
+    // reaches its own greeting block — so this effect raced ahead and spoke a
+    // SECOND returning greeting from the SAME random pool as handleVoiceStartStop.
+    // Two independent picks = "you said that twice." The tap path is now the SOLE
+    // owner of the returning greeting: it's user-gesture gated, claims
+    // postVerifyGreetingSpokenRef, and clears postVerifyGreeting. r34:
+    // FULL-mode-only + armored — this inject line once crashed G's first
+    // signed-in localhost return.)
+    injectFullModeContext(contextText);
+    console.warn(
+      "[greeting DIAG] resume context injected; greeting deferred to tap path (single greet)",
+    );
+  }, [isStreamReady, postVerifyGreeting, sessionState, audioUnlocked]);
 
   useEffect(() => {
     if (!accountEmail || !accountListsLoadedRef.current) return;
@@ -2241,6 +4842,14 @@ const LiveAvatarSessionComponent: React.FC<{
         }),
       }).catch((error) => console.warn("Account list save failed:", error));
     }, 900);
+    // A4 fix (2026-06-14): clear the pending save on unmount / dep-change so a
+    // late timer can't POST a stale or empty list array over good data (e.g.
+    // sign-out sets assistantLists=[]). Mirrors the sibling save effect below.
+    return () => {
+      if (accountSaveTimeoutRef.current) {
+        clearTimeout(accountSaveTimeoutRef.current);
+      }
+    };
   }, [accountEmail, assistantLists, buildAccountResumeState]);
 
   useEffect(() => {
@@ -2329,15 +4938,21 @@ const LiveAvatarSessionComponent: React.FC<{
       options: { preferFresh?: boolean } = {},
     ): string => {
       const now = Date.now();
+      const currentLists = assistantListsLiveRef.current;
       const normalizedTitle =
         intent.title === "New List"
-          ? `List ${assistantLists.length + 1}`
+          ? `List ${currentLists.length + 1}`
           : normalizeListTitle(intent.title, intent.kind);
-      const existing = assistantLists.find(
+      const existing = currentLists.find(
         (list) => list.title.toLowerCase() === normalizedTitle.toLowerCase(),
       );
 
-      if (existing && !options.preferFresh) {
+      // G 2026-06-14 critic: "make a Walmart list" forces preferFresh, which used
+      // to SKIP an existing same-name list and mint a DUPLICATE empty one (the
+      // root of "where's my old Walmart list?"). Reuse the existing list when it
+      // is EMPTY (a fresh empty list is identical anyway); only mint a new one
+      // when the same-name list already holds items the user might want kept.
+      if (existing && (!options.preferFresh || existing.items.length === 0)) {
         lastEnsuredListRef.current = {
           id: existing.id,
           title: existing.title,
@@ -2356,7 +4971,7 @@ const LiveAvatarSessionComponent: React.FC<{
       const baseId = listIdForTitle(normalizedTitle);
       let id = baseId;
       let suffix = 2;
-      while (assistantLists.some((list) => list.id === id)) {
+      while (currentLists.some((list) => list.id === id)) {
         id = `${baseId}-${suffix}`;
         suffix += 1;
       }
@@ -2372,7 +4987,7 @@ const LiveAvatarSessionComponent: React.FC<{
         updatedAt: now,
       };
 
-      setAssistantLists((currentLists) => [...currentLists, newList]);
+      commitAssistantLists((currentLists) => [...currentLists, newList]);
       lastEnsuredListRef.current = {
         id,
         title: normalizedTitle,
@@ -2387,84 +5002,164 @@ const LiveAvatarSessionComponent: React.FC<{
       setActiveListId(id);
       return id;
     },
-    [assistantLists],
+    [],
   );
 
-  const addItemsToList = useCallback((listId: string, items: string[]) => {
-    if (items.length === 0) return false;
-    const list = assistantLists.find((item) => item.id === listId);
-    if (!list) {
+  const addItemsToList = useCallback(
+    (listId: string, items: string[]) => {
+      const receipt = applyAddItems(
+        assistantListsLiveRef.current,
+        listId,
+        items,
+        {
+          maxItems: MAX_LIST_ITEMS,
+          now: Date.now(),
+          revisionBefore: listRevisionRef.current,
+          utteranceId: currentUtteranceIdRef.current,
+        },
+      );
+      const outcome =
+        receipt.status === "missing"
+          ? "failed"
+          : receipt.rejectedByLimit.length > 0
+            ? receipt.added.length > 0
+              ? "partial"
+              : "rejected"
+            : receipt.status;
+      logAppEvent(
+        "list_action",
+        {
+          action: "add",
+          listId,
+          requested: receipt.requested,
+          added: receipt.added,
+          alreadyPresent: receipt.alreadyPresent,
+          rejectedByLimit: receipt.rejectedByLimit,
+          itemsBefore: receipt.itemsBefore,
+          itemsAfter: receipt.resultingItems,
+          revisionBefore: receipt.revisionBefore,
+          revisionAfter: receipt.revisionAfter,
+        },
+        receipt.status === "missing" ? "medium" : "low",
+        {
+          eventId: receipt.idempotencyKey,
+          utteranceId: receipt.utteranceId,
+          idempotencyKey: receipt.idempotencyKey,
+          mutationVersion: receipt.revisionAfter,
+          outcome,
+          errorCode:
+            receipt.status === "missing"
+              ? "list_not_found"
+              : receipt.rejectedByLimit.length > 0
+                ? "list_limit_reached"
+                : null,
+        },
+      );
+      if (receipt.status !== "changed") return receipt;
+
+      listRevisionRef.current = receipt.revisionAfter;
+      commitAssistantLists(receipt.nextLists);
       latestListMutationRef.current = {
         listId,
-        item: items[items.length - 1] ?? null,
+        item: receipt.added[receipt.added.length - 1] ?? null,
         action: "add",
       };
-      setAssistantLists((currentLists) =>
-        currentLists.map((currentList) => {
-          if (currentList.id !== listId) return currentList;
-          const nextItems = [...currentList.items];
-          for (const item of items) {
-            if (
-              !nextItems.some(
-                (existing) => existing.toLowerCase() === item.toLowerCase(),
-              )
-            ) {
-              nextItems.push(item);
-            }
-          }
-          return {
-            ...currentList,
-            items: nextItems.slice(0, MAX_LIST_ITEMS),
-            updatedAt: Date.now(),
-          };
-        }),
+      setListFocusNonce((value) => value + 1);
+      return receipt;
+    },
+    [commitAssistantLists],
+  );
+
+  // r32 (G live 2026-06-12 20:48: "make number four say yogurt" had no
+  // handler — three rounds of fighting, and the brain claimed fixes that
+  // never happened): a real rename-by-number.
+  const renameListItem = useCallback(
+    (listId: string, itemIndex: number, newText: string) => {
+      const list = assistantListsLiveRef.current.find((item) => item.id === listId);
+      if (!list || itemIndex < 0 || itemIndex >= list.items.length)
+        return false;
+      const cleaned = newText.trim();
+      if (!cleaned) return false;
+      const cased = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+      if (list.items[itemIndex] === cased) return false;
+      const nextItems = [...list.items];
+      nextItems[itemIndex] = cased;
+      latestListMutationRef.current = { listId, item: cased, action: "add" };
+      commitAssistantLists((currentLists) =>
+        currentLists.map((currentList) =>
+          currentList.id === listId
+            ? { ...currentList, items: nextItems, updatedAt: Date.now() }
+            : currentList,
+        ),
       );
       setListFocusNonce((value) => value + 1);
       return true;
-    }
-    const nextItems = [...list.items];
-    let changed = false;
-    for (const item of items) {
-      if (
-        !nextItems.some(
-          (existing) => existing.toLowerCase() === item.toLowerCase(),
-        )
-      ) {
-        nextItems.push(item);
-        changed = true;
-      }
-    }
-    if (!changed) return false;
+    },
+    [assistantLists],
+  );
 
-    latestListMutationRef.current = {
-      listId,
-      item: items[items.length - 1] ?? null,
-      action: "add",
-    };
-    setAssistantLists((currentLists) =>
-      currentLists.map((currentList) => {
-        if (currentList.id !== listId) return currentList;
-        return {
-          ...currentList,
-          items: nextItems.slice(0, MAX_LIST_ITEMS),
-          updatedAt: Date.now(),
-        };
-      }),
-    );
-    setListFocusNonce((value) => value + 1);
-    return true;
-  }, [assistantLists]);
+  // G 2026-06-14 copilot ride: he asked ~6 ways to MOVE items ("make number 2
+  // number 1", "put comb at the top", "hair dryer as number 2") and 6 kept
+  // saying "I can't reorder yet." Real reorder-by-index now.
+  const reorderListItem = useCallback(
+    (listId: string, fromIndex: number, toIndex: number) => {
+      const list = assistantListsLiveRef.current.find((item) => item.id === listId);
+      if (!list) return false;
+      const count = list.items.length;
+      if (fromIndex < 0 || fromIndex >= count) return false;
+      const target = Math.max(0, Math.min(count - 1, toIndex));
+      if (target === fromIndex) return false;
+      const nextItems = [...list.items];
+      const [moved] = nextItems.splice(fromIndex, 1);
+      nextItems.splice(target, 0, moved);
+      latestListMutationRef.current = { listId, item: moved, action: "add" };
+      commitAssistantLists((currentLists) =>
+        currentLists.map((currentList) =>
+          currentList.id === listId
+            ? { ...currentList, items: nextItems, updatedAt: Date.now() }
+            : currentList,
+        ),
+      );
+      setListFocusNonce((value) => value + 1);
+      return true;
+    },
+    [assistantLists],
+  );
+
+  const capitalizeListItems = useCallback(
+    (listId: string) => {
+      const list = assistantListsLiveRef.current.find((item) => item.id === listId);
+      if (!list) return false;
+      const nextItems = list.items.map(
+        (item) => item.charAt(0).toUpperCase() + item.slice(1),
+      );
+      const changed = nextItems.some(
+        (item, index) => item !== list.items[index],
+      );
+      if (!changed) return false;
+      commitAssistantLists((currentLists) =>
+        currentLists.map((currentList) =>
+          currentList.id === listId
+            ? { ...currentList, items: nextItems, updatedAt: Date.now() }
+            : currentList,
+        ),
+      );
+      setListFocusNonce((value) => value + 1);
+      return true;
+    },
+    [assistantLists],
+  );
 
   const removeItemsFromList = useCallback((listId: string, items: string[]) => {
     if (items.length === 0) return false;
-    const list = assistantLists.find((item) => item.id === listId);
+    const list = assistantListsLiveRef.current.find((item) => item.id === listId);
     if (!list) return false;
     const wantsRemoveAddLiteral = items.some((item) => /^add$/i.test(item));
     const nextItems = list.items.filter(
       (item) =>
         wantsRemoveAddLiteral && /^add$/i.test(item)
           ? false
-          : !items.some((removeItem) => itemKeysMatch(item, removeItem)),
+          : !items.some((removeItem) => listItemKeysMatch(item, removeItem)),
     );
     const changed = nextItems.length !== list.items.length;
     if (!changed) return false;
@@ -2474,7 +5169,7 @@ const LiveAvatarSessionComponent: React.FC<{
       item: items[0] ?? null,
       action: "remove",
     };
-    setAssistantLists((currentLists) =>
+    commitAssistantLists((currentLists) =>
       currentLists.map((currentList) =>
         currentList.id === listId
           ? {
@@ -2490,7 +5185,7 @@ const LiveAvatarSessionComponent: React.FC<{
   }, [assistantLists]);
 
   const deleteAssistantList = useCallback((listId: string) => {
-    setAssistantLists((currentLists) =>
+    commitAssistantLists((currentLists) =>
       currentLists.filter((currentList) => currentList.id !== listId),
     );
     setActiveListId((currentActiveId) =>
@@ -2503,7 +5198,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const removeListItemAtIndex = useCallback(
     (listId: string, itemIndex: number) => {
-      setAssistantLists((currentLists) =>
+      commitAssistantLists((currentLists) =>
         currentLists.map((list) => {
           if (list.id !== listId) return list;
           latestListMutationRef.current = {
@@ -2525,7 +5220,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const setListDisplayStyle = useCallback(
     (listId: string, style: ListDisplayStyle) => {
-      setAssistantLists((currentLists) =>
+      commitAssistantLists((currentLists) =>
         currentLists.map((list) =>
           list.id === listId
             ? { ...list, displayStyle: style, updatedAt: Date.now() }
@@ -2538,7 +5233,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const setListAccentColor = useCallback(
     (listId: string, update: ListAccentUpdate) => {
-      setAssistantLists((currentLists) =>
+      commitAssistantLists((currentLists) =>
         currentLists.map((list) =>
           list.id === listId
             ? {
@@ -2548,6 +5243,22 @@ const LiveAvatarSessionComponent: React.FC<{
                 accentLabel: update.accentLabel,
                 updatedAt: Date.now(),
               }
+            : list,
+        ),
+      );
+    },
+    [],
+  );
+
+  // G 2026-06-14: set the list TEXT color separately from the box accent
+  // ("make the text blue", "make the words darker"). Reuses the accent color +
+  // shade engine; only the target (text vs box) differs.
+  const setListTextColor = useCallback(
+    (listId: string, textHex: string, textLabel?: string) => {
+      commitAssistantLists((currentLists) =>
+        currentLists.map((list) =>
+          list.id === listId
+            ? { ...list, textHex, textLabel, updatedAt: Date.now() }
             : list,
         ),
       );
@@ -2572,11 +5283,172 @@ const LiveAvatarSessionComponent: React.FC<{
     [activeListId, assistantLists],
   );
 
+
+  // CROSS-DEVICE SIGN-IN (G, 2026-08-21: "the magic link is completely built and
+  // mostly working on iSolve just import this system").
+  //
+  // The magic link signs in whatever browser OPENS it - nearly always the
+  // person's phone - while they are talking to 6 on a laptop. The laptop never
+  // sees that cookie. So we poll: /auth/callback stamps used_at on the exact
+  // row, and the moment ours flips we pull the name back and 6 greets them.
+  const startDeviceLinkPoll = useCallback(() => {
+    if (accountPollTimerRef.current) return; // already polling
+    if (accountSignedInRef.current) return; // nothing to wait for
+    const sid = accountLinkSessionIdRef.current;
+    if (!sid) return;
+
+    let attempts = 0;
+    const MAX_ATTEMPTS = 72; // 72 x 5s = 6 minutes
+    const stop = () => {
+      if (accountPollTimerRef.current) {
+        clearInterval(accountPollTimerRef.current);
+        accountPollTimerRef.current = null;
+      }
+    };
+
+    const tick = async () => {
+      if (accountPollInFlightRef.current) return;
+      if (accountReturnGreetingInFlightRef.current) return;
+      accountPollInFlightRef.current = true;
+      try {
+        attempts += 1;
+        if (attempts > MAX_ATTEMPTS) {
+          stop();
+          return;
+        }
+        // A hung request would otherwise pin the in-flight flag forever and
+        // stall the poll without ever reaching the attempt cap.
+        const ctl = new AbortController();
+        const killer = setTimeout(() => ctl.abort(), 4000);
+        let data: { signedIn?: boolean; email?: string; fullName?: string; lists?: unknown[] } | null =
+          null;
+        try {
+          const res = await fetch(
+            `/api/account/session-status?sessionId=${encodeURIComponent(sid)}`,
+            { signal: ctl.signal },
+          );
+          if (!res.ok) return;
+          data = await res.json().catch(() => null);
+        } finally {
+          clearTimeout(killer);
+        }
+        if (!data?.signedIn) return;
+        if (accountReturnGreetedRef.current) {
+          stop();
+          return;
+        }
+
+        accountReturnGreetingInFlightRef.current = true;
+        try {
+          const name =
+            typeof data.fullName === "string" && data.fullName.trim()
+              ? data.fullName.trim()
+              : null;
+          if (name) {
+            deviceProfileRef.current = { ...deviceProfileRef.current, name };
+          }
+          // UNCONDITIONAL. Setting this only when an email came back left the
+          // signup gates cleared but the flag false, so 6 offered signup again
+          // to somebody who had just signed in.
+          accountSignedInRef.current = true;
+          if (typeof data.email === "string" && data.email) {
+            accountEmailRef.current = data.email;
+            setAccountEmail(data.email);
+          }
+
+          const hasMemory = Array.isArray(data.lists) && data.lists.length > 0;
+          const spoken = name
+            ? hasMemory
+              ? `${name}, you're all signed in. You talked, I remembered. Let's pick up right where we left off.`
+              : `You're all signed in, ${name}! I've got you now.`
+            : hasMemory
+              ? "You're all signed in! I remembered you. Let's pick up right where we left off."
+              : "You're all signed in! I've got you now.";
+
+          try {
+            await interrupt();
+          } catch {
+            // An interrupt hiccup must never swallow the greeting.
+          }
+          await repeat(spoken);
+          // Marked greeted and stopped ONLY after the line actually went out.
+          // Doing it before means a failed speak leaves 6 silent with the poll
+          // switched off and no retry.
+          accountReturnGreetedRef.current = true;
+          stop();
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+        } catch (e) {
+          console.error("device-link return greet failed", e);
+        } finally {
+          accountReturnGreetingInFlightRef.current = false;
+        }
+      } catch {
+        // Transient. The next tick retries.
+      } finally {
+        accountPollInFlightRef.current = false;
+      }
+    };
+
+    void tick();
+    accountPollTimerRef.current = setInterval(tick, 5000);
+  }, [interrupt, repeat, rememberConversationLine]);
+
+  // Without this the interval outlives the component and keeps polling forever.
+  useEffect(() => {
+    return () => {
+      if (accountPollTimerRef.current) {
+        clearInterval(accountPollTimerRef.current);
+        accountPollTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const startAccountSetup = useCallback(
     async (email: string) => {
       const normalizedEmail = email.trim().toLowerCase();
+      // Dedupe: don't re-send the sign-in link if we just sent it to this same
+      // address (G 2026-06-09 duplicate magic links). 90s window; a genuine
+      // resend still works after that.
+      const prevLinkSend = lastAccountLinkSendRef.current;
+      if (
+        prevLinkSend &&
+        prevLinkSend.email === normalizedEmail &&
+        Date.now() - prevLinkSend.at < 90000
+      ) {
+        const spoken =
+          "I already sent that sign-in link a moment ago - check your email, it can take a minute to land.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        setSendLinkFallbackEmail(normalizedEmail);
+        setSendLinkFallbackStatus(
+          resolveSendLinkFallbackStatus({ alreadySentRecently: true }),
+        );
+        if (sendLinkFallbackDismissTimerRef.current) {
+          clearTimeout(sendLinkFallbackDismissTimerRef.current);
+        }
+        sendLinkFallbackDismissTimerRef.current = setTimeout(() => {
+          setSendLinkFallbackStatus("hidden");
+          sendLinkFallbackDismissTimerRef.current = null;
+        }, 2200);
+        return true;
+      }
       setAccountNotice("Sending Account Link");
+      // G 2026-06-10 (Roger session): the pillbox sat unchanged through the
+      // send round-trip and he read the dead air as "nothing happened". Show
+      // "Sending Email..." in the chest box IMMEDIATELY; it flips to
+      // "Email Link Sent ✓" (or clears on failure) when the call returns.
+      setChestEmailStatus("Sending Email...");
+      setShowChestEmail(true);
       setAccountVerificationUrl(null);
+      setSendLinkFallbackEmail(normalizedEmail);
+      setSendLinkFallbackStatus("sending");
+      if (sendLinkFallbackDismissTimerRef.current) {
+        clearTimeout(sendLinkFallbackDismissTimerRef.current);
+        sendLinkFallbackDismissTimerRef.current = null;
+      }
       try {
         const response = await fetch("/api/account/start", {
           method: "POST",
@@ -2589,6 +5461,9 @@ const LiveAvatarSessionComponent: React.FC<{
             resumeState: buildAccountResumeState(),
           }),
         });
+        // Snapshot the id the row will be keyed by, BEFORE anything can reassign
+        // dbSessionIdRef (it is nulled when the avatar leg ends).
+        accountLinkSessionIdRef.current = dbSessionIdRef.current;
         const data = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(data?.error || "Failed to send account link");
@@ -2622,13 +5497,18 @@ const LiveAvatarSessionComponent: React.FC<{
             ? "I saved your email, but the email did not send. I put the account link on your screen for this test."
             : "I saved your email, but the email sender is not fully connected yet. I made a note for G to finish account email before this goes live.";
         setAccountNotice(
+          // G (2026-06-01): success confirmation moves INTO the chest box, so the
+          // top banner is suppressed for the emailSent case. Other cases keep it.
           data?.emailSent
-            ? "Account Link Sent"
+            ? null
             : verificationUrl
               ? "Account Link Ready for This Test"
               : "Account Email Needs Setup",
         );
         setAccountVerificationUrl(verificationUrl);
+        // Start watching for the click. They will almost certainly open the
+        // email on their phone, and this is the only way this browser finds out.
+        if (data?.emailSent) startDeviceLinkPoll();
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         rememberConversationLine("assistant", spoken);
@@ -2638,9 +5518,71 @@ const LiveAvatarSessionComponent: React.FC<{
         accountSetupEmailMissCountRef.current = 0;
         setEmailEntryOpen(false);
         setTypedAccountEmail("");
+        // Cancel any in-progress letter reveal before changing the box.
+        if (chestRevealTimerRef.current) {
+          clearTimeout(chestRevealTimerRef.current);
+          chestRevealTimerRef.current = null;
+        }
+        chestRevealActiveRef.current = false;
+        if (data?.emailSent) {
+          // Only confirmed delivery enters the recent-send dedupe. Recording
+          // the attempt before the response made a failed retry falsely say
+          // the link had already been sent.
+          lastAccountLinkSendRef.current = {
+            email: normalizedEmail,
+            at: Date.now(),
+          };
+          // FIX (2026-06-01): show the confirmation IN the chest box, not the top
+          // banner. 1) clear the address, 2) show "Account Link Sent", 3) fade.
+          // CHANGE 1: forget 6's last parsed readback now the address is sent.
+          lastAvatarParsedEmailRef.current = null;
+          chestEmailTextRef.current = "";
+          setChestEmailText("");
+          setChestEmailStatus("Email Link Sent");
+          setShowChestEmail(true);
+          setSendLinkFallbackStatus(
+            resolveSendLinkFallbackStatus({ emailSent: data?.emailSent === true }),
+          );
+          if (chestStatusTimerRef.current) {
+            clearTimeout(chestStatusTimerRef.current);
+          }
+          chestStatusTimerRef.current = setTimeout(() => {
+            setShowChestEmail(false);
+            setChestEmailStatus(null);
+            // FIX (Item B, 2026-06-01): when the "Account Link Sent" box fades,
+            // restore the FRESH default 4-pillbox slate (like first arrival on
+            // aiasap.ai) with no email text. The pills may have rotated during
+            // the session; this puts them back to default. Also clear the chest
+            // text and cancel any stray reveal timer so nothing re-appears.
+            setChestEmailText("");
+            if (chestRevealTimerRef.current) {
+              clearTimeout(chestRevealTimerRef.current);
+              chestRevealTimerRef.current = null;
+            }
+            chestRevealActiveRef.current = false;
+            setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
+            chestStatusTimerRef.current = null;
+          }, 2200);
+          sendLinkFallbackDismissTimerRef.current = setTimeout(() => {
+            setSendLinkFallbackStatus("hidden");
+            sendLinkFallbackDismissTimerRef.current = null;
+          }, 2200);
+        } else {
+          // Non-success: the top banner carries the message; clear the box.
+          setChestEmailText("");
+          setChestEmailStatus(null);
+          setShowChestEmail(false);
+          setSendLinkFallbackStatus(
+            resolveSendLinkFallbackStatus({ emailSent: false }),
+          );
+        }
         return true;
       } catch (error) {
         console.error("Account setup failed:", error);
+        // Never leave "Sending Email..." stuck on the chest after a failure.
+        setChestEmailStatus(null);
+        setShowChestEmail(false);
+        setSendLinkFallbackStatus(resolveSendLinkFallbackStatus({}));
         const spoken =
           "I had trouble setting up that email link. I made a note for G to fix account setup.";
         setAccountNotice("Account setup needs attention");
@@ -2660,79 +5602,43 @@ const LiveAvatarSessionComponent: React.FC<{
     ],
   );
 
-  const openEmailEntry = useCallback(
-    async (spoken?: string) => {
-      setEmailEntryOpen(true);
-      const message =
-        spoken ||
-        "I opened the email box so you can type it. I will still read it back before I send anything.";
-      await repeat(message);
-      lastAvatarResponseRef.current = message;
-      lastVisionResponseTimeRef.current = Date.now();
-      return true;
-    },
-    [repeat],
-  );
-
-  const handleEmailMiss = useCallback(
-    async (spokenBeforeTypedFallback?: string) => {
-      accountSetupEmailMissCountRef.current += 1;
-      if (accountSetupEmailMissCountRef.current >= 2) {
-        return openEmailEntry(
-          spokenBeforeTypedFallback ||
-            "I'm still not catching it cleanly. Why don't you go ahead and type your email address in here?",
-        );
-      }
-      const spoken =
-        "I did not catch a complete email address yet. No rush. Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
-      return true;
-    },
-    [openEmailEntry, repeat],
-  );
-
-  const confirmAccountEmailCandidate = useCallback(
-    async (email: string) => {
-      const normalizedEmail = email.trim().toLowerCase();
-      if (!isValidEmailCandidate(normalizedEmail)) {
-        return openEmailEntry(
-          "That does not look like a complete email address yet. Type it like name at domain dot com, or say it slowly.",
-        );
-      }
-      accountSetupPendingEmailRef.current = normalizedEmail;
-      accountSetupRejectedEmailRef.current = null;
-      accountSetupAwaitingEmailRef.current = false;
-      accountSetupAwaitingReadyRef.current = false;
-      accountSetupEmailMissCountRef.current = 0;
-      setEmailEntryOpen(false);
-      setTypedAccountEmail(normalizedEmail);
-      const spoken = `I heard ${speakEmailAddress(normalizedEmail)}. Does that sound correct, or did I get it wrong? I will not send the email until you say yes.`;
-      await repeat(spoken);
-      lastAvatarResponseRef.current = spoken;
-      lastVisionResponseTimeRef.current = Date.now();
-      return true;
-    },
-    [openEmailEntry, repeat],
-  );
-
-  const handleTypedAccountEmailSubmit = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const candidate = extractAccountEmailCandidate(typedAccountEmail, null);
-      await confirmAccountEmailCandidate(candidate ?? typedAccountEmail);
-    },
-    [confirmAccountEmailCandidate, typedAccountEmail],
-  );
 
   const clearAccountEmailEntry = useCallback(() => {
+    // SWEEP FIX (2026-06-10 adversarial review): awaitingReady was the ONE
+    // gate this cleanup missed — close a list mid-offer and the armed gate
+    // survived, so an unrelated "yes" minutes later re-triggered the name-ask
+    // out of nowhere. Every gate dies together.
+    accountSetupAwaitingReadyRef.current = false;
     accountSetupAwaitingEmailRef.current = false;
+    accountSetupAwaitingNameRef.current = false;
     accountSetupPendingEmailRef.current = null;
     accountSetupRejectedEmailRef.current = null;
+    accountSetupConfirmedEmailRef.current = null;
+    accountSetupAwaitingSendRef.current = false;
+    accountSetupSendEmailRef.current = null;
     accountSetupEmailMissCountRef.current = 0;
+    // CHANGE 1 (2026-06-01): forget the last address parsed from 6's readback so
+    // a fresh spell (even of the same address) reveals into the box again.
+    lastAvatarParsedEmailRef.current = null;
+    chestEmailTextRef.current = "";
     setEmailEntryOpen(false);
     setTypedAccountEmail("");
+    setChestEmailText("");
+    setChestEmailStatus(null);
+    setShowChestEmail(false);
+    // FIX (2026-06-01): cancel any in-progress letter reveal + success-fade timer.
+    if (chestRevealTimerRef.current) {
+      clearTimeout(chestRevealTimerRef.current);
+      chestRevealTimerRef.current = null;
+    }
+    chestRevealActiveRef.current = false;
+    if (chestStatusTimerRef.current) {
+      clearTimeout(chestStatusTimerRef.current);
+      chestStatusTimerRef.current = null;
+    }
+    setSendLinkFallbackStatus((current) =>
+      current === "pending" ? "hidden" : current,
+    );
   }, []);
 
   const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
@@ -2740,129 +5646,579 @@ const LiveAvatarSessionComponent: React.FC<{
     return false;
   }, []);
 
-  const handleAccountSetupSpeech = useCallback(
-    async (userText: string) => {
-      if (ACCOUNT_BETA_DISABLED) {
-        if (!ACCOUNT_SETUP_TRIGGER_RE.test(userText)) return false;
-        clearAccountEmailEntry();
-        const spoken =
-          "For this beta, every new session starts blank. I can help with this session right now.";
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
-        return true;
+  // FIX (2026-06-01): synthesized old-fashioned typewriter key click. This is an
+  // independent UI sound — it is NEVER routed through 6's TTS and must never
+  // block or break the reveal. `seed` (a char code + index) gives subtle
+  // per-letter variety so repeated letters don't sound identical.
+  const playTypewriterClick = useCallback((seed: number) => {
+    if (typeof window === "undefined") return;
+    try {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return;
+      if (!tickAudioCtxRef.current) {
+        tickAudioCtxRef.current = new Ctor();
       }
-
-      const contact = extractContactDetails(userText);
-      const correctedEmail = mergeEmailDomainCorrection(
-        userText,
-        accountSetupPendingEmailRef.current ?? accountSetupRejectedEmailRef.current,
-      );
-      const directEmail =
-        extractAccountEmailCandidate(userText, contact.email) ?? correctedEmail;
-
-      if (
-        EMAIL_ENTRY_REQUEST_RE.test(userText) &&
-        (accountSetupAwaitingEmailRef.current ||
-          accountSetupAwaitingReadyRef.current ||
-          accountSetupPendingEmailRef.current ||
-          ACCOUNT_SETUP_TRIGGER_RE.test(userText))
-      ) {
-        accountSetupAwaitingReadyRef.current = false;
-        accountSetupAwaitingEmailRef.current = true;
-        return openEmailEntry(
-          "Yes. I opened the email box so you can type it. I will read it back before I send anything.",
-        );
+      const ctx = tickAudioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") {
+        // Autoplay policy may suspend the context; try to resume but never block.
+        void ctx.resume().catch(() => {});
       }
+      const now = ctx.currentTime;
+      // Per-call jitter derived from the seed + clock (no Math.random at module
+      // scope; deriving from char/index/clock keeps it deterministic-ish).
+      const jitter = ((seed % 7) - 3) / 100 + ((now * 1000) % 9) / 1000;
+      const gainScale = 0.8 + ((seed % 5) / 12); // ~0.8..1.2
 
-      if (accountSetupPendingEmailRef.current) {
-        if (
-          directEmail &&
-          directEmail !== accountSetupPendingEmailRef.current
-        ) {
-          return confirmAccountEmailCandidate(directEmail);
+      // 1) Short filtered white-noise burst = the key thunk (~22ms).
+      const noiseDur = 0.022;
+      const frameCount = Math.max(1, Math.floor(ctx.sampleRate * noiseDur));
+      const buffer = ctx.createBuffer(1, frameCount, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < frameCount; i += 1) {
+        // Cheap deterministic noise seeded by index + char seed.
+        const v = Math.sin((i + seed) * 12.9898) * 43758.5453;
+        data[i] = (v - Math.floor(v)) * 2 - 1;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = "bandpass";
+      noiseFilter.frequency.value = 2300 + (seed % 11) * 70;
+      noiseFilter.Q.value = 0.9;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.0001, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.5 * gainScale, now + 0.001);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + noiseDur);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noise.start(now);
+      noise.stop(now + noiseDur);
+
+      // 2) Very short high "ping" = the typebar snap (~10ms).
+      const osc = ctx.createOscillator();
+      osc.type = "square";
+      osc.frequency.value = 2600 + jitter * 1200 + (seed % 9) * 40;
+      const oscGain = ctx.createGain();
+      oscGain.gain.setValueAtTime(0.0001, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.12 * gainScale, now + 0.001);
+      oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.01);
+      osc.connect(oscGain);
+      oscGain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.012);
+    } catch {
+      // Audio must never break the reveal.
+    }
+  }, []);
+
+  // G 2026-06-14: a soft "whoosh" when you swipe/flip between lists. Synthesized
+  // (no asset) through the same UI-sound context as the typewriter click; never
+  // routed through 6's voice. dir sweeps the filter so left/right feel distinct.
+  const playWhoosh = useCallback((dir: 1 | -1 = 1) => {
+    if (typeof window === "undefined") return;
+    try {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return;
+      if (!tickAudioCtxRef.current) tickAudioCtxRef.current = new Ctor();
+      const ctx = tickAudioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+      const now = ctx.currentTime;
+      const dur = 0.26;
+      const frameCount = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buffer = ctx.createBuffer(1, frameCount, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < frameCount; i += 1) {
+        const v = Math.sin((i + 1) * 12.9898) * 43758.5453;
+        data[i] = (v - Math.floor(v)) * 2 - 1;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.Q.value = 0.7;
+      const fStart = dir > 0 ? 600 : 1800;
+      const fEnd = dir > 0 ? 1800 : 600;
+      filter.frequency.setValueAtTime(fStart, now);
+      filter.frequency.exponentialRampToValueAtTime(fEnd, now + dur);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.36, now + 0.06); // G: louder whoosh
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      noise.start(now);
+      noise.stop(now + dur);
+    } catch {
+      // UI sound must never break anything.
+    }
+  }, []);
+
+  // Flip to the prev/next list with the whoosh (shared by swipe + arrow taps).
+  const flipList = useCallback(
+    (dir: 1 | -1) => {
+      if (assistantLists.length <= 1) return;
+      moveActiveList(dir);
+      playWhoosh(dir);
+    },
+    [assistantLists.length, moveActiveList, playWhoosh],
+  );
+
+  const handleListTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        pinchStartRef.current = {
+          dist: Math.hypot(dx, dy),
+          level: promptSizeLevel,
+        };
+        swipeStartRef.current = null;
+      } else if (e.touches.length === 1) {
+        swipeStartRef.current = {
+          x: e.touches[0].clientX,
+          y: e.touches[0].clientY,
+        };
+      }
+    },
+    [promptSizeLevel],
+  );
+  const handleListTouchMove = useCallback((e: React.TouchEvent) => {
+    const start = pinchStartRef.current;
+    if (!start || e.touches.length !== 2) return;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const ratio = Math.hypot(dx, dy) / (start.dist || 1);
+    const steps = Math.round((ratio - 1) / 0.2);
+    const next = Math.max(
+      0,
+      Math.min(UI_CARD_SCALE.length - 1, start.level + steps),
+    );
+    setPromptSizeLevel((cur) => (cur === next ? cur : next));
+  }, []);
+  const handleListTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      pinchStartRef.current = null;
+      const swipe = swipeStartRef.current;
+      swipeStartRef.current = null;
+      if (!swipe) return;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const dx = t.clientX - swipe.x;
+      const dy = t.clientY - swipe.y;
+      // Only a deliberate HORIZONTAL flick flips lists — vertical stays scroll.
+      if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      flipList(dx < 0 ? 1 : -1); // swipe left = next list
+    },
+    [flipList],
+  );
+
+  // FIX (2026-06-01): reveal `addedChars` on the chest ONE character at a time,
+  // playing a typewriter click per letter. Resolves once the full accumulated
+  // value (fromText + addedChars) is shown, so the existing valid-email check
+  // and confirm logic still see the complete address.
+  const revealEmailChars = useCallback(
+    (fromText: string, addedChars: string): Promise<string> => {
+      const full = `${fromText}${addedChars}`;
+      // Cancel any prior pending reveal so chunks don't overlap.
+      if (chestRevealTimerRef.current) {
+        clearTimeout(chestRevealTimerRef.current);
+        chestRevealTimerRef.current = null;
+      }
+      const chars = addedChars.split("");
+      if (chars.length === 0) {
+        setChestEmailText(full);
+        chestRevealActiveRef.current = false;
+        return Promise.resolve(full);
+      }
+      return new Promise<string>((resolve) => {
+        chestRevealActiveRef.current = true;
+        let shown = fromText;
+        let i = 0;
+        const step = () => {
+          const ch = chars[i];
+          shown += ch;
+          i += 1;
+          setChestEmailText(shown);
+          playTypewriterClick(ch.charCodeAt(0) + i);
+          if (i < chars.length) {
+            // G 2026-06-09: SLOWER again - he wants each letter to land as he
+            // SAYS it (deliberate typewriter feel), and to hear the click on
+            // every key. ~40ms read as too quick to follow his voice. ~95ms/char
+            // with charcode jitter = a clear, in-sync clack per letter. (Latest
+            // signal wins per his iteration style.)
+            const delay = 95 + (ch.charCodeAt(0) % 16);
+            chestRevealTimerRef.current = setTimeout(step, delay);
+          } else {
+            chestRevealTimerRef.current = null;
+            chestRevealActiveRef.current = false;
+            // Ensure the final value is exactly the full accumulated address.
+            setChestEmailText(full);
+            resolve(full);
+          }
+        };
+        // FIX (latency): paint the first added character on the very next tick so
+        // letters start showing the instant the transcript lands (no 40ms gate).
+        chestRevealTimerRef.current = setTimeout(step, 0);
+      });
+    },
+    [playTypewriterClick],
+  );
+
+  // FIX (2026-06-01): on unmount, clear the on-chest email letter-reveal +
+  // status-fade timers and close the synthesized typewriter-click AudioContext.
+  useEffect(() => {
+    return () => {
+      if (chestRevealTimerRef.current) {
+        clearTimeout(chestRevealTimerRef.current);
+        chestRevealTimerRef.current = null;
+      }
+      if (chestStatusTimerRef.current) {
+        clearTimeout(chestStatusTimerRef.current);
+        chestStatusTimerRef.current = null;
+      }
+      if (sendLinkFallbackDismissTimerRef.current) {
+        clearTimeout(sendLinkFallbackDismissTimerRef.current);
+        sendLinkFallbackDismissTimerRef.current = null;
+      }
+      if (tickAudioCtxRef.current) {
+        try {
+          void tickAudioCtxRef.current.close();
+        } catch {
+          // ignore audio teardown errors
         }
-        if (ACCOUNT_READY_YES_RE.test(userText)) {
-          const emailToSend = accountSetupPendingEmailRef.current;
-          accountSetupPendingEmailRef.current = null;
-          accountSetupAwaitingEmailRef.current = false;
-          accountSetupAwaitingReadyRef.current = false;
-          accountSetupRejectedEmailRef.current = null;
-          return await startAccountSetup(emailToSend);
-        }
-        if (ACCOUNT_READY_NO_RE.test(userText)) {
-          accountSetupRejectedEmailRef.current =
-            accountSetupPendingEmailRef.current;
-          accountSetupPendingEmailRef.current = null;
-          accountSetupAwaitingEmailRef.current = true;
-          accountSetupAwaitingReadyRef.current = false;
-          return handleEmailMiss(
-            "Okay, I will not send it. I'm still not catching it cleanly. Why don't you go ahead and type your email address in here?",
+        tickAudioCtxRef.current = null;
+      }
+    };
+  }, []);
+
+  // 2026-06-10: the verbal-signup DECISION LOGIC lives in src/lib/signup/machine.ts
+  // so the replay harness (tests/signup) drives the exact same code that runs
+  // here. The component supplies the body via these ports: refs in, voice/box/
+  // network effects out. Logic changes belong in the machine, never here.
+  const signupFlags = useMemo<SignupFlags>(
+    () => ({
+      accountBetaDisabled: ACCOUNT_BETA_DISABLED,
+      emailTypedFallbackEnabled: EMAIL_TYPED_FALLBACK_ENABLED,
+    }),
+    [],
+  );
+  const signupPorts = useMemo<SignupPorts>(
+    () => ({
+      get awaitingReady() { return accountSetupAwaitingReadyRef.current; },
+      set awaitingReady(v: boolean) { accountSetupAwaitingReadyRef.current = v; },
+      get awaitingEmail() { return accountSetupAwaitingEmailRef.current; },
+      set awaitingEmail(v: boolean) { accountSetupAwaitingEmailRef.current = v; },
+      get awaitingName() { return accountSetupAwaitingNameRef.current; },
+      set awaitingName(v: boolean) { accountSetupAwaitingNameRef.current = v; },
+      get awaitingSend() { return accountSetupAwaitingSendRef.current; },
+      set awaitingSend(v: boolean) {
+        accountSetupAwaitingSendRef.current = v;
+        if (v && accountSetupSendEmailRef.current) {
+          setSendLinkFallbackEmail(accountSetupSendEmailRef.current);
+          setSendLinkFallbackStatus("pending");
+        } else if (!v) {
+          setSendLinkFallbackStatus((current) =>
+            current === "pending" ? "hidden" : current,
           );
         }
+      },
+      get pendingEmail() { return accountSetupPendingEmailRef.current; },
+      set pendingEmail(v: string | null) { accountSetupPendingEmailRef.current = v; },
+      get rejectedEmail() { return accountSetupRejectedEmailRef.current; },
+      set rejectedEmail(v: string | null) { accountSetupRejectedEmailRef.current = v; },
+      get confirmedEmail() { return accountSetupConfirmedEmailRef.current; },
+      set confirmedEmail(v: string | null) { accountSetupConfirmedEmailRef.current = v; },
+      get sendEmail() { return accountSetupSendEmailRef.current; },
+      set sendEmail(v: string | null) { accountSetupSendEmailRef.current = v; },
+      get emailMissCount() { return accountSetupEmailMissCountRef.current; },
+      set emailMissCount(v: number) { accountSetupEmailMissCountRef.current = v; },
+      get offerMade() { return accountSetupOfferMadeRef.current; },
+      set offerMade(v: boolean) { accountSetupOfferMadeRef.current = v; },
+      get declinedAt() { return accountSetupDeclinedAtRef.current; },
+      set declinedAt(v: number) { accountSetupDeclinedAtRef.current = v; },
+      get lastParsedEmail() { return lastAvatarParsedEmailRef.current; },
+      set lastParsedEmail(v: string | null) { lastAvatarParsedEmailRef.current = v; },
+      get sendArmedAt() { return accountSetupSendArmedAtRef.current; },
+      set sendArmedAt(v: number) { accountSetupSendArmedAtRef.current = v; },
+      get sendArmedByText() { return accountSetupSendArmedByTextRef.current; },
+      set sendArmedByText(v: string | null) { accountSetupSendArmedByTextRef.current = v; },
+      get signedIn() { return accountSignedInRef.current; },
+      get avatarTalking() { return isAvatarTalkingRef.current; },
+      get userName() { return deviceProfileRef.current.name; },
+      get greetingCount() { return deviceProfileRef.current.greetingCount; },
+      get chestText() { return chestEmailTextRef.current; },
+      say: async (text: string, opts?: { remember?: boolean }) => {
+        await repeat(text);
+        lastAvatarResponseRef.current = text;
+        if (opts?.remember) rememberConversationLine("assistant", text);
+        lastVisionResponseTimeRef.current = Date.now();
+      },
+      saveName: (name: string) => {
+        setDeviceProfile((current) => ({
+          ...current,
+          name,
+          updatedAt: Date.now(),
+        }));
+        deviceProfileRef.current = {
+          ...deviceProfileRef.current,
+          name,
+          updatedAt: Date.now(),
+        };
+      },
+      showChest: () => setShowChestEmail(true),
+      setChestDisplay: (text: string) => {
+        chestEmailTextRef.current = text;
+        setChestEmailText(text);
+      },
+      revealChars: async (fromText: string, addedChars: string) => {
+        await revealEmailChars(fromText, addedChars);
+      },
+      clearRevealActive: () => {
+        chestRevealActiveRef.current = false;
+      },
+      openTypedBox: () => setEmailEntryOpen(true),
+      closeTypedBox: () => setEmailEntryOpen(false),
+      setTypedEmail: (value: string) => setTypedAccountEmail(value),
+      startAccountSetup: (email: string) => startAccountSetup(email),
+      clearEntry: () => clearAccountEmailEntry(),
+      now: () => Date.now(),
+    }),
+    [
+      clearAccountEmailEntry,
+      rememberConversationLine,
+      repeat,
+      revealEmailChars,
+      startAccountSetup,
+    ],
+  );
+
+  const handleTypedAccountEmailSubmit = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const candidate = extractAccountEmailCandidate(typedAccountEmail, null);
+      await confirmEmailCandidateFlow(signupPorts, candidate ?? typedAccountEmail);
+    },
+    [signupPorts, typedAccountEmail],
+  );
+
+  const handleSendLinkFallbackClick = useCallback(() => {
+    if (!sendLinkFallbackEmail) return;
+    void startAccountSetup(sendLinkFallbackEmail);
+  }, [sendLinkFallbackEmail, startAccountSetup]);
+
+  const handleAccountSetupSpeech = useCallback(
+    (userText: string) => {
+      // r34 (G live 2026-06-12 21:45: signed in, said "okay", got "first
+      // time signing up, or do you already have an account?" — and earlier
+      // "you're going to remember everything here about me" tripped the
+      // setup trigger and 6 demanded his email AGAIN): a signed-in user
+      // NEVER re-enters signup. Switching accounts goes through "log me
+      // out" (r30).
+      if (accountEmailRef.current) return Promise.resolve(false);
+      return accountSetupSpeechFlow(signupPorts, signupFlags, userText);
+    },
+    [signupPorts, signupFlags],
+  );
+
+  const handleBuildInterestSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      const step = stepBuildInterest(buildInterestStateRef.current, userText);
+      if (!step.handled) return false;
+      buildInterestStateRef.current = step.state;
+      setBuildInterestState(step.state);
+      if (step.state.stage === "confirming" && step.state.method) {
+        void postOpportunitySignal("contact_captured", {
+          conversation_session_id: dbSessionIdRef.current,
+          method: step.state.method,
+        });
+      }
+
+      if (step.spoken) {
+        await repeat(step.spoken);
+        lastAvatarResponseRef.current = step.spoken;
+        rememberConversationLine("assistant", step.spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+      }
+
+      if (step.effect.kind === "start_account") {
+        accountSetupAwaitingReadyRef.current = true;
+        accountSetupOfferMadeRef.current = true;
+        return await handleAccountSetupSpeech(userText);
+      }
+
+      if (step.effect.kind === "save_contact") {
+        const result = await postOpportunitySignal("submit_contact", {
+          conversation_session_id: dbSessionIdRef.current,
+          method: step.effect.method,
+          value: step.effect.value,
+          full_name: deviceProfileRef.current.name,
+        });
+        const resolved = resolveContactSave(step.state, result.ok && result.submitted);
+        buildInterestStateRef.current = resolved.state;
+        setBuildInterestState(resolved.state);
+        await repeat(resolved.spoken);
+        lastAvatarResponseRef.current = resolved.spoken;
+        rememberConversationLine("assistant", resolved.spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+      }
+      return true;
+    },
+    [handleAccountSetupSpeech, rememberConversationLine, repeat],
+  );
+
+  useEffect(() => {
+    if (
+      pendingBuildAccountConsumedRef.current ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady
+    ) return;
+    pendingBuildAccountConsumedRef.current = true;
+    if (!consumePendingBuildAccountSetup()) return;
+    const next: BuildInterestState = { stage: "account_setup", method: null, value: null };
+    buildInterestStateRef.current = next;
+    setBuildInterestState(next);
+    accountSetupAwaitingReadyRef.current = false;
+    accountSetupAwaitingEmailRef.current = true;
+    accountSetupPendingEmailRef.current = null;
+    setShowChestEmail(true);
+    const spoken = "Great. Spell your email slowly, one letter at a time. It will show on my chest as you go.";
+    void repeat(spoken).then(() => {
+      lastAvatarResponseRef.current = spoken;
+      rememberConversationLine("assistant", spoken);
+    });
+  }, [isStreamReady, rememberConversationLine, repeat, sessionState]);
+
+  // Voice-driven data deletion (G 2026-06-07): 6 walks a signed-in user through
+  // erasing everything he remembers — either a memory wipe (keep the account) or
+  // a full account close. Two-step: detect the ask -> confirm out loud (it's
+  // irreversible) -> call /api/account/delete -> report + forget locally too.
+  const handleDataDeleteSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      // --- Confirm phase: we already asked "are you sure?" ---
+      if (accountDeleteAwaitingConfirmRef.current) {
+        if (!userText.trim()) return true; // ignore echoes, keep waiting
+        // Coaching / 3rd-person talk during the confirm wait is NOT a yes
+        // (G 2026-06-08): re-ask for a direct, first-person command instead of
+        // firing the irreversible close on a stray word like "confirm".
+        if (DELETE_COACHING_RE.test(userText)) {
+          const spoken =
+            "Just to be safe - I only close an account when you tell me to directly. Say 'Yes, delete my account' if you really want that, or 'no' to keep everything.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        if (
+          DELETE_CANCEL_RE.test(userText) &&
+          !DELETE_CONFIRM_RE.test(userText)
+        ) {
+          accountDeleteAwaitingConfirmRef.current = false;
+          const spoken =
+            "Okay - I won't delete anything. Everything's right where you left it.";
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        if (DELETE_CONFIRM_RE.test(userText)) {
+          const scope = accountDeleteScopeRef.current;
+          accountDeleteAwaitingConfirmRef.current = false;
+          await interrupt();
+          let ok = false;
+          let scheduled = false;
+          try {
+            const res = await fetch("/api/account/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ scope, confirm: true }),
+            });
+            if (res.ok) {
+              const data = (await res.json().catch(() => null)) as
+                | { ok?: boolean; accountClosed?: boolean; scheduled?: boolean }
+                | null;
+              ok = Boolean(data?.ok);
+              scheduled = Boolean(data?.scheduled);
+            }
+          } catch {
+            ok = false;
+          }
+          if (ok && scope === "account") {
+            // 30-day grace STARTED (data not wiped yet). Sign out locally; they
+            // can cancel via the email link or by signing back in within 30 days.
+            accountSignedInRef.current = false;
+            const startedAction = accountDeleteSaidCloseRef.current
+              ? "closing your account"
+              : "deleting everything I have on you";
+            const spoken = scheduled
+              ? `Okay - I've started ${startedAction}. I'll keep everything safe for 30 days in case you change your mind, or in case a bad actor hacked your account and you want to recover it - just sign back in and I'll cancel it, and I emailed you a link too. After that it's gone for good. Take care - it was good talking with you.`
+              : `Okay - I've started ${startedAction}, and I'll keep everything safe for 30 days in case you change your mind. After that it's gone for good. Take care - it was good talking with you.`;
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            rememberConversationLine("assistant", spoken);
+          } else if (ok) {
+            // memory scope: immediate wipe, clean slate, the account stays.
+            recentConversationRef.current = [];
+            accountMemorySnapshotRef.current = null;
+            accountMemoryContextInjectedRef.current = true;
+            deviceProfileRef.current = {
+              ...deviceProfileRef.current,
+              name: "",
+              updatedAt: Date.now(),
+            };
+            setDeviceProfile((current) => ({
+              ...current,
+              name: "",
+              updatedAt: Date.now(),
+            }));
+            const spoken =
+              "Done. I've erased everything I remembered about you. Clean slate - your account's still here, I just don't have any history now. What's on your mind?";
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            rememberConversationLine("assistant", spoken);
+          } else {
+            const spoken =
+              "Hmm - something went wrong on my end, so nothing was changed. I made a note for G to fix it. Want to try again in a bit?";
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            rememberConversationLine("assistant", spoken);
+          }
+          lastVisionResponseTimeRef.current = Date.now();
+          return true;
+        }
+        // Unclear answer - re-ask once, plainly.
         const spoken =
-          "Before I send the account email, I need a yes or no. Is that email address correct?";
+          "I need a clear yes or no - this can't be undone. Say 'yes, delete it' to erase everything, or 'no' to keep it.";
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
         return true;
       }
 
-      if (accountSetupAwaitingEmailRef.current && directEmail) {
-        return confirmAccountEmailCandidate(directEmail);
-      }
+      // --- Intent phase: did they ask to delete their data / close account? ---
+      if (!DELETE_DATA_INTENT_RE.test(userText)) return false;
+      // A1 fix (2026-06-14): a "remove/delete the on-screen UI" phrasing (the
+      // signed-in text, a box, a label, a line) is NOT an account delete — bail.
+      if (DELETE_UI_CLEANUP_RE.test(userText)) return false;
+      // Never treat COACHING / 3rd-person talk as a real request (G 2026-06-08
+      // false-close fix). The user must be asking about THEIR OWN data directly.
+      if (DELETE_COACHING_RE.test(userText)) return false;
 
-      if (accountSetupAwaitingEmailRef.current) {
-        return handleEmailMiss();
-      }
-
-      if (accountSetupAwaitingReadyRef.current) {
-        if (ACCOUNT_READY_NO_RE.test(userText)) {
-          accountSetupAwaitingReadyRef.current = false;
-          accountSetupAwaitingEmailRef.current = false;
-          accountSetupPendingEmailRef.current = null;
-          accountSetupRejectedEmailRef.current = null;
-          accountSetupDeclinedAtRef.current = Date.now();
-          accountSetupOfferMadeRef.current = false;
-          accountSetupEmailMissCountRef.current = 0;
-          setEmailEntryOpen(false);
-          const spoken =
-            "No problem. We can keep using this session. When you want me to remember next time, we'll set it up.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
-          return true;
-        }
-        if (ACCOUNT_READY_YES_RE.test(userText)) {
-          accountSetupAwaitingReadyRef.current = false;
-          accountSetupAwaitingEmailRef.current = true;
-          accountSetupPendingEmailRef.current = null;
-          accountSetupRejectedEmailRef.current = null;
-          accountSetupEmailMissCountRef.current = 0;
-          setEmailEntryOpen(false);
-          setTypedAccountEmail("");
-          const spoken =
-            "Great. What email address should I send the link to? Say it slowly, with the at and the dot, and I'll read it back before I send anything.";
-          await repeat(spoken);
-          lastAvatarResponseRef.current = spoken;
-          lastVisionResponseTimeRef.current = Date.now();
-          return true;
-        }
-      }
-
-      if (ACCOUNT_SETUP_TRIGGER_RE.test(userText)) {
-        if (directEmail) {
-          return confirmAccountEmailCandidate(directEmail);
-        }
-        accountSetupAwaitingReadyRef.current = true;
-        accountSetupAwaitingEmailRef.current = false;
-        accountSetupPendingEmailRef.current = null;
-        accountSetupRejectedEmailRef.current = null;
-        accountSetupEmailMissCountRef.current = 0;
-        const spoken = buildAccountMemoryOffer(
-          "You can use the site right now. Account setup is optional, but it lets me remember you next time.",
-          deviceProfileRef.current.greetingCount + 1,
-        );
+      if (!accountSignedInRef.current) {
+        const spoken =
+          "You don't have an account with me yet, so there's nothing saved to delete. If you make one, you can tell me to erase it any time.";
+        await interrupt();
         await repeat(spoken);
         lastAvatarResponseRef.current = spoken;
         rememberConversationLine("assistant", spoken);
@@ -2870,33 +6226,493 @@ const LiveAvatarSessionComponent: React.FC<{
         return true;
       }
 
-      return false;
+      // G 2026-06-08: grace for ALL deletes now. "delete my data" / "wipe my
+      // memory" / "close my account" ALL take the SAME 30-day grace path -
+      // nothing is wiped on the spot, so a hacked or regretted account stays
+      // recoverable for 30 days (this is what stops a hacker nuking you
+      // instantly). We still read whether they said "close my account" vs just
+      // "delete my data" - ONLY so 6's wording stays honest; the behavior is
+      // identical (always grace). The old instant memory-wipe still lives in
+      // /api/account/delete, dormant - no voice path reaches it now.
+      const saidClose = ACCOUNT_CLOSE_RE.test(userText);
+      accountDeleteSaidCloseRef.current = saidClose;
+      accountDeleteScopeRef.current = "account";
+      accountDeleteAwaitingConfirmRef.current = true;
+      await interrupt();
+      const action = saidClose
+        ? "closing your account"
+        : "deleting everything I have on you";
+      const confirmCue = saidClose ? "Yes, delete my account" : "Yes, delete it";
+      const spoken = `Okay - before we do this: ${action} starts a 30-day countdown. I'll keep everything safe for those 30 days in case you change your mind, or in case a bad actor hacked your account and you want to recover it - just sign back in and I'll cancel it, and I'll email you a link too. After 30 days it's gone for good. Want a copy of your data first? Say 'download my data.' Ready? Say '${confirmCue}' to start it, or 'no' to keep everything.`;
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      rememberConversationLine("assistant", spoken);
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
     },
-    [
-      clearAccountEmailEntry,
-      confirmAccountEmailCandidate,
-      handleEmailMiss,
-      openEmailEntry,
-      rememberConversationLine,
-      repeat,
-      startAccountSetup,
-    ],
+    [interrupt, repeat, rememberConversationLine],
   );
 
+  // Data export / download (G 2026-06-07): hand a signed-in user a full copy of
+  // everything we hold on them - on request, and offered before any delete. The
+  // APP does the fetch + the browser download; 6 only acknowledges and reports
+  // the REAL result, never fakes it. No-ops for anon / no-intent.
+  const handleDataExportSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      // Also fire when 6 just OFFERED to send the data/download link and the
+      // user says yes - otherwise that bare "yes" falls through and 6's brain
+      // fakes a send that never happened (G 2026-06-08: no download email fired).
+      // Disabled while a delete-confirm is pending so a delete "yes" isn't stolen.
+      // SIGNUP GUARD (2026-06-10, G's 13:11 session): while the account flow is
+      // collecting/confirming an email, "send it"-style words mean the SIGN-IN
+      // link, never a data download. This handler hijacked "Yeah, let's talk
+      // about this side hustle" right after 6 offered the sign-in link and
+      // swallowed the turn with "There's nothing saved yet".
+      if (
+        accountSetupAwaitingReadyRef.current ||
+        accountSetupAwaitingEmailRef.current ||
+        accountSetupAwaitingNameRef.current ||
+        accountSetupAwaitingSendRef.current ||
+        accountSetupPendingEmailRef.current !== null
+      ) {
+        return false;
+      }
+      const lastAssistantLc = lastAvatarResponseRef.current.toLowerCase();
+      // Download offers are about a COPY of your data — "send the sign-in
+      // link" must never count (it matched the old send...link pattern).
+      const offeredDownload =
+        !accountDeleteAwaitingConfirmRef.current &&
+        !/\bsign-?in\b|\bmagic\b/.test(lastAssistantLc) &&
+        /\b(?:download|export)\b[^.?!]{0,40}\b(?:link|data|copy)\b|\bsend\b[^.?!]{0,40}\b(?:copy|your data)\b/.test(
+          lastAssistantLc,
+        );
+      const saidYesToOffer =
+        /^\s*(?:yes|yeah|yep|yup|sure|please|ok|okay|do it|go ahead|send it|sounds good)\b/i.test(
+          userText.trim(),
+        );
+      if (
+        !DATA_EXPORT_INTENT_RE.test(userText) &&
+        !(offeredDownload && saidYesToOffer)
+      ) {
+        return false;
+      }
+      // Coaching / 3rd-person wording ("that's what you should say...", "you
+      // can tell them to download their data") is NEVER a real download request
+      // - it wrongly emailed a link mid-coaching (G 2026-06-09 export flood,
+      // same class as the false-close). Same guard the delete path uses; a bare
+      // yes-to-an-offer never matches DELETE_COACHING_RE, so the legit
+      // offered->yes path stays safe.
+      if (DELETE_COACHING_RE.test(userText)) return false;
+      await interrupt();
+      if (!accountSignedInRef.current) {
+        const spoken =
+          "There's nothing saved yet - you don't have an account with me, so there's nothing to download. Make one and chat with me, and you can grab a copy any time.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+      const nowExport = Date.now();
+      if (nowExport - lastExportRequestAtRef.current < 120000) {
+        const spoken =
+          "I just emailed that download link a moment ago - check your inbox, it can take a minute to land.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+      lastExportRequestAtRef.current = nowExport;
+      let ok = false;
+      try {
+        const res = await fetch("/api/account/export-request", { method: "POST" });
+        ok = res.ok;
+      } catch {
+        ok = false;
+      }
+      const spoken = ok
+        ? "You got it - I just emailed a secure download link to the address on your account. Click it within 24 hours and your copy will download. Want anything else?"
+        : "Hmm - something went wrong sending your download link. I made a note for G. Want to try again in a bit?";
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      rememberConversationLine("assistant", spoken);
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [interrupt, repeat, rememberConversationLine],
+  );
+
+  // Never Forget reminders (2026-06-10, G's night order: "all you gotta do is
+  // talk to six"). Stateless on purpose — no armed gates, no traps: every
+  // utterance either creates/list/no-ops in one turn. Reminders display
+  // through the EXISTING list-card UI as a "Reminders" card.
+  const refreshRemindersCard = useCallback(
+    async (speak: boolean): Promise<boolean> => {
+      try {
+        const sid = dbSessionIdRef.current;
+        const res = await fetch(
+          `/api/reminders${sid ? `?sessionId=${encodeURIComponent(sid)}` : ""}`,
+        );
+        if (!res.ok) return false;
+        const data = (await res.json()) as {
+          reminders: Array<{ title: string; due_at: string | null }>;
+        };
+        const items = data.reminders.map((r) =>
+          r.due_at
+            ? `${r.title} — ${fmtReminderDue(r.due_at)}`
+            : `${r.title} — whenever`,
+        );
+        const listId = ensureAssistantList({ title: "Reminders", kind: "todo" });
+        commitAssistantLists((current) =>
+          current.map((l) =>
+            l.id === listId
+              ? {
+                  ...l,
+                  items: items.length
+                    ? items
+                    : ["Nothing yet — say: remind me to..."],
+                  updatedAt: Date.now(),
+                }
+              : l,
+          ),
+        );
+        if (speak) {
+          const spoken = items.length
+            ? `You've got ${items.length} reminder${items.length === 1 ? "" : "s"} — they're on the card.`
+            : "No reminders yet. Just say: remind me to call Bob tomorrow at 9.";
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [ensureAssistantList, repeat],
+  );
+
+  // The one reminder (per session) still waiting for its time — set when a
+  // no-time reminder is created, cleared on merge or on the next timed create.
+  const pendingTimeReminderRef = useRef<{ id: string; title: string } | null>(
+    null,
+  );
+  // Voice-set timezone for THIS session (2026-06-11). Beats the device clock
+  // for reminder saves; loaded from the account on sign-in, written to the
+  // account when set by voice while signed in.
+  const sessionTimezoneRef = useRef<string | null>(null);
+  // Saved 5-digit ZIP for THIS session (2026-06-13). Loaded from the account on
+  // sign-in and set when the user gives a ZIP by voice, so a recall question
+  // ("what's my zip") is answered instantly without waking the brain.
+  const accountZipRef = useRef<string | null>(null);
+
+  const handleReminderSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      if (REMINDER_LIST_RE.test(userText)) {
+        return refreshRemindersCard(true);
+      }
+      // Late time-merge (2026-06-11): after "remind me to X" with no time, the
+      // bare answer ("So yeah, 9 AM tomorrow") must land on THAT reminder —
+      // G's trash reminder saved with due_at null and could never fire. Not a
+      // gate: parseTimeOnly only claims utterances that are NOTHING but a time
+      // answer, so close/stop/everything else flows on untouched.
+      const pendingTime = pendingTimeReminderRef.current;
+      if (pendingTime) {
+        const timeOnly = parseTimeOnly(userText, new Date());
+        if (timeOnly) {
+          try {
+            const res = await fetch("/api/reminders", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: pendingTime.id,
+                dueAtIso: timeOnly.dueAt.toISOString(),
+                // Anonymous ownership proof (2026-06-11 hardening): the
+                // creating session's id, not the row id alone.
+                sessionId: dbSessionIdRef.current,
+              }),
+            });
+            if (!res.ok) throw new Error(`reminders time PATCH ${res.status}`);
+            pendingTimeReminderRef.current = null;
+            void refreshRemindersCard(false);
+            const spoken = accountSignedInRef.current
+              ? `Done - ${timeOnly.whenSpoken}. You talked, I remembered.`
+              : `Got it - ${timeOnly.whenSpoken}. It's on your card - make an account and I'll email you too.`;
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            rememberConversationLine("assistant", spoken);
+            lastVisionResponseTimeRef.current = Date.now();
+            return true;
+          } catch (e) {
+            void captureClientError(e, {
+              where: "reminders",
+              userText: userText.slice(0, 120),
+            });
+            const spoken =
+              "I had trouble saving that time - tell me once more.";
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            lastVisionResponseTimeRef.current = Date.now();
+            return true;
+          }
+        }
+      }
+      const parsed = parseReminder(userText, new Date());
+      if (!parsed) return false;
+      if (!parsed.title) {
+        const spoken =
+          "Got it - what should I remind you about? Say it like: remind me to call Bob tomorrow at 9.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+      try {
+        const res = await fetch("/api/reminders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: parsed.title,
+            rawText: userText.slice(0, 500),
+            dueAtIso: parsed.dueAt ? parsed.dueAt.toISOString() : null,
+            recurrence: parsed.recurrence,
+            // Voice-set zone beats the device clock (timezone ladder 2026-06-11).
+            timezone:
+              sessionTimezoneRef.current ??
+              Intl.DateTimeFormat().resolvedOptions().timeZone,
+            sessionId: dbSessionIdRef.current,
+          }),
+        });
+        if (!res.ok) throw new Error(`reminders POST ${res.status}`);
+        const data = (await res.json()) as { signedIn?: boolean; id?: string };
+        void refreshRemindersCard(false);
+        // No time yet → remember which reminder is waiting for one, and ask
+        // like a person (G 2026-06-11: "very wordy and not like anything a
+        // human being would say" — the old line parroted the whole title plus
+        // a sample sentence).
+        pendingTimeReminderRef.current =
+          !parsed.dueAt && typeof data.id === "string" && data.id
+            ? { id: data.id, title: parsed.title }
+            : null;
+        // G 2026-06-11 ("really awkward... not like anything a human being
+        // would say"): never read the title back — it's on the card they're
+        // looking at. Short, human, and the founder's favorite line where it
+        // belongs ("I LOVE you talked, I remembered").
+        // r18 (G's 12:48 session): he EXPLICITLY asked "send me an email" while
+        // anonymous — the soft "make an account" tail got talked over and the
+        // brain promised an email that could never send. When the user names a
+        // channel and we can't deliver on it, that gap IS the message.
+        const spoken = parsed.dueAt
+          ? data.signedIn
+            ? parsed.askedChannel === "sms"
+              ? `Done - texts are coming soon, so I'll email you ${parsed.whenSpoken}. You talked, I remembered.`
+              : `Done - I'll email you ${parsed.whenSpoken}. You talked, I remembered.`
+            : parsed.askedChannel
+              ? `It's on your card for ${parsed.whenSpoken}. To ${parsed.askedChannel === "sms" ? "reach" : "email"} you, I need your account - want to set it up?`
+              : `Done - ${parsed.whenSpoken}, it's on your card. Make an account and I'll email you too.`
+          : `Got it - it's on your card. When should I remind you?`;
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      } catch (e) {
+        void captureClientError(e, {
+          where: "reminders",
+          userText: userText.slice(0, 120),
+        });
+        const spoken =
+          "I had trouble saving that reminder - try me again in a second.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+    },
+    [refreshRemindersCard, rememberConversationLine, repeat],
+  );
+
+  // SMS opt-in by voice (2026-06-10, G: "not just email reminders, but
+  // text"). Stateless: the trigger sentence may carry the number; if not, 6
+  // coaches ONE sentence ("my number is...") which fires on its own.
+  const handleSmsOptInSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      const phone = parseSpokenPhone(userText);
+      const optInAsk = SMS_OPT_IN_RE.test(userText);
+      const givingNumber = PHONE_GIVE_RE.test(userText) && phone !== null;
+      if (!optInAsk && !givingNumber) return false;
+      if (!accountSignedInRef.current) {
+        const spoken =
+          "Texts ride on your account - make one first, then say: text me my reminders.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+      if (!phone) {
+        const spoken =
+          "You got it. Say it like: my number is 410 555 1234.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+      try {
+        const res = await fetch("/api/account/phone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone }),
+        });
+        if (!res.ok) throw new Error(`phone save ${res.status}`);
+        const spoken = `Done - texts are on. I've got you at ${fmtPhoneSpoken(phone)}.`;
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      } catch (e) {
+        void captureClientError(e, { where: "sms-opt-in" });
+        const spoken =
+          "I had trouble saving that number - try me again in a second.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+    },
+    [rememberConversationLine, repeat],
+  );
+
+  // Timezone by voice (2026-06-11, G: "6 should always be on the time zone of
+  // the user"). Stateless coach pattern (the signup-gate lesson): a ZIP or a
+  // time-flavored place sentence fires ON ITS OWN — no armed gate, close/stop
+  // always flow through. tzAskAtRef is a relevance TIMESTAMP, not a gate: for
+  // 90s after 6 asks, a bare answer ("21093", "Toronto") counts; non-matching
+  // turns flow to the brain untouched the whole time. The device clock covers
+  // the normal case; this is the correction path.
+  const tzAskAtRef = useRef<number>(0);
+  const handleTimezoneSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      const allowBare = Date.now() - tzAskAtRef.current < 90_000;
+      const loc = resolveSpokenLocation(userText, { allowBare });
+      if (!loc && !TZ_WRONG_RE.test(userText)) return false;
+      if (!loc) {
+        // "the time zone is wrong" with no place in the same breath → coach
+        // the one sentence; the follow-up fires on its own.
+        tzAskAtRef.current = Date.now();
+        const spoken =
+          "Easy fix. In the US, just tell me your zip code. Anywhere else, say the country or your nearest big city.";
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+      if (loc.kind === "multi") {
+        tzAskAtRef.current = Date.now();
+        const spoken = `${loc.country} runs on a few different clocks - what's your nearest big city?`;
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        lastVisionResponseTimeRef.current = Date.now();
+        return true;
+      }
+      tzAskAtRef.current = 0;
+      sessionTimezoneRef.current = loc.tz;
+      // If the resolved location WAS a ZIP, persist the raw 5 digits too so a
+      // returning user is never asked for it again (2026-06-13). loc.placeName
+      // is `ZIP 21093` for the ZIP paths in resolveSpokenLocation.
+      const zipFromLoc = loc.placeName.match(/\b(\d{5})\b/)?.[1] ?? null;
+      if (zipFromLoc) accountZipRef.current = zipFromLoc;
+      // Await the save so "I'll remember that" is only ever spoken when the
+      // account write actually landed (2026-06-11 review: the fire-and-forget
+      // version promised memory it might not have).
+      let savedToAccount = false;
+      if (accountSignedInRef.current) {
+        try {
+          const res = await fetch("/api/account/prefs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(
+              zipFromLoc
+                ? { timezone: loc.tz, zip: zipFromLoc }
+                : { timezone: loc.tz },
+            ),
+          });
+          savedToAccount = res.ok;
+        } catch {
+          savedToAccount = false;
+        }
+      }
+      const spoken = savedToAccount
+        ? `Done - you're on ${humanZoneName(loc.tz)} now, and I'll remember that.`
+        : `Done - you're on ${humanZoneName(loc.tz)} for this visit.`;
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      rememberConversationLine("assistant", spoken);
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [rememberConversationLine, repeat],
+  );
+
+  // ZIP RECALL (2026-06-13): "what's my zip" / "do you know my zip" is a question
+  // ABOUT the saved ZIP, never the user GIVING a (bad) ZIP. Answer from the
+  // saved value; never run the "does not sound quite right" coach on it. Fires
+  // ONLY on a recall ask with NO 5-digit number in the same breath, so giving
+  // ("my zip is 21093") and ASR jumbles stay on the capture path. Runs BEFORE
+  // the timezone and online-lookup handlers so a pending lookup can never trap
+  // the question into the invalid-zip coach.
+  const handleZipRecallSpeech = useCallback(
+    async (userText: string): Promise<boolean> => {
+      if (!ZIP_RECALL_RE.test(userText)) return false;
+      if (/\d{5}/.test(userText)) return false;
+      const savedZip = accountZipRef.current;
+      // G 2026-06-14: ENUNCIATE digits one at a time (he heard "21093" slurred as
+      // "2193"). Dash-separate the digits — "2-1-0-9-3" — the SAME trick as
+      // "a-i-ASAP" so the TTS says each digit clearly instead of "twenty-one
+      // thousand ninety-three".
+      const spoken = savedZip
+        ? `Your ZIP is ${savedZip.split("").join("-")}.`
+        : "I don't have your ZIP yet - what is it?";
+      await interrupt();
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      rememberConversationLine("assistant", spoken);
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [interrupt, rememberConversationLine, repeat],
+  );
+
+  const sizeStepAtRef = useRef(0);
   const handlePromptSizeSpeech = useCallback(
     async (userText: string) => {
-      if (!PROMPT_SIZE_REQUEST_RE.test(userText)) return false;
-      let reachedMax = false;
+      // VOICE SIZING (2026-06-10): boxes/cards/text, bigger AND smaller.
+      const wantsBigger = UI_SIZE_BIGGER_RE.test(userText);
+      const wantsSmaller = !wantsBigger && UI_SIZE_SMALLER_RE.test(userText);
+      if (!wantsBigger && !wantsSmaller) return false;
+      // r20 (G 21:34: "they went up 2 TIMES when I only asked for once" — one
+      // breath matched twice, e.g. "Bigger." + "Bigger text. There we go.").
+      // One step per 2.5 seconds; the second match swallows silently.
+      const nowMs = Date.now();
+      if (nowMs - sizeStepAtRef.current < 2500) return true;
+      sizeStepAtRef.current = nowMs;
+      let hitEdge = false;
       setPromptSizeLevel((current) => {
-        if (current >= MAX_PROMPT_SIZE_LEVEL) {
-          reachedMax = true;
+        const next = wantsBigger ? current + 1 : current - 1;
+        if (next > MAX_PROMPT_SIZE_LEVEL || next < 0) {
+          hitEdge = true;
           return current;
         }
-        return current + 1;
+        return next;
       });
-      const spoken = reachedMax
-        ? "That's as big as I can make the prompts without crowding my face or the Terms line."
-        : "I made the prompts a little bigger. Is that enough?";
+      const spoken = wantsBigger
+        ? hitEdge
+          ? "That's as big as I can make things without crowding my face or the Terms line."
+          : "Done - boxes and text are bigger now. Say it again and I'll go bigger."
+        : hitEdge
+          ? "That's as small as I'll go - any smaller and nobody can read it."
+          : "Done - I sized things down a notch. Say it again for smaller.";
       await repeat(spoken);
       lastAvatarResponseRef.current = spoken;
       lastVisionResponseTimeRef.current = Date.now();
@@ -2905,8 +6721,35 @@ const LiveAvatarSessionComponent: React.FC<{
     [repeat],
   );
 
+  // r18 (2026-06-11, G: "You should have the real time"): clock questions are
+  // the APP's job — exact device time in the user's resolved zone. The brain
+  // only ever had the session-start stamp and said "I don't have the exact
+  // current time".
+  const handleTimeAskSpeech = useCallback(
+    async (userText: string) => {
+      if (!TIME_ASK_RE.test(userText)) return false;
+      const spoken = spokenTimeNow(new Date(), sessionTimezoneRef.current);
+      await repeat(spoken);
+      lastAvatarResponseRef.current = spoken;
+      lastVisionResponseTimeRef.current = Date.now();
+      return true;
+    },
+    [repeat],
+  );
+
+  // Capture ?tester=<slug> on first mount and persist for the visit.
+  useEffect(() => {
+    testerLabelRef.current = captureTesterLabelFromUrl();
+  }, []);
+
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
+      if (voicePresenceRef.current !== "avatar") {
+        // Voice-list mode owns this disconnect: the avatar was stopped on
+        // purpose and the conversation is still alive on the ElevenLabs
+        // voice. No "session ended" screen, no parent reset.
+        return;
+      }
       if (sessionStartErrorRef.current) {
         setSessionStartError(sessionStartErrorRef.current);
         sessionStartErrorRef.current = null;
@@ -2914,7 +6757,6 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
       if (explicitEndSessionRef.current) {
-        explicitEndSessionRef.current = false;
         onExit?.(false);
         greetingTriggeredRef.current = false;
         return;
@@ -2928,22 +6770,268 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, [sessionState, onSessionStopped, wasStoppedDueToInactivity]);
 
+  // CHANGE 1/2 (2026-06-01): keep refs in lockstep with state so the stable
+  // AVATAR_TRANSCRIPTION handler + email callbacks read live values, not stale
+  // closures. Cheap assigns; no subscriptions.
+  useEffect(() => {
+    chestEmailTextRef.current = chestEmailText;
+  }, [chestEmailText]);
+  useEffect(() => {
+    isAvatarTalkingRef.current = isAvatarTalking;
+  }, [isAvatarTalking]);
+
+  // Track 6's most recent spoken text via AVATAR_TRANSCRIPTION events. Used by
+  // the greeting-injection guard above to detect when the LLM already covered
+  // the greeting content naturally.
+  //
+  // CHANGE 1 (2026-06-01): this is ALSO where the on-chest email box is now
+  // populated from what 6 UNDERSTOOD. Raw user STT mangles spelled letters
+  // ("tz@pm.me"), but 6's brain reads the address back cleanly
+  // ("S-G-D-I-E-T-Z at P-M dot M-E"). When account-email setup is active and 6
+  // speaks an email readback, we parse HIS text and drive the box to match —
+  // so the box and his voice always agree, and the address we ultimately send
+  // is the one he confirmed, never a raw-STT guess.
+  useEffect(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    const onAvatarTranscription = (event: { text?: string }) => {
+      const text = event?.text;
+      if (typeof text !== "string" || text.trim().length === 0) return;
+      lastAvatarTranscriptionRef.current = text;
+
+      // ITEM 4 add-offer slot (2026-06-14): the moment 6 OFFERS to add an item
+      // ("Want me to add milk?"), park it so the user's next bare "yes" lands the
+      // add. Brain offers only surface HERE (lastAvatarResponseRef holds scripted
+      // lines only). Never arm during a competing confirm. Any non-offer line 6
+      // speaks clears a stale slot.
+      if (
+        ADD_OFFER_RE.test(text) &&
+        !accountDeleteAwaitingConfirmRef.current &&
+        !accountSetupAwaitingSendRef.current &&
+        !pendingListDeleteRef.current &&
+        !endSessionConfirmationPendingRef.current
+      ) {
+        const offered = parseOfferedAddItems(text);
+        pendingAddRef.current =
+          offered.length > 0
+            ? { items: offered, listId: activeListIdLiveRef.current, at: Date.now() }
+            : null;
+      } else if (!ADD_OFFER_RE.test(text)) {
+        pendingAddRef.current = null;
+      }
+
+      // FIX (2026-06-01, box-not-showing): 6's BRAIN often runs the email
+      // conversation itself (asks for the email, reads it back) and races AHEAD
+      // of the scripted handler — so accountSetupAwaitingEmailRef was never armed
+      // and the box never showed (G: "email not on screen"). Decouple the box
+      // from the scripted refs: show + mirror on ANY spelled-email readback while
+      // an account flow is plausibly in progress. The readback shape itself is
+      // strong evidence (6 only spells an address back during account setup), so
+      // we accept the scripted refs OR any account-flow ref OR an account trigger.
+      if (ACCOUNT_BETA_DISABLED) return;
+
+      // "Account Link Sent" confirmation (G 2026-06-07: "nothing in the pillbox
+      // said account link sent — it just stayed on my email"). The send can go
+      // out via the SERVER/sync path, which never paints the client status, so
+      // the box was left showing the raw address. When 6 confirms the link is
+      // sent AND a valid email is on the chest, swap the box to "Account Link
+      // Sent ✓" and fade back to the default pills. Fires once (clears the
+      // address) and only post-send (gated on a valid email being on screen).
+      if (
+        isValidEmailCandidate(chestEmailTextRef.current) &&
+        /\b(?:on the other side|sent the sign-in link|sent you (?:an |the )?email|sent the link|i'?ve sent|i sent)\b/.test(
+          text.toLowerCase(),
+        )
+      ) {
+        lastAvatarParsedEmailRef.current = null;
+        if (chestRevealTimerRef.current) {
+          clearTimeout(chestRevealTimerRef.current);
+          chestRevealTimerRef.current = null;
+        }
+        chestRevealActiveRef.current = false;
+        chestEmailTextRef.current = "";
+        setChestEmailText("");
+        setChestEmailStatus("Email Link Sent");
+        setShowChestEmail(true);
+        if (chestStatusTimerRef.current) clearTimeout(chestStatusTimerRef.current);
+        chestStatusTimerRef.current = setTimeout(() => {
+          setShowChestEmail(false);
+          setChestEmailStatus(null);
+          setChestEmailText("");
+          setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
+          chestStatusTimerRef.current = null;
+        }, 2600);
+        return;
+      }
+
+      // FIX (2026-06-01, G "the box should be on screen earlier"): the moment 6
+      // asks the user to SPELL their email — even when his brain drives the flow
+      // ahead of the scripted refs, before any letters land — surface the empty
+      // box (placeholder) so it's already waiting. "spell" + "email" together
+      // only occur during account setup, so this is safe to act on stand-alone.
+      const loweredAsk = text.toLowerCase();
+      // Reveal the on-chest email box the INSTANT 6 tells the user to SPELL their
+      // email. "spell" is the email-collection moment and fires even when 6's
+      // brain runs ahead of the scripted refs — so the box pops right when he
+      // says "spell your email," no lag (G 2026-06-07, said twice: "as soon as I
+      // say yes, the box should come up"). It does NOT fire on the earlier OFFER
+      // line ("...I just need your email...") — no "spell" there — so the box
+      // still never pops too soon either.
+      // Avatar/provider speech is observational. It may reveal the chest only
+      // when the authoritative signup machine is already collecting an email;
+      // it must never arm the email gate by itself.
+      if (
+        accountSetupAwaitingEmailRef.current &&
+        /\bspell\b/.test(loweredAsk) &&
+        /\bemail\b/.test(loweredAsk) &&
+        chestEmailTextRef.current === ""
+      ) {
+        setChestEmailStatus(null);
+        setShowChestEmail(true);
+      }
+
+
+      // Gate cheaply on "this line looks like an email readback" before parsing:
+      // it must contain an "@" OR the word "at" together with a "dot"/"period".
+      const lowered = text.toLowerCase();
+      const looksLikeReadback =
+        /@/.test(text) ||
+        (/\bat\b/.test(lowered) && /\b(?:dot|period|point)\b/.test(lowered));
+      if (!looksLikeReadback) return;
+
+      const parsed = parseEmailFromAvatarReadback(text);
+      if (!parsed) return;
+      // Provider/avatar speech is observational. It may corroborate the exact
+      // candidate already captured by the authoritative user-turn machine, but
+      // it may never create, replace, or advance canonical signup state.
+      if (parsed !== accountSetupPendingEmailRef.current) return;
+
+      // Dedupe: only re-reveal when 6 confirms a DIFFERENT address than the one
+      // we already mirrored from him (avoids looping on repeated confirmations).
+      if (parsed === lastAvatarParsedEmailRef.current) return;
+      // If the box already shows exactly this address, just record it and stop.
+      if (parsed === chestEmailTextRef.current) {
+        lastAvatarParsedEmailRef.current = parsed;
+        return;
+      }
+      lastAvatarParsedEmailRef.current = parsed;
+
+      // Keep the chest synchronized with the already-authoritative candidate.
+      // Cancel any in-flight reveal first so animations never overlap.
+      if (chestRevealTimerRef.current) {
+        clearTimeout(chestRevealTimerRef.current);
+        chestRevealTimerRef.current = null;
+      }
+      chestRevealActiveRef.current = false;
+      setChestEmailStatus(null);
+      setShowChestEmail(true);
+      // G 2026-06-01 (box "in and out"): when CORRECTING an address 6 already
+      // showed (e.g. esgdietz → sgdietz), replace it IN PLACE — do NOT blank to
+      // "" first. That empty frame was the flicker. Only the FIRST address types
+      // in letter-by-letter; corrections swap cleanly with no flash.
+      if (chestEmailTextRef.current.length > 0) {
+        chestEmailTextRef.current = parsed;
+        setChestEmailText(parsed);
+      } else {
+        void revealEmailChars("", parsed).then((shown) => {
+          chestEmailTextRef.current = shown;
+        });
+      }
+    };
+    session.on(
+      AgentEventsEnum.AVATAR_TRANSCRIPTION,
+      onAvatarTranscription as never,
+    );
+    return () => {
+      session.off(
+        AgentEventsEnum.AVATAR_TRANSCRIPTION,
+        onAvatarTranscription as never,
+      );
+    };
+  }, [sessionRef, revealEmailChars, sessionEpoch]);
+
   useEffect(() => {
     if (sessionState === SessionState.INACTIVE) {
+      // Voice-list mode stopped the avatar ON PURPOSE — never auto-restart
+      // while the list owns the screen. (The renew path flips presence to
+      // "returning" first, so the comeback start sails through here.)
+      if (voicePresenceRef.current === "voice") return;
       setSessionStartError(null);
       startSession().catch((err: Error) => {
         const message = err?.message ?? "Session start failed";
+        // A rejected SDK start is not guaranteed to emit DISCONNECTED. On the
+        // physical-phone failure it stayed INACTIVE, so the ref-only handoff
+        // below never reached the error surface and the UI remained on Loading.
+        // Commit the error immediately; keep the ref for SDKs that do emit a
+        // later disconnect so both paths converge on the same honest state.
         sessionStartErrorRef.current = message;
+        setSessionStartError(message);
       });
     }
-  }, [startSession, sessionState]);
+  }, [startSession, sessionState, voicePresence]);
+
+  // r19 BELT-AND-SUSPENDERS (G's first live voice-mode session, 21:06: "Take
+  // the list off" closed the list through the OLD close path and "6 never
+  // came back"): if the list leaves the screen by ANY path while the avatar
+  // is away, bring him back. No phrase list required — the missing list IS
+  // the signal. The entry grace re-checks on a timer so a fast close can
+  // never slip through the gap.
+  const voiceActiveListRef = useRef<string | null>(null);
+  useEffect(() => {
+    voiceActiveListRef.current = activeListId;
+  }, [activeListId]);
+  useEffect(() => {
+    if (voicePresence !== "voice") return;
+    if (activeListId) return;
+    const fire = () => {
+      if (voicePresenceRef.current !== "voice") return;
+      if (voiceActiveListRef.current) return;
+      // r27: NEVER auto-retry forever — the 01:39 runaway spoke the failure
+      // line ~60x in 7s. After 3 failed comebacks, only a tap retries.
+      if (voiceReturnAttemptsRef.current >= 3) return;
+      void captureClientWarn(new Error("voice-mode"), {
+        where: "voice-mode",
+        what: "return-list-gone",
+      });
+      void voiceReturnRef.current?.(false);
+    };
+    const since = Date.now() - voiceEnteredAtRef.current;
+    if (since < 2500) {
+      const t = setTimeout(fire, 2600 - since);
+      return () => clearTimeout(t);
+    }
+    fire();
+  }, [voicePresence, activeListId]);
 
   // Track LiveAvatar session id for lead capture + official transcript sync
   useEffect(() => {
     if (sessionState === SessionState.DISCONNECTED) {
       const sid = dbSessionIdRef.current;
       const cursor = transcriptCursorRef.current;
-      dbSessionIdRef.current = null;
+      const lifecycle = telemetrySessionLifecycleRef.current;
+      const wasExplicitEnd = explicitEndSessionRef.current;
+      if (lifecycle && voicePresenceRef.current === "avatar") {
+        setTelemetrySessionId(lifecycle.sessionId);
+        logAppEvent(
+          "session_ended",
+          { mode, reason: wasExplicitEnd ? "explicit" : "disconnected" },
+          wasExplicitEnd ? "low" : "medium",
+          {
+            eventId: `session:${lifecycle.sessionId}:ended`,
+            idempotencyKey: `session:${lifecycle.sessionId}:ended`,
+            durationMs: Math.max(0, Date.now() - lifecycle.startedAt),
+            outcome: wasExplicitEnd ? "completed" : "connection_lost",
+          },
+        );
+        telemetrySessionLifecycleRef.current = null;
+      }
+      explicitEndSessionRef.current = false;
+      // Voice-list mode (r19): the avatar leg ended ON PURPOSE — final-sync it,
+      // but KEEP the session id so voice turns keep logging to the same
+      // conversation in conversation_messages.
+      if (voicePresenceRef.current === "avatar") {
+        dbSessionIdRef.current = null;
+      }
       transcriptCursorRef.current = null;
       lastSyncedLaSessionIdRef.current = null;
       if (sid) {
@@ -2953,6 +7041,8 @@ const LiveAvatarSessionComponent: React.FC<{
           body: JSON.stringify({
             liveAvatarSessionId: sid,
             ...(cursor != null ? { startTimestamp: cursor } : {}),
+            testerLabel: testerLabelRef.current,
+            clientManagedSignup: mode === "CUSTOM",
           }),
           keepalive: true,
         }).catch(() => {});
@@ -2962,13 +7052,36 @@ const LiveAvatarSessionComponent: React.FC<{
     const activeSessionId = getLiveAvatarSessionId(sessionRef.current);
     if (sessionState === SessionState.CONNECTED && activeSessionId) {
       const sid = activeSessionId;
+      markStartupTiming("connected");
       if (lastSyncedLaSessionIdRef.current !== sid) {
         transcriptCursorRef.current = null;
         lastSyncedLaSessionIdRef.current = sid;
       }
       dbSessionIdRef.current = sid;
+      // Audit envelope: lifecycle events are deterministic and idempotent.
+      setTelemetrySessionId(sid);
+      if (telemetrySessionLifecycleRef.current?.sessionId !== sid) {
+        telemetrySessionLifecycleRef.current = {
+          sessionId: sid,
+          startedAt: Date.now(),
+        };
+        logAppEvent(
+          "session_started",
+          { mode },
+          "low",
+          {
+            eventId: `session:${sid}:started`,
+            idempotencyKey: `session:${sid}:started`,
+            outcome: "connected",
+          },
+        );
+      }
+      // v2.1: stash anonymous session_id so /api/auth/link-session can re-key
+      // these rows to the user's account when they sign in later. Safe to
+      // call repeatedly — the helper dedupes and caps localStorage size.
+      rememberAnonymousSessionId(sid);
     }
-  }, [sessionState, sessionRef]);
+  }, [mode, sessionState, sessionRef]);
 
   // Poll LiveAvatar official transcript API while connected ([Get Session Transcript](https://docs.liveavatar.com/api-reference/sessions/get-session-transcript))
   useEffect(() => {
@@ -2977,9 +7090,15 @@ const LiveAvatarSessionComponent: React.FC<{
     if (!sid) return;
 
     const runSync = async () => {
-      const body: Record<string, unknown> = { liveAvatarSessionId: sid };
+      const body: Record<string, unknown> = {
+        liveAvatarSessionId: sid,
+        clientManagedSignup: mode === "CUSTOM",
+      };
       if (transcriptCursorRef.current != null) {
         body.startTimestamp = transcriptCursorRef.current;
+      }
+      if (testerLabelRef.current) {
+        body.testerLabel = testerLabelRef.current;
       }
       try {
         const res = await fetch("/api/liveavatar/session-transcript/sync", {
@@ -3001,7 +7120,7 @@ const LiveAvatarSessionComponent: React.FC<{
     const intervalMs = 20_000;
     const id = setInterval(runSync, intervalMs);
     return () => clearInterval(id);
-  }, [sessionState, sessionRef]);
+  }, [mode, sessionState, sessionRef]);
 
   // Function to reset to home screen (close camera, clear uploads, but keep session)
   const resetToHomeScreen = useCallback(() => {
@@ -3065,7 +7184,12 @@ const LiveAvatarSessionComponent: React.FC<{
   // Wrapper for stopSession - on home screen stop session (parent shows start screen); otherwise reset to home screen
   const handleStopSession = useCallback(() => {
     if (isOnHomeScreen()) {
-      // On home screen: stop session so parent can show start screen.
+      // On home screen: this is an explicit user close, so end on the parent's
+      // Restart screen instead of letting onSessionStopped clear the token and
+      // auto-restart a fresh session. Marking explicitEndSessionRef routes the
+      // DISCONNECTED handler through onExit(false) (Restart) not onSessionStopped.
+      explicitEndSessionRef.current = true;
+      anonymousGreetingSpokenRef.current = false;
       greetingTriggeredRef.current = false; // Reset greeting trigger
       stopSession();
     } else {
@@ -3074,8 +7198,97 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   }, [isOnHomeScreen, resetToHomeScreen, stopSession]);
 
-  const handleEndSession = useCallback(async () => {
+  // If the user confirmed their email and is closing the session before the send
+  // consent fully resolved, MAKE SURE the magic link still goes out. G 2026-06-04:
+  // he said "send the magic link" then "close it out" in the same breath — the
+  // close tore down before the send fired, no email went, and 6's brain falsely
+  // claimed it sent. Fire-and-forget the same POST /api/account/start would make.
+  // Only fires when a send is still pending (the normal yes-path clears these
+  // refs first), so it never double-sends; Resend's idempotency key covers the
+  // rest. Best-effort: never blocks or throws into the close.
+  const flushPendingAccountSend = useCallback(() => {
+    if (
+      !accountSetupAwaitingSendRef.current ||
+      !accountSetupSendEmailRef.current
+    ) {
+      return;
+    }
+    // Same-turn close may flush only an explicit "send ... and close" command.
+    // A generic "okay, close" is end-session intent, not signup/email consent.
+    const lastUser = lastUserTextRef.current || "";
+    if (!hasExplicitAccountSendOnCloseIntent(lastUser)) {
+      accountSetupAwaitingSendRef.current = false;
+      accountSetupSendEmailRef.current = null;
+      return;
+    }
+    const email = accountSetupSendEmailRef.current;
+    accountSetupAwaitingSendRef.current = false;
+    accountSetupSendEmailRef.current = null;
+    const flushEmail = (email || "").toLowerCase();
+    const prevFlushSend = lastAccountLinkSendRef.current;
+    if (
+      prevFlushSend &&
+      prevFlushSend.email === flushEmail &&
+      Date.now() - prevFlushSend.at < 90000
+    ) {
+      return; // already sent moments ago (dedupe, G 2026-06-09)
+    }
+    lastAccountLinkSendRef.current = { email: flushEmail, at: Date.now() };
+    try {
+      void fetch("/api/account/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          fullName: deviceProfileRef.current.name,
+          sessionId: dbSessionIdRef.current,
+          lists: assistantLists,
+          resumeState: buildAccountResumeState(),
+        }),
+      }).catch(() => {});
+    } catch {
+      // never block the close on the send
+    }
+  }, [assistantLists, buildAccountResumeState]);
+
+  // 2026-08-21 (G: "we need to have people be able to stop the avatar and start
+  // the avatar"). One teardown, two destinations. `pause` routes to the
+  // tap-to-return screen — 6 goes away, his still picture stays, one tap brings
+  // him back — instead of the final-sounding Session Ended card. The teardown
+  // itself is untouched: duplicating it is how a session gets left running, and
+  // a session left running bills G by the block.
+  const handleEndSession = useCallback(async (opts?: {
+    pause?: boolean;
+    toVoice?: boolean;
+    awaitProviderStop?: boolean;
+  }) => {
+    const pause = opts?.pause === true;
+    wildWorksOfferStateRef.current = "idle";
+    setWildWorksOfferState("idle");
+    // toVoice: same teardown, different landing. The VOICE button MUST come
+    // through here - dropping the avatar without this leaves the provider
+    // session billing until its own timeout.
+    const toVoice = opts?.toVoice === true;
     explicitEndSessionRef.current = true;
+    anonymousGreetingSpokenRef.current = false;
+    const lifecycle = telemetrySessionLifecycleRef.current;
+    if (lifecycle) {
+      setTelemetrySessionId(lifecycle.sessionId);
+      logAppEvent(
+        "session_ended",
+        { mode, reason: "explicit" },
+        "low",
+        {
+          eventId: `session:${lifecycle.sessionId}:ended`,
+          idempotencyKey: `session:${lifecycle.sessionId}:ended`,
+          durationMs: Math.max(0, Date.now() - lifecycle.startedAt),
+          outcome: "completed",
+        },
+      );
+      telemetrySessionLifecycleRef.current = null;
+    }
+    // Send the magic link if one was queued but not yet sent (see above).
+    flushPendingAccountSend();
     endSessionConfirmationPendingRef.current = false;
     greetingTriggeredRef.current = false;
     try {
@@ -3098,14 +7311,171 @@ const LiveAvatarSessionComponent: React.FC<{
       videoRef.current.pause();
       videoRef.current.srcObject = null;
     }
+    // INSTANT close (G 2026-06-03): flip the screen to "ended" NOW, before the
+    // LiveAvatar disconnect (which can lag several seconds). The old order
+    // awaited stopSession() FIRST, so a slow disconnect left 6 on screen and
+    // still listening — that's "6 won't close." The disconnect now runs in the
+    // background after the screen has already flipped.
+    if (pause) {
+      if (toVoice) onVoiceOnly?.(); else onPause?.();
+    } else onExit?.(false);
+    const providerStop = Promise.resolve(stopSession());
+    if (opts?.awaitProviderStop) {
+      await providerStop;
+    } else {
+      void providerStop.catch(() => {});
+    }
+  }, [
+    flushPendingAccountSend,
+    interrupt,
+    mode,
+    onExit,
+    onPause,
+    onVoiceOnly,
+    resetToHomeScreen,
+    stop,
+    stopListening,
+    stopSession,
+  ]);
+
+  // Wire the forward-ref now that handleEndSession exists (declared above), so the
+  // voice/list-mode handler can route "close the session" to the real end path
+  // without a TDZ on handleEndSession (G 2026-06-14). [[feedback_tdz_useeffect_placement]]
+  useEffect(() => {
+    handleEndSessionRef.current = handleEndSession;
+  }, [handleEndSession]);
+
+  const stopAvatarForLegal = useCallback(
+    () => handleEndSession({ pause: true, awaitProviderStop: true }),
+    [handleEndSession],
+  );
+
+  useEffect(
+    () =>
+      subscribeAvatarSpeechFailure((failure) => {
+        if (failure.session !== sessionRef.current) return;
+        if (avatarSpeechFailureReportedRef.current) return;
+        avatarSpeechFailureReportedRef.current = true;
+        logAppEvent(
+          "avatar_speech_stalled",
+          { mode, where: failure.where, reason: failure.reason },
+          "high",
+          { provider: "heygen", outcome: "failed" },
+        );
+      }),
+    [mode, sessionRef],
+  );
+
+  // FIX #2 (2026-06-01): close THIS session because a NEWER one took over (the
+  // magic-link return / another tab). 6 says a short goodbye FIRST, THEN stops —
+  // "only after 6 says take care" per G. Guarded so it runs at most once.
+  const gracefulSupersedeStop = useCallback(async () => {
+    if (supersedeStoppingRef.current) return;
+    supersedeStoppingRef.current = true;
+    explicitEndSessionRef.current = true;
+    anonymousGreetingSpokenRef.current = false;
+    const lifecycle = telemetrySessionLifecycleRef.current;
+    if (lifecycle) {
+      setTelemetrySessionId(lifecycle.sessionId);
+      logAppEvent(
+        "session_ended",
+        { mode, reason: "superseded" },
+        "low",
+        {
+          eventId: `session:${lifecycle.sessionId}:ended`,
+          idempotencyKey: `session:${lifecycle.sessionId}:ended`,
+          durationMs: Math.max(0, Date.now() - lifecycle.startedAt),
+          outcome: "superseded",
+        },
+      );
+      telemetrySessionLifecycleRef.current = null;
+    }
+    try {
+      stopListening();
+    } catch {
+      // speech cleanup can throw if already stopped
+    }
+    try {
+      stop();
+    } catch {
+      // voice chat can already be inactive
+    }
+    try {
+      await interrupt();
+      await repeat(
+        "Looks like you picked this up on another screen — I'll close out here. Take care!",
+      );
+    } catch {
+      // Close anyway; never block teardown on a TTS hiccup.
+    }
     try {
       await stopSession();
     } catch {
-      // Parent exit still prevents auto-restart if LiveAvatar is already disconnected.
-    } finally {
-      onExit?.(false);
+      // already disconnected is fine
     }
-  }, [interrupt, onExit, resetToHomeScreen, stop, stopListening, stopSession]);
+    onExit?.(false);
+  }, [interrupt, mode, onExit, repeat, stop, stopListening, stopSession]);
+
+  // Listen for a newer session's baton. All aiASAP tabs in THIS browser share
+  // one BroadcastChannel; when a strictly-newer session announces, we are the old
+  // one → close gracefully. The newest session never hears a newer baton, so it
+  // is never told to stop (safe by construction).
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof BroadcastChannel === "undefined"
+    ) {
+      return;
+    }
+    let ch: BroadcastChannel | null = null;
+    try {
+      ch = new BroadcastChannel("aiasap-session-baton");
+    } catch {
+      return;
+    }
+    sessionBatonChannelRef.current = ch;
+    ch.onmessage = (event: MessageEvent) => {
+      const m = event.data as {
+        type?: string;
+        sessionId?: string | null;
+        startedAt?: number;
+      } | null;
+      if (
+        m &&
+        m.type === "baton" &&
+        typeof m.startedAt === "number" &&
+        m.startedAt > sessionStartedAtRef.current &&
+        m.sessionId !== dbSessionIdRef.current
+      ) {
+        void gracefulSupersedeStop();
+      }
+    };
+    return () => {
+      try {
+        ch?.close();
+      } catch {
+        // ignore close errors
+      }
+      sessionBatonChannelRef.current = null;
+    };
+  }, [gracefulSupersedeStop]);
+
+  // Announce this session as the active one once it is live (voice started) or
+  // signed-in (magic-link return). Older tabs hear it and close themselves.
+  useEffect(() => {
+    if (!voiceIsActive && !accountEmail) return;
+    if (supersedeStoppingRef.current) return;
+    try {
+      sessionBatonChannelRef.current?.postMessage({
+        type: "baton",
+        sessionId: dbSessionIdRef.current,
+        startedAt: sessionStartedAtRef.current,
+        email: accountEmail ?? null,
+      });
+    } catch {
+      // Best-effort; same-browser only for now. Cross-browser relay is next.
+    }
+  }, [voiceIsActive, accountEmail]);
 
   // Voice chat starts only after the user taps the begin surface.
   useEffect(() => {
@@ -3113,6 +7483,22 @@ const LiveAvatarSessionComponent: React.FC<{
       voiceHeldUntilUserStartRef.current = false;
       setIsCustomVoiceActive(false);
       setHasUserPressedVoiceStart(false);
+      // F2 2026-08-21: the explicit ends (STOP, VOICE, supersede) already
+      // release anonymousGreetingSpokenRef on their way in — handleStopSession,
+      // handleEndSession, gracefulSupersedeStop. This effect is the one point
+      // every OTHER session death passes through too: the inactivity watchdog,
+      // a provider-side drop, enterVoiceListMode's stopSession — none of which
+      // run those three. Without this clear the next START after such a death
+      // would come up on a freshly-paid mint with 6 silent and nameless in
+      // front of a first-time visitor, which is worse for them than hearing the
+      // line twice. Idempotent with the three above. postVerifyGreetingSpokenRef
+      // is deliberately NOT cleared here: resetAnonymousSessionState() already
+      // owns it for the signed-in path.
+      anonymousGreetingSpokenRef.current = false;
+      // MUTE 2026-08-21: the session that was muted is gone. Do not carry a
+      // mute into the next one, where the button would be the only tell.
+      micMutedRef.current = false;
+      setMicMuted(false);
       return;
     }
     if (sessionState !== SessionState.CONNECTED || !isStreamReady) {
@@ -3132,6 +7518,37 @@ const LiveAvatarSessionComponent: React.FC<{
       return;
     }
     const onAvatarSpeakStarted = () => {
+      const before = getStartupTimingSnapshot();
+      if (before.marks.greeting_dispatch && !before.marks.greeting_speak) {
+        const timing = markStartupTiming("greeting_speak");
+        const sid = getLiveAvatarSessionId(sessionRef.current);
+        logAppEvent(
+          "startup_timing",
+          { checkpoint: "greeting_speak", ...timing },
+          "low",
+          {
+            eventId: sid ? `session:${sid}:startup:greeting-speak` : undefined,
+            idempotencyKey: sid ? `session:${sid}:startup:greeting-speak` : undefined,
+            outcome: "observed",
+          },
+        );
+      }
+      const utteranceId = consumePendingSpeechUtteranceId(
+        pendingSpeechUtteranceIdRef,
+      );
+      if (utteranceId) {
+        logAppEvent(
+          "voice_avatar_speak_started",
+          { stage: "sdk_speak_started", mode },
+          "low",
+          {
+            eventId: `${utteranceId}:avatar-speak-started`,
+            utteranceId,
+            provider: "heygen",
+            outcome: "started",
+          },
+        );
+      }
       if (!audioUnlockedRef.current) {
         void interrupt();
       }
@@ -3143,7 +7560,7 @@ const LiveAvatarSessionComponent: React.FC<{
         onAvatarSpeakStarted,
       );
     };
-  }, [sessionRef, interrupt]);
+  }, [sessionRef, interrupt, mode]);
 
   /** Ensure remote avatar audio can play (mobile autoplay policies). Call from explicit button taps only. */
   const ensureAudioOutputReady = useCallback(async (): Promise<boolean> => {
@@ -3151,22 +7568,25 @@ const LiveAvatarSessionComponent: React.FC<{
       return false;
     }
     const video = videoRef.current;
+    const presentationPrime = avatarAudioPresentationProbeRef.current?.prime();
     try {
-      video.volume = 1.0;
-      video.muted = false;
+      // 2026-08-21: the speaker-mute button owns the final say — a gesture
+      // unlock must not un-mute 6 behind G's back.
+      syncSpeakerMute(video, voiceMutedRef.current, true);
       if (video.srcObject && video.srcObject instanceof MediaStream) {
         video.srcObject.getAudioTracks().forEach((track) => {
           track.enabled = true;
         });
       }
       await video.play();
+      avatarAudioPresentationProbeRef.current?.notePlayResult("resolved");
+      await presentationPrime;
       audioUnlockedRef.current = true;
+      setAudioUnlocked(true);
       setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.volume = 1.0;
-          videoRef.current.muted = false;
-          videoRef.current.play().catch(() => {});
-        }
+        const currentVideo = videoRef.current;
+        syncSpeakerMute(currentVideo, voiceMutedRef.current, true);
+        currentVideo?.play().catch(() => {});
       }, 100);
       await new Promise<void>((resolve) => {
         const done = () => resolve();
@@ -3179,6 +7599,7 @@ const LiveAvatarSessionComponent: React.FC<{
       });
       return true;
     } catch (error) {
+      avatarAudioPresentationProbeRef.current?.notePlayResult("rejected");
       console.warn("Audio output not ready:", error);
       return false;
     }
@@ -3194,7 +7615,11 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const performOnlineLookup = useCallback(
     async (query: string, location: string) => {
+      if (!allowsOnlineLookup(mode)) return false;
       if (isOnlineLookupLoading) return true;
+      // G 2026-06-13 critic #3 (a late waterfall search said "3 ideas" OVER his
+      // next, unrelated turn): remember which user turn asked for this search.
+      const lookupTurnAt = prevUserSpeechRef.current?.at ?? 0;
       const topic = summarizeOnlineLookupTopic(query);
       const lookupLocation = normalizeLookupLocation(location);
       setIsOnlineLookupLoading(true);
@@ -3209,11 +7634,17 @@ const LiveAvatarSessionComponent: React.FC<{
           // The listener may already be paused.
         }
       }
+      // ONLINE-SEARCH TIMEOUT (Herm review 2026-06-14): no abort meant a slow
+      // web search left 6 stuck in "Looking online…" silence (G's "just a
+      // moment" then nothing). 25s client abort -> deterministic spoken failure.
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 25000);
       try {
         const response = await fetch("/api/online-search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ query, location: lookupLocation }),
+          signal: controller.signal,
         });
         const data = await response.json().catch(() => null);
         if (!response.ok || typeof data?.answer !== "string") {
@@ -3224,18 +7655,28 @@ const LiveAvatarSessionComponent: React.FC<{
         setOnlineLookupResultLines(resultLines);
         setOnlineLookupNotice(null);
         const spoken = formatOnlineLookupSpeech(resultLines, query);
-        await repeat(spoken);
+        // G 2026-06-13 critic #3: if a NEW user turn arrived while the search ran,
+        // speaking the result would talk OVER him (this is how "3 ideas" landed on
+        // unrelated talk). The results already show on his chest — stay silent and
+        // let his new turn lead. Only speak when he's still waiting on this lookup.
+        const userMovedOn = (prevUserSpeechRef.current?.at ?? 0) > lookupTurnAt;
+        if (!userMovedOn) {
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+        }
         if (mode === "FULL") {
           window.setTimeout(() => startListening(), 900);
         }
-        lastAvatarResponseRef.current = spoken;
         lastVisionResponseTimeRef.current = Date.now();
         schedulePromptBrain(query);
         return true;
       } catch (error) {
         console.error("Online lookup failed:", error);
-        const spoken =
-          "I had trouble looking that up online. Try telling me the city or ZIP code again.";
+        const timedOut =
+          error instanceof DOMException && error.name === "AbortError";
+        const spoken = timedOut
+          ? "That search is taking too long. Try the city or ZIP code again and I'll run a fresh one."
+          : "I had trouble looking that up online. Try telling me the city or ZIP code again.";
         setOnlineLookupNotice(null);
         setOnlineLookupResultLines([]);
         await repeat(spoken);
@@ -3246,6 +7687,7 @@ const LiveAvatarSessionComponent: React.FC<{
         lastVisionResponseTimeRef.current = Date.now();
         return true;
       } finally {
+        window.clearTimeout(timeoutId);
         setIsOnlineLookupLoading(false);
       }
     },
@@ -3253,6 +7695,7 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const requestSharedLocation = useCallback(async () => {
+    if (!allowsOnlineLookup(mode)) return;
     const fallbackQuery =
       lastUserTextRef.current && isOnlineLookupIntent(lastUserTextRef.current)
         ? lastUserTextRef.current
@@ -3272,10 +7715,15 @@ const LiveAvatarSessionComponent: React.FC<{
     lastAvatarResponseRef.current = spoken;
     rememberConversationLine("assistant", spoken);
     lastVisionResponseTimeRef.current = Date.now();
-  }, [rememberConversationLine, repeat]);
+  }, [mode, rememberConversationLine, repeat]);
 
   const handleOnlineLookupSpeech = useCallback(
     async (userText: string) => {
+      if (!allowsOnlineLookup(mode)) {
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        return false;
+      }
       const text = userText.trim();
       const pendingQuery = onlineLookupPendingQueryRef.current;
       if (LOCATION_SHARE_CHOICE_RE.test(text) && (pendingQuery || onlineLookupNotice)) {
@@ -3291,11 +7739,22 @@ const LiveAvatarSessionComponent: React.FC<{
         return true;
       }
       if (pendingQuery) {
+        // Scenario (a): an explicit stop/hold-on inside a pending lookup must NOT
+        // auto-fire the pending search off a trailing ZIP. Honor the stop and let
+        // the utterance fall through to normal handling. A clean ZIP answer like
+        // "21093" does not match this, so the real ZIP-capture path is unchanged.
+        if (
+          /\b(?:stop talking|stop it|be quiet|shut up|hold on|never\s*mind|forget it|wait a (?:minute|second|sec))\b/i.test(
+            text,
+          )
+        ) {
+          return false;
+        }
         if (LOCATION_SHARE_CHOICE_RE.test(text)) {
           await requestSharedLocation();
           return true;
         }
-        if (soundsLikeInvalidZipCode(text)) {
+        if (soundsLikeInvalidZipCode(text) && !ZIP_RECALL_RE.test(text)) {
           const spoken =
             "That ZIP code does not sound quite right. ZIP codes are five digits. Tell me the five-digit ZIP code.";
           await repeat(spoken);
@@ -3329,7 +7788,9 @@ const LiveAvatarSessionComponent: React.FC<{
           return performOnlineLookup(lookupQuery, pendingLocation);
         }
         const location =
-          extractLocationHint(text) ?? (isLikelyTypedLocation(text) ? text : null);
+          extractSpokenZip(text) ??
+          extractLocationHint(text) ??
+          (isLikelyTypedLocation(text) ? text : null);
         if (!location) return false;
         onlineLookupLocationRef.current = normalizeLookupLocation(location);
         if (shouldAskPreferencesBeforeLookup(pendingQuery)) {
@@ -3366,6 +7827,34 @@ const LiveAvatarSessionComponent: React.FC<{
       }
 
       if (onlineLookupLocationRef.current) {
+        // Scenario (b): a cached ZIP from a prior lookup must NOT let a sentence
+        // that merely contains a topic word (e.g. "Park" in "no Park you should
+        // say that first") silently re-fire a brand-new web search. Only reuse
+        // the cached location when this turn is a genuine lookup REQUEST: an action
+        // verb is present, or it is a short topic-dominated phrase (<= 6 words).
+        // G 2026-06-14 ONLINE-LOOKUP STALL: after a prior search the cached ZIP
+        // stays set while the pending query is cleared. When 6 (via the brain)
+        // offers "want me to search?" and G answers with a VERBOSE affirmative
+        // ("yes yeah for events you think I'd like..."), there's no action verb
+        // and it's > 6 words, so this guard used to bail and the turn fell to the
+        // brain, which faked "searching... just a moment" and never ran a real
+        // search. We are already past isOnlineLookupIntent, so a real lookup
+        // TOPIC is guaranteed; with a cached ZIP a yes-led reply that carries NO
+        // negation/correction can only mean "yes, search now."
+        const isAffirmLeadConfirm =
+          /^[\s,.!'-]*(?:well|um|uh|so|okay|ok|alright|all right|yes|yeah|yea|yep|yup|sure|please|absolutely|definitely|go ahead|go for it|do it|sounds good|why not)\b/i.test(
+            text,
+          ) &&
+          !/\b(?:no|not|nope|nah|don'?t|do not|never mind|nevermind|cancel|stop|wait|hold on|actually no|instead|rather|not that)\b/i.test(
+            text,
+          );
+        const isGenuineLookupRequest =
+          ONLINE_LOOKUP_ACTION_RE.test(text) ||
+          isAffirmLeadConfirm ||
+          text.trim().split(/\s+/).length <= 6;
+        if (!isGenuineLookupRequest) {
+          return false;
+        }
         if (shouldAskPreferencesBeforeLookup(text)) {
           onlineLookupPendingQueryRef.current = text;
           const spoken = getLookupPreferenceQuestion(text);
@@ -3380,6 +7869,15 @@ const LiveAvatarSessionComponent: React.FC<{
         return performOnlineLookup(text, onlineLookupLocationRef.current);
       }
 
+      // G 2026-06-14 (loud, repeated: "why would you ask my zip code, you DO
+      // know it - I've given it repeatedly"): if we already have the user's
+      // saved ZIP, SEARCH THERE NOW instead of asking for it again.
+      const _savedZip = accountZipRef.current;
+      if (_savedZip && /^\d{5}$/.test(_savedZip)) {
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = normalizeLookupLocation(_savedZip);
+        return performOnlineLookup(text, _savedZip);
+      }
       onlineLookupPendingQueryRef.current = text;
       onlineLookupLocationRef.current = null;
       setOnlineLookupSources([]);
@@ -3395,7 +7893,7 @@ const LiveAvatarSessionComponent: React.FC<{
       );
       return true;
     },
-    [onlineLookupNotice, performOnlineLookup, repeat, requestSharedLocation],
+    [mode, onlineLookupNotice, performOnlineLookup, repeat, requestSharedLocation],
   );
 
   const handleThoughtPromptTap = useCallback(
@@ -3408,7 +7906,9 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      const listIntent = detectListIntent(prompt);
+      const listIntent = shouldAllowDetectedListIntent(prompt)
+        ? detectListIntent(prompt)
+        : null;
       if (listIntent) {
         ensureAssistantList(listIntent, { preferFresh: shouldStartFreshList(prompt) });
       }
@@ -3446,6 +7946,7 @@ const LiveAvatarSessionComponent: React.FC<{
             pendingListCustomizationPromptRef.current = null;
           } else if (!listCloseEducationSpokenRef.current) {
             listCloseEducationSpokenRef.current = true;
+            persistListCloseEducationShown();
           }
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -3581,9 +8082,16 @@ const LiveAvatarSessionComponent: React.FC<{
     postVerifyGreetingSpokenRef.current = false;
     accountSetupAwaitingReadyRef.current = false;
     accountSetupAwaitingEmailRef.current = false;
+    accountSetupAwaitingNameRef.current = false;
     accountSetupPendingEmailRef.current = null;
     accountSetupRejectedEmailRef.current = null;
+    accountSetupConfirmedEmailRef.current = null;
+    accountSetupAwaitingSendRef.current = false;
+    accountSetupSendEmailRef.current = null;
     accountSetupEmailMissCountRef.current = 0;
+    setSendLinkFallbackStatus((current) =>
+      current === "pending" ? "hidden" : current,
+    );
 
     try {
       window.localStorage.removeItem(ASSISTANT_LISTS_STORAGE_KEY);
@@ -3593,7 +8101,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // Best effort only. In-memory state is still cleared below.
     }
 
-    setAssistantLists([]);
+    commitAssistantLists([]);
     setActiveListId(null);
     setIsShoppingMode(false);
     setDeviceProfile(emptyDeviceProfile());
@@ -3611,16 +8119,138 @@ const LiveAvatarSessionComponent: React.FC<{
     setDissolvingPrompt(null);
   }, []);
 
-  const handleVoiceStartStop = useCallback(async () => {
-    if (voiceIsActive) {
+  // 2026-08-21 ride (G via 6): "a mute button ... where we don't hear him
+  // talking, just like it's on". Speaker mute = silence EVERY voice path while
+  // the session and 6's ears keep running: the avatar <video> audio, the
+  // ElevenLabs WebAudio queue (voiceSay already honours voiceMutedRef), and
+  // the CUSTOM WebAudio fallback. Muting also cuts whatever is mid-sentence.
+  const applySpeakerMute = useCallback(
+    (muted: boolean) => {
+      voiceMutedRef.current = muted;
+      setVoiceMuted(muted);
+      setCustomVoiceMuted(muted);
+      const video = videoRef.current;
+      syncSpeakerMute(video, muted, audioUnlockedRef.current);
+      if (muted) voiceCutSpeech();
+      logAppEvent("stage_control", { control: "speaker", to: muted ? "muted" : "on" });
+    },
+    [voiceCutSpeech],
+  );
+  const toggleSpeakerMute = useCallback(() => {
+    applySpeakerMute(!voiceMutedRef.current);
+  }, [applySpeakerMute]);
+
+  // 2026-08-21 ride, G: "the mute didn't work the first time". The MIRROR IMAGE
+  // of applySpeakerMute above, on the microphone instead of the speaker.
+  // Everything that can carry a user turn to the brain goes quiet; NOTHING that
+  // keeps the session alive is touched — no stop(), no stopSession(), no
+  // renewSessionToken, no setHasUserPressedVoiceStart, no greeting, no
+  // resetAnonymousSessionState. The old MUTE ran the same
+  // stop()/stopListening()/interrupt() teardown STOP runs, minus the cleanup,
+  // so the two buttons collapsed into each other and the way back up re-spoke
+  // the opening line.
+  //
+  // 6 KEEPS TALKING if he was talking. Muting your own microphone has never
+  // gagged the other person on any phone ever made — that is QUIET's job, and
+  // QUIET is the button directly to the right.
+  //
+  // Say this plainly to G rather than letting him find it: this is a SOFTWARE
+  // mute, like every phone and video call. The browser mic indicator stays lit.
+  // Truly extinguishing capture means .stop() on all three microphones — the
+  // LiveKit track, the recognizer's internal capture, and the independent
+  // barge-in stream — and .stop() on the LiveKit track IS the bug we are
+  // fixing. STOP is the hardware one.
+  const applyMicMute = useCallback(
+    (muted: boolean) => {
+      micMutedRef.current = muted;
+      setMicMuted(muted);
+      // A half-heard phrase dies with the tap: an utterance still being stitched
+      // must never fire the moment the mic comes back.
+      pendingSpeechFragmentRef.current = null;
+
+      // Layer 2: the browser recognizer. THE capture that actually carries the
+      // user's words in CUSTOM, and the one that streams audio off-device.
+      const rec = speechRecognitionRef.current;
+      if (rec) {
+        // Kill any 350ms restart armed BEFORE this tap, on both branches. This
+        // runs synchronously in the tap's own task, and a timer callback can
+        // only run as its own task — so there is no interleaving in which the
+        // stale timer still fires after this line. Cleared on BOTH branches
+        // because the deafening sequence (see speechRecognitionRef) needs the
+        // timer to outlive an un-mute, not a mute.
+        rec.clearRestart();
+        try {
+          if (muted) rec.recognition.stop();
+          else rec.recognition.start();
+        } catch (error) {
+          // start() on an already-running recognizer throws and is exactly the
+          // state we wanted, so a failure only matters when UN-muting — and
+          // there it matters enormously: onend/onerror never fire for a
+          // recognizer that never started, so nothing else would ever re-arm it
+          // and 6 would be deaf for the rest of the session behind a button
+          // that says he can hear you. Rebuild rather than warn.
+          if (!muted) {
+            logAppEvent(
+              "mic_unmute_recognizer_failed",
+              { error: error instanceof Error ? error.name : String(error) },
+              "high",
+              { outcome: "rebuilding" },
+            );
+            setRecognizerEpoch((n) => n + 1);
+          }
+        }
+      }
+
+      // Layer 3: the SDK's own mic track. Best effort, and honestly labelled as
+      // such — in CUSTOM this track is not the transcript transport, and
+      // customVoiceDelivery's echo gate re-opens it on a 300ms tail after every
+      // fallback line without consulting any user flag. We do NOT fight that
+      // with a re-assert effect: the only other caller of this mute is the
+      // FULL-mode video-record path, which saves and restores its own state, and
+      // an effect keyed on isMuted would rip that mute out from under it one
+      // render later. In FULL this layer IS the whole mute. The permanent fix is
+      // a held-flag inside setMicGate; that file belongs to another lane.
+      void (async () => {
+        try {
+          if (muted) await mute();
+          else await unmute();
+        } catch {
+          // Not ACTIVE, or the track is gone. Layers 1 and 2 still hold.
+        }
+      })();
+
+      // `to` keeps its existing vocabulary so old sup queries still work; `how`
+      // is additive and is what tells a reader six weeks from now whether a
+      // `control=mic to=on` row was a cold start or an un-mute. Reading exactly
+      // that row out of Supabase mid-ride is how this bug was found.
+      logAppEvent("stage_control", {
+        control: "mic",
+        to: muted ? "off" : "on",
+        how: "mute",
+      });
+    },
+    [mute, unmute],
+  );
+  const toggleMicMute = useCallback(() => {
+    // Read the REF, not the state, so two fast taps cannot both see a stale
+    // value and cancel each other out.
+    applyMicMute(!micMutedRef.current);
+  }, [applyMicMute]);
+
+  const handleVoiceStartStop = useCallback(async (opts?: { retryMicrophone?: boolean; permissionAlreadyGranted?: boolean }) => {
+    if (voiceIsActive && hasUserPressedVoiceStart) {
       void interrupt();
-      if (mode === "FULL") {
-        stop();
-        stopListening();
-      } else {
+      // r21 (G's phone, CUSTOM maiden flight: "He did not know I was there"):
+      // CUSTOM used to only flip a flag and never touch the mic. Both modes
+      // now run the SAME voice-chat lifecycle — the mode only changes who
+      // does the brain/voice, never whether 6 can hear.
+      stop();
+      stopListening();
+      if (mode === "CUSTOM") {
         setIsCustomVoiceActive(false);
       }
       setHasUserPressedVoiceStart(false);
+      setHasExplicitMicStartGrant(false);
       return;
     }
     if (
@@ -3630,38 +8260,186 @@ const LiveAvatarSessionComponent: React.FC<{
     ) {
       return;
     }
-    resetAnonymousSessionState();
+    // G 2026-06-14: block a second tap from re-entering while the first tap is
+    // still mid-await (audio unlock / start). Without this, two greetings fire.
+    if (voiceStartInProgressRef.current) {
+      return;
+    }
+    voiceStartInProgressRef.current = true;
+    if (!opts?.permissionAlreadyGranted && (!opts?.retryMicrophone || typeof navigator === "undefined")) {
+      voiceStartInProgressRef.current = false;
+      return;
+    }
+    if (!opts?.permissionAlreadyGranted) {
+      const permission = await requestMicrophonePermission(navigator);
+      const notice = microphonePermissionMessage(permission);
+      if (notice) {
+        micMutedRef.current = true;
+        setMicMuted(true);
+        setHasExplicitMicStartGrant(false);
+        setMicrophonePermissionNotice(notice);
+        setMicrophonePermissionState(permission);
+        logAppEvent("microphone_permission", { state: permission, source: "mic_retry" }, "high");
+        voiceStartInProgressRef.current = false;
+        return;
+      }
+    }
+    setHasExplicitMicStartGrant(true);
+    setMicrophonePermissionNotice(null);
+    setMicrophonePermissionState(null);
+    // Permission is now granted by the live-stage gesture. Only after that
+    // request may auxiliary WebAudio unlock work run; doing it first can spend
+    // Android's transient activation before getUserMedia sees the gesture.
+    primeCustomVoiceFallback();
+    if (!voiceAudioCtxRef.current) {
+      try {
+        voiceAudioCtxRef.current = new AudioContext();
+      } catch {
+        // AudioContext unavailable here — voicePlayNext will retry on first use
+      }
+    }
+    if (voiceAudioCtxRef.current?.state === "suspended") {
+      void voiceAudioCtxRef.current.resume().catch(() => {});
+    }
+    // G 2026-06-01: a returning, signed-in user must NEVER get the first-timer
+    // hard-coded intro. resetAnonymousSessionState() wipes the returning state
+    // (name, memory snapshot, postVerifyGreeting), so only run it for genuinely
+    // anonymous users. A known returner keeps who they are.
+    const isReturningKnownUser = !!accountEmail;
+    if (!isReturningKnownUser) {
+      resetAnonymousSessionState();
+    }
     setVoiceStartAwaitingReady(true);
     try {
       const ok = await ensureAudioOutputReady();
       if (!ok) {
+        // The permission sheet can temporarily interrupt Android autoplay. The
+        // microphone preflight is still proven, so retry startup without asking
+        // for permission again rather than leaving a stale granted START deaf.
+        window.setTimeout(() => {
+          void handleVoiceStartStop({ permissionAlreadyGranted: true });
+        }, 250);
         return;
       }
-      if (mode === "FULL") {
-        await start();
-        stopListening();
-      } else {
+      // r21: start the MIC in both modes (CUSTOM previously never did — deaf).
+      await start();
+      // On browsers exposing Permissions, never paint an active/unmuted mic
+      // after the SDK start silently left the permission request unresolved.
+      if (!opts?.permissionAlreadyGranted && typeof navigator !== "undefined") {
+        const permission = await inspectMicrophonePermission(navigator);
+        const notice = microphonePermissionMessage(permission);
+        // A browser with Permissions still saying prompt after the SDK start
+        // has not granted capture. Do not enter a fake active/unmuted state;
+        // wait for the user to tap the mic and make the recoverable request.
+        const permissionApiAvailable =
+          typeof (navigator as unknown as { permissions?: { query?: unknown } })
+            .permissions?.query === "function";
+        if (notice && permissionApiAvailable) {
+          micMutedRef.current = true;
+          setMicMuted(true);
+          setMicrophonePermissionNotice(notice);
+          setMicrophonePermissionState(permission);
+          stop();
+          return;
+        }
+      }
+      setMicrophonePermissionNotice(null);
+      setMicrophonePermissionState(null);
+      // MUTE 2026-08-21: a cold start publishes a brand-new, unmuted track and
+      // mounts a brand-new recognizer, so keep OUR flag honest with the hardware
+      // — otherwise the button could paint a red MUTE over a mic that works
+      // fine, or hold a stale mute across a mid-mount reconnect. Starting a
+      // conversation means you want to be heard. Assigned directly rather than
+      // through applyMicMute so this callback's dep array does not change and no
+      // spurious stage_control row is emitted for something the user did not tap.
+      micMutedRef.current = false;
+      setMicMuted(false);
+      // Permission has resolved and the microphone is live. Commit the tap
+      // before awaiting the greeting so the prompt disappears, MUTE is already
+      // a mute, and the active transcript authority can hear the next turn.
+      setHasUserPressedVoiceStart(true);
+      stopListening();
+      if (mode === "CUSTOM") {
         setIsCustomVoiceActive(true);
       }
-      const greeting = VOICE_START_GREETING;
-      if (mode === "FULL") {
+      // First-timers get the hard-coded intro. Returning signed-in users get a
+      // returning-tier intro (2nd / 3rd / regular / long-gap) — unless the
+      // verified/resume auto-effect already spoke one this load
+      // (postVerifyGreetingSpokenRef), in which case we don't repeat it.
+      let greeting: string | null;
+      if (isReturningKnownUser) {
+        greeting = postVerifyGreetingSpokenRef.current
+          ? null
+          : pickReturningGreeting(
+              deviceProfileRef.current.name || null,
+              accountMemorySnapshotRef.current?.visitCount ?? 1,
+              accountMemorySnapshotRef.current?.longGap ?? false,
+            );
+        if (greeting) {
+          // Claim the one-shot so the auto verified/resume effects don't ALSO
+          // speak a returning greeting → guarantees no double-greet.
+          postVerifyGreetingSpokenRef.current = true;
+          setPostVerifyGreeting(null);
+        }
+      } else {
+        // F2 2026-08-21: one first-timer intro per provider session. The old
+        // code had NO latch here — only voiceStartInProgressRef (blocks a
+        // double-tap inside one await) and the 3.5s duplicate-line guard, which
+        // 31s and 40s gaps sail straight past — so every re-entry into this
+        // cold start spoke the intro again: three times in 85s on the
+        // 2026-08-21 ride. claimSessionGreeting is a synchronous test-and-set,
+        // so even a re-entry that slipped past voiceStartInProgressRef can only
+        // win it once. The ref is mount-scoped and deliberately NOT cleared by
+        // resetAnonymousSessionState() (~35 lines up, runs on every anonymous
+        // press). Logged so "did he greet twice" is a sup query, not a ride.
+        const claimedGreeting = claimSessionGreeting(anonymousGreetingSpokenRef);
+        greeting = claimedGreeting ? VOICE_START_GREETING : null;
+        logAppEvent("greeting_claim", {
+          path: "anonymous",
+          granted: claimedGreeting,
+        });
+      }
+      if (greeting) {
+        markStartupTiming("greeting_dispatch");
         resumeListeningAfterAvatarSpeech(9000);
+        // F5 2026-08-21: explicit null — a scripted greeting answers no user
+        // turn. Without it the line inherits currentUtteranceIdRef, the id of
+        // whatever the user last said, which is how the 21:07:10 intro got
+        // filed under the 21:06:45 turn complaining about the intro. See the
+        // full note in repeat().
+        await repeat(greeting, null);
+        lastAvatarResponseRef.current = greeting;
+        rememberConversationLine("assistant", greeting);
+        lastVisionResponseTimeRef.current = Date.now();
       }
-      await repeat(greeting);
-      if (mode === "FULL") {
-        window.setTimeout(() => {
-          startListening();
-        }, 900);
-      }
-      lastAvatarResponseRef.current = greeting;
-      rememberConversationLine("assistant", greeting);
-      lastVisionResponseTimeRef.current = Date.now();
-      setHasUserPressedVoiceStart(true);
+      window.setTimeout(() => {
+        startListening();
+      }, 900);
+    } catch (error) {
+      const permission = typeof navigator === "undefined"
+        ? "unavailable"
+        : await inspectMicrophonePermission(navigator);
+      micMutedRef.current = true;
+      setMicMuted(true);
+      setHasExplicitMicStartGrant(false);
+      // This catch is downstream of a successful gesture-owned preflight. A
+      // later SDK/audio failure is not evidence that Chrome permanently blocked
+      // the site, so it must not render the Chrome-settings recovery card.
+      setMicrophonePermissionNotice("Microphone could not start. Tap the mic button to try again.");
+      setMicrophonePermissionState(null);
+      logAppEvent("microphone_permission", {
+        state: permission,
+        source: "voice_start",
+        error: error instanceof Error ? error.name : String(error),
+        rendered_as: "retryable",
+      }, "high");
     } finally {
+      voiceStartInProgressRef.current = false;
       setVoiceStartAwaitingReady(false);
     }
   }, [
     voiceIsActive,
+    hasUserPressedVoiceStart,
     interrupt,
     repeat,
     stop,
@@ -3676,28 +8454,205 @@ const LiveAvatarSessionComponent: React.FC<{
     accountAuthChecked,
     rememberConversationLine,
     resetAnonymousSessionState,
+    accountEmail,
   ]);
 
+  // The original START tap already completed the only microphone request.
+  // Once the provider is ready, continue with that proven grant without a
+  // second stage overlay or another getUserMedia call.
+  const preflightStartAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !microphonePreflightGranted ||
+      preflightStartAttemptedRef.current ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady ||
+      !accountAuthChecked
+    ) return;
+    preflightStartAttemptedRef.current = true;
+    void handleVoiceStartStop({ permissionAlreadyGranted: true });
+  }, [
+    microphonePreflightGranted,
+    sessionState,
+    isStreamReady,
+    accountAuthChecked,
+    handleVoiceStartStop,
+  ]);
+
+  // r22: keyed on hasUserPressedVoiceStart (OUR truth) instead of the SDK's
+  // voice-active state — in CUSTOM the SDK reported voice active before any
+  // tap, which hid the tap gate while audio was still locked ("he looked
+  // alive but he wasn't there").
   const shouldShowBeginSurface =
+    false &&
     visionMode !== "streaming" &&
     !isCameraActive &&
-    !voiceIsActive &&
-    !isAvatarTalking &&
+    !hasUserPressedVoiceStart &&
+    // r22: isAvatarTalking dropped — the CUSTOM session reports talking state
+    // unreliably and it kept the tap gate hidden forever; pre-tap there is no
+    // real speech to protect anyway.
     sessionState === SessionState.CONNECTED &&
     isStreamReady &&
     accountAuthChecked &&
     !voiceStartAwaitingReady;
 
   const shouldShowLoadingSurface =
+    !sessionStartError &&
     visionMode !== "streaming" &&
     !isCameraActive &&
-    !voiceIsActive &&
-    !isAvatarTalking &&
     !shouldShowBeginSurface &&
     (sessionState !== SessionState.CONNECTED ||
       !isStreamReady ||
       !accountAuthChecked ||
-      voiceIsLoading);
+      (!isPhoneLifecycleViewport && voiceIsLoading) ||
+      (isPhoneLifecycleViewport && !hasRenderableAvatarFrame));
+
+  // On phones, the dedicated recovery card contains the complete blocked-site
+  // guidance and retry action. Do not stack the older stage warning above it.
+  // Desktop keeps the existing warning because the card is intentionally mobile-only.
+  const shouldShowBlockedMicrophoneRecovery =
+    microphonePermissionState === "denied" && !shouldShowLoadingSurface;
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 599px)");
+    const sync = () => setIsPhoneLifecycleViewport(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!isStreamReady || sessionState !== SessionState.CONNECTED) {
+      const pending = avatarFrameRequestRef.current;
+      if (pending) {
+        pending.video.cancelVideoFrameCallback?.(pending.id);
+        avatarFrameRequestRef.current = null;
+      }
+      avatarFrameProvenRef.current = false;
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        video.srcObject = null;
+      }
+      setHasRenderableAvatarFrame(false);
+    }
+  }, [isStreamReady, sessionState]);
+
+  const requestRenderableAvatarFrame = useCallback(
+    (video: HTMLVideoElement) => {
+      if (!isPhoneLifecycleViewport || avatarFrameProvenRef.current) return;
+
+      // Fail closed when the engine cannot prove a frame was presented on this
+      // exact visible node. Decoded/playback counters are weaker evidence and
+      // must never clear the opaque loading surface.
+      if (typeof video.requestVideoFrameCallback !== "function") {
+        return;
+      }
+
+      if (avatarFrameRequestRef.current) return;
+      const currentStream = video.srcObject;
+      const currentLiveVideoTrack =
+        currentStream instanceof MediaStream &&
+        currentStream
+          .getVideoTracks()
+          .some((track) => track.readyState === "live" && track.enabled);
+      const currentLayoutBox = video.getBoundingClientRect();
+      if (
+        videoRef.current === video &&
+        currentLiveVideoTrack &&
+        currentLayoutBox.width >= 2 &&
+        currentLayoutBox.height >= 2
+      ) {
+        markStartupTiming("live_track");
+      }
+      const id = video.requestVideoFrameCallback((_now, metadata) => {
+        avatarFrameRequestRef.current = null;
+        const presentedStream = video.srcObject;
+        const presentedLiveVideoTrack =
+          presentedStream instanceof MediaStream &&
+          presentedStream
+            .getVideoTracks()
+            .some((track) => track.readyState === "live" && track.enabled);
+        const presentedLayoutBox = video.getBoundingClientRect();
+        if (
+          videoRef.current === video &&
+          presentedLiveVideoTrack &&
+          presentedLayoutBox.width >= 2 &&
+          presentedLayoutBox.height >= 2
+        ) {
+          // The track may become live after callback registration. First-write
+          // timing keeps this idempotent with the pre-registration observation.
+          markStartupTiming("live_track");
+        }
+        if (
+          videoRef.current === video &&
+          presentedLiveVideoTrack &&
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth >= 2 &&
+          video.videoHeight >= 2 &&
+          presentedLayoutBox.width >= 2 &&
+          presentedLayoutBox.height >= 2 &&
+          metadata.width >= 2 &&
+          metadata.height >= 2 &&
+          metadata.presentedFrames > 0
+        ) {
+          const timing = markStartupTiming("first_presented_frame");
+          const sid = getLiveAvatarSessionId(sessionRef.current);
+          logAppEvent(
+            "startup_timing",
+            { checkpoint: "first_presented_frame", ...timing },
+            "low",
+            {
+              eventId: sid ? `session:${sid}:startup:first-frame` : undefined,
+              idempotencyKey: sid ? `session:${sid}:startup:first-frame` : undefined,
+              outcome: "presented",
+            },
+          );
+          avatarFrameProvenRef.current = true;
+          setHasRenderableAvatarFrame(true);
+          return;
+        }
+        requestRenderableAvatarFrame(video);
+      });
+      avatarFrameRequestRef.current = { video, id };
+    },
+    [isPhoneLifecycleViewport],
+  );
+
+  const attemptAvatarVideoPlayback = useCallback(
+    (video: HTMLVideoElement) => {
+      void video
+        .play()
+        .then(() => {
+          avatarAudioPresentationProbeRef.current?.notePlayResult("resolved");
+          requestRenderableAvatarFrame(video);
+        })
+        .catch((error) => {
+          avatarAudioPresentationProbeRef.current?.notePlayResult("rejected");
+          // Android may revoke the original START gesture while its microphone
+          // permission prompt is open. A rejected play never proves paint and
+          // therefore must leave the opaque loading badge in authority.
+          console.warn("Avatar video play rejected; keeping loading badge:", error);
+        });
+    },
+    [requestRenderableAvatarFrame],
+  );
+
+  useEffect(() => {
+    return () => {
+      const pending = avatarFrameRequestRef.current;
+      if (pending) {
+        pending.video.cancelVideoFrameCallback?.(pending.id);
+        avatarFrameRequestRef.current = null;
+      }
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        video.srcObject = null;
+      }
+      avatarFrameProvenRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     // console.log("isStreamReady: ", isStreamReady);
@@ -3705,30 +8660,50 @@ const LiveAvatarSessionComponent: React.FC<{
     if (isStreamReady && videoRef.current) {
       const video = videoRef.current;
       // Muted autoplay is allowed without user gesture - avatar displays automatically
-      video.muted = true;
-      video.volume = 0;
+      syncSpeakerMute(video, voiceMutedRef.current, false);
 
       attachElement(videoRef.current);
 
       // Start playback immediately so avatar displays without user click/touch
-      video.play().catch((err) => {
-        console.warn("Autoplay (muted) failed:", err);
-      });
+      attemptAvatarVideoPlayback(video);
 
       // If user already unlocked audio earlier (e.g. re-attach), restore sound
       if (audioUnlockedRef.current) {
         void ensureAudioOutputReady();
       }
     }
-  }, [attachElement, isStreamReady, ensureAudioOutputReady]);
+  }, [attachElement, isStreamReady, ensureAudioOutputReady, attemptAvatarVideoPlayback]);
+
+  // Mic permission can consume the original START activation on Android. When
+  // voice startup/account readiness settles, retry playback on the same final
+  // video node. Rejection is honest: the badge remains until frame proof.
+  useEffect(() => {
+    if (
+      !isPhoneLifecycleViewport ||
+      !isStreamReady ||
+      hasRenderableAvatarFrame ||
+      !videoRef.current
+    ) {
+      return;
+    }
+    attemptAvatarVideoPlayback(videoRef.current);
+  }, [
+    accountAuthChecked,
+    attemptAvatarVideoPlayback,
+    hasRenderableAvatarFrame,
+    isPhoneLifecycleViewport,
+    isStreamReady,
+    voiceIsLoading,
+    voiceStartAwaitingReady,
+  ]);
 
   // Ensure video has volume and is not muted whenever video element is available
   // Only unmute after user interaction (audio unlock) - CRITICAL to prevent mouth movement during loading
   useEffect(() => {
     if (videoRef.current && isStreamReady && audioUnlockedRef.current) {
       const video = videoRef.current;
-      video.volume = 1.0;
-      video.muted = false;
+      // 2026-08-21: respect the speaker-mute button (see applySpeakerMute).
+      syncSpeakerMute(video, voiceMutedRef.current, true);
       // Also ensure audio tracks are enabled if available
       if (video.srcObject && video.srcObject instanceof MediaStream) {
         video.srcObject.getAudioTracks().forEach((track) => {
@@ -3738,8 +8713,7 @@ const LiveAvatarSessionComponent: React.FC<{
     } else if (videoRef.current && isStreamReady && !audioUnlockedRef.current) {
       // Ensure video stays muted if audio is not unlocked yet
       const video = videoRef.current;
-      video.muted = true;
-      video.volume = 0;
+      syncSpeakerMute(video, voiceMutedRef.current, false);
     }
   }, [isStreamReady, audioUnlockedRef]);
 
@@ -4100,7 +9074,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // Store analysis as context for future questions (no scripted repeat prompt)
       if (mode === "FULL" && sessionRef.current) {
         const contextMessage = `You are directly viewing an image. Here's what you see: ${analysis}. When the user asks about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the image, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this image. When user asks about the image, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this image.`;
-        sessionRef.current.message(contextMessage);
+        injectFullModeContext(contextMessage);
       }
 
       setIsAnalyzingImage(false);
@@ -4221,16 +9195,16 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
 
-        // Persist the current problem so Grok stays locked on it across every
-        // subsequent frame in this Go Live session. We only overwrite when the
-        // user says something meaningful — empty / auto-fire calls reuse the last problem.
+        // Persist the current problem across every subsequent frame in this Go Live session.
+        // We only overwrite when the user says something meaningful — empty / auto-fire
+        // calls reuse the last problem.
         if (userText.length > 0) {
           currentProblemRef.current = userText;
         }
 
         console.log("Frame captured, sending to API with question:", userText);
         // Send to analyze-image API in streaming mode with problem context + last analysis
-        // so Grok stays laser-focused on the user's actual problem and silent when nothing changed.
+        // so vision stays focused on the user's actual problem and silent when nothing changed.
         const formData = new FormData();
         formData.append("image", frameFile, frameFile.name || "camera-frame.jpg");
         formData.append("question", userText);
@@ -4271,7 +9245,7 @@ const LiveAvatarSessionComponent: React.FC<{
           problem: currentProblemRef.current || null,
         });
 
-        // Silent-first: Grok outputs [SILENT] when nothing meaningful has changed.
+        // Silent-first: vision analysis outputs [SILENT] when nothing meaningful has changed.
         // Keep the avatar quiet entirely — no repeat(), no state churn.
         const trimmed = analysis.trim();
         if (trimmed === "[SILENT]" || trimmed.startsWith("[SILENT]")) {
@@ -4412,17 +9386,184 @@ const LiveAvatarSessionComponent: React.FC<{
 
   // Listen to user transcriptions and handle verbal questions in streaming mode (Go Live)
   useEffect(() => {
-    if (!sessionRef.current) {
+    const listenerSession = sessionRef.current;
+    if (!listenerSession) {
       return;
     }
 
-    const handleUserTranscription = async (event: { text: string }) => {
-      const userText = event.text.trim();
-      if (isInternalSignal(userText)) {
+    // r33 (G 2026-06-12 21:15: "two voices" twice in one ride + every line
+    // written twice): turns process ONE AT A TIME in arrival order. STT
+    // delivering two utterances a beat apart used to race both through the
+    // handler stack — two responders, overlapping audio through two
+    // different voice pipes, double memory writes.
+    const handleUserTranscription = (event: { text: string }) => {
+      const acceptedEpoch = sessionEpochRef.current;
+      turnChainRef.current = turnChainRef.current
+        .then(() => {
+          if (acceptedEpoch !== sessionEpochRef.current) return;
+          // r35: 25s race — one hung turn can't dam the chain.
+          // G 2026-06-13: on timeout 6 recovers out loud instead of going dead.
+          let done = false;
+          return Promise.race([
+            processUserTurn(event).then(() => {
+              done = true;
+            }),
+            new Promise<void>((resolve) => setTimeout(resolve, 25_000)),
+          ]).then(() => {
+            if (!done) {
+              console.warn("[turn-timeout] user turn exceeded 25s — recovering");
+              try {
+                voiceSay("Hmm, I lost you there. Say that again?");
+              } catch {}
+            }
+          });
+        })
+        .catch((e) => {
+          // G 2026-06-13: a thrown turn used to be swallowed SILENTLY here — 6
+          // went mute with ZERO trace and no recovery. Now: log it so the step
+          // is visible, and recover out loud so 6 never just dies.
+          logAppEvent("turn_error", {
+            where: "list",
+            text: String(event?.text ?? "").slice(0, 160),
+            msg: e instanceof Error ? e.message : String(e),
+          });
+          console.warn("[turn-error] user turn threw — recovering", e);
+          try {
+            voiceSay("Hmm, I hit a snag there. Say that again?");
+          } catch {}
+        });
+      return turnChainRef.current;
+    };
+    const processUserTurn = async (event: { text: string }) => {
+      const rawUserText = event.text.trim();
+      logAppEvent("t6", { p: "ht_pu_start", pres: voicePresenceRef.current, len: rawUserText.length });
+      if (isInternalSignal(rawUserText)) {
         return;
       }
+      const intakeNow = Date.now();
+      const intake = resolveTurnIntake({
+        incoming: rawUserText,
+        pending: pendingSpeechFragmentRef.current,
+        now: intakeNow,
+      });
+      pendingSpeechFragmentRef.current = intake.pending;
+      if (intake.kind === "hold") {
+        logAppEvent(
+          "user_turn_held",
+          { where: "avatar", length: rawUserText.length },
+          "low",
+          { outcome: "held" },
+        );
+        return;
+      }
+      const userText = intake.text;
+      // STT ECHO DEDUPE (2026-06-11): the pipeline delivers the same utterance
+      // twice within a beat. Each echo dispatched twice — one "make it bigger"
+      // stepped sizing twice (G's runaway pills), and a duplicated "Perfect."
+      // confirmed the email was correct AND THEN satisfied the just-armed send
+      // gate, mailing the sign-in link before consent was ever asked. A
+      // normalized-identical utterance inside 2.5s is an echo, never the user
+      // repeating themselves — drop it before anything can act on it.
+      const speechNow = Date.now();
+      const previousSpeech = prevUserSpeechRef.current;
+      const isExactEcho = isDuplicateUtterance(
+        previousSpeech?.text ?? null,
+        previousSpeech?.at ?? 0,
+        userText,
+        speechNow,
+      );
+      if (isExactEcho) {
+        logAppEvent(
+          "user_turn_dropped",
+          { where: "avatar", reason: "duplicate" },
+          "low",
+          { outcome: "dropped" },
+        );
+        return;
+      }
+      // ECHO FIREWALL (copilot 2026-06-12): when the WebAudio fallback voice
+      // plays through speakers, the mic can hear 6 and transcribe HIM as the
+      // user — the brain then answers itself in a loop (G's "multiple
+      // voices"; transcript showed his greeting tail logged as user turns).
+      // If this line matches something 6 just said, it is his own voice
+      // coming back — drop it before anything can act on it.
+      const isFreeAccountValueQuestion =
+        /^(?:why|what|how)\b[\s\S]{0,80}\bfree account\b|\bwhat(?:'s| is) (?:the )?(?:point|benefit|value)\b[\s\S]{0,40}\baccount\b/i.test(
+          userText,
+        );
+      if (
+        mode === "CUSTOM" &&
+        wasRecentlySpokenBySix(userText) &&
+        !isFreeAccountValueQuestion
+      ) {
+        reportCustomVoiceDiag(`[echo-dropped] ${userText.slice(0, 80)}`);
+        logAppEvent(
+          "user_turn_dropped",
+          { where: "avatar", reason: "assistant_echo" },
+          "low",
+          { outcome: "dropped" },
+        );
+        return;
+      }
+      const utteranceId = createClientEventId("utt");
+      currentUtteranceIdRef.current = utteranceId;
+      logAppEvent(
+        "user_turn_accepted",
+        { where: "avatar", length: userText.length },
+        "low",
+        {
+          eventId: `${utteranceId}:accepted`,
+          utteranceId,
+          outcome: "accepted",
+        },
+      );
+      // BARGE-IN ON A REAL USER LINE
+      // user 100%"): now that this is a CONFIRMED genuine user utterance (not 6's
+      // own echo, not a duplicate), cut whatever 6 is still saying BEFORE routing
+      // or replying — a finished user phrase must always silence him, even if the
+      // independent mic-level barge didn't trip. No-op when 6 is already quiet.
+      // (Complements the always-on mic listener that cuts him mid-speech.)
+      if (mode === "CUSTOM") {
+        voiceCutSpeech();
+        void sessionInterrupt();
+      }
+      // Snapshot the previous fragment BEFORE overwriting, so the close check
+      // below can stitch same-utterance STT chunks together.
+      const priorUserSpeech = prevUserSpeechRef.current;
+      prevUserSpeechRef.current = { text: userText, at: Date.now() };
       lastUserTextRef.current = userText;
       rememberConversationLine("user", userText);
+      // r25: CUSTOM sessions have no official LiveAvatar transcript — log the
+      // user's words ourselves so sup pulls see the WHOLE conversation.
+      // (Voice-list mode already logs in handleVoiceUtterance; avatar mode
+      // logs here.)
+      if (mode === "CUSTOM" && voicePresenceRef.current === "avatar") {
+        voiceLogTurn("user", userText);
+      }
+      void postOpportunitySignal("turn", {
+        conversation_session_id: dbSessionIdRef.current,
+        text: userText,
+      });
+      // r29 telemetry (G 2026-06-12): complaints ARE bug reports — file
+      // silently, keep the conversation flowing. Frustration counter too.
+      noteUserTurnForFrustration(userText);
+      maybeSubmitBugReport({
+        triggerText: userText,
+        transcript: recentConversationRef.current.map((l) => ({
+          role: l.role,
+          text: l.text,
+        })),
+        listSnapshot: activeListSnapshotRef.current,
+        mode,
+      });
+      maybeSubmitUserFeedback({
+        triggerText: userText,
+        transcript: recentConversationRef.current.map((l) => ({
+          role: l.role,
+          text: l.text,
+        })),
+        mode,
+      });
       if (accountPendingStateTokenRef.current) {
         savePendingAccountState();
       }
@@ -4449,10 +9590,151 @@ const LiveAvatarSessionComponent: React.FC<{
           name: deviceNameCandidate,
           updatedAt: Date.now(),
         }));
+        // Sync the REF too (2026-06-07, G "6 re-asked my name"): the account-setup
+        // flow checks deviceProfileRef.current.name (4232 / 4268). A name caught
+        // here conversationally ("my name is George") only updated state, so the
+        // ref stayed empty and 6 re-asked the name at the email step. Mirror the
+        // ref the same way the scripted awaiting-name branch does.
+        deviceProfileRef.current = {
+          ...deviceProfileRef.current,
+          name: deviceNameCandidate,
+          updatedAt: Date.now(),
+        };
+        // signup-tracer (2026-06-10): server-readable breadcrumb so we can SEE
+        // in error_logs that the spoken name landed in the ref (G's sessions
+        // keep hitting "you already asked my name" — this proves/disproves the
+        // capture side without needing his browser console).
+        void captureClientWarn(
+          new Error("signup-tracer: name captured"),
+          { where: "name-catch", name: deviceNameCandidate },
+        );
       }
 
-      if (isAvatarTalking) {
+      // YIELD THE FLOOR INSTANTLY: cut 6 off on ANY user speech while he's
+      // talking. Cloned from the v1 domain build (G 2026-06-04: "v1 doesn't
+      // interrupt as much") — v1 interrupts here UNCONDITIONALLY. v2.1 had gated
+      // this on non-backchannel, so 6 kept talking through the user's words;
+      // that's the extra interrupting G felt. Matching v1: the moment a user
+      // transcription arrives while 6 is mid-speech, 6 stops.
+      if (isAvatarTalking || isCustomVoiceFallbackBusy()) {
         void interrupt();
+      }
+
+      // G 2026-06-13 HARD STOP (avatar mode): if the whole utterance is a stop
+      // command, cut BOTH 6's mouths immediately — the LiveAvatar session via
+      // interrupt() and the WebAudio custom-voice fallback via
+      // cutCustomVoiceFallback() — then return before any list/brain routing so
+      // 6 says nothing back. interrupt() above only fires while isAvatarTalking;
+      // this also handles the case where the line is queued but the flag has
+      // already dropped, and explicitly cuts the CUSTOM-mode fallback.
+      if (STOP_NOW_RE.test(userText)) {
+        void interrupt();
+        cutCustomVoiceFallback();
+        logAppEvent("t6", { p: "hard_stop", where: "avatar", heard: userText.slice(0, 40) });
+        return;
+      }
+
+      // r30 (G 2026-06-12): voice sign-out — checked before every other
+      // handler so nothing can eat "log me out" / "switch accounts".
+      if (LOGOUT_COMMAND_RE.test(userText)) {
+        await repeat(ACCOUNT_SIGNOUT_LINE);
+        lastAvatarResponseRef.current = ACCOUNT_SIGNOUT_LINE;
+        rememberConversationLine("assistant", ACCOUNT_SIGNOUT_LINE);
+        performSignOut();
+        return;
+      }
+
+      // FIX (latency, 2026-06-01): EMAIL-SPELLING FAST PATH.
+      // When 6 is actively collecting the account email — either waiting on
+      // spelled letters, or waiting on the yes/no after showing a candidate —
+      // route the transcript STRAIGHT to the account handler before any of the
+      // list / online-lookup / prompt-size / end-session checks + awaits below.
+      // That chain (several regex tests plus the awaited handlePromptSizeSpeech /
+      // hasEndSessionIntent yields) delayed when each spelled letter reached the
+      // chest, contributing to the "looks broken" lag the user saw.
+      // handleAccountSetupSpeech already shows the box (setShowChestEmail(true))
+      // and appends letters with minimal delay. Gated strictly on the
+      // awaiting-email refs, so normal conversation turns are unaffected.
+      // CLOSE-ESCAPE (G 2026-06-03: "he could not close the session") lives
+      // inside takesEmailFastPath: a genuine close always wins over email
+      // collection; spelled letters and yes/no answers never match it.
+      if (takesEmailFastPath(signupPorts, signupFlags, userText)) {
+        // FIX (double-voice, 2026-06-01): the avatar's own LiveAvatar brain was
+        // reading the spelled email back aloud and chattering over the scripted
+        // flow (G's "you're really interrupting me"). The fix lives in the CW
+        // (6af8624c): 6 is now instructed to NEVER say the email aloud / never
+        // spell it back, just ask "Is the email on screen correct?". We do NOT
+        // stopListening() here on purpose — in FULL mode the spelled letters
+        // arrive via the server USER_TRANSCRIPTION stream, and muting listening
+        // risks starving that capture. We DO skip schedulePromptBrain so the
+        // pillbox labels hold steady (the chest box is the focus) instead of
+        // churning mid-spell.
+        let fastPathHandled = false;
+        try {
+          fastPathHandled = await handleAccountSetupSpeech(userText);
+        } catch (machineError) {
+          // signup-tracer (2026-06-10): a THROW here used to vanish as an
+          // unhandled rejection and the machine just looked "dark" while 6's
+          // brain freelanced the signup. Surface it server-side.
+          void captureClientError(machineError, {
+            where: "signup-machine-fastpath",
+            userText: userText.slice(0, 160),
+          });
+        }
+        if (fastPathHandled) {
+          return;
+        }
+      }
+
+      // Data export / download: catch "download my data / export my info / get a
+      // copy" BEFORE the delete check, so a "download before you delete" request
+      // routes to export - and runs cleanly even mid-delete-confirm. (G 2026-06-07)
+      if (await handleDataExportSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      // Data deletion: catch "delete my data / close my account / forget me"
+      // (and the yes/no while confirming) BEFORE the close-session + account-
+      // setup checks, so "close my account" routes to deletion, never a session
+      // close. Only acts for signed-in users with the intent; no-ops otherwise.
+      // (G 2026-06-07)
+      if (await handleDataDeleteSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      // Reminders run BEFORE list logic so "remind me to buy milk" becomes a
+      // reminder, never a grocery item. Stateless — cannot trap a turn.
+      if (await handleReminderSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      if (await handleSmsOptInSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      // ZIP recall (2026-06-13): "what's my zip" is answered from the saved
+      // value and must win over the timezone + online-lookup handlers, so a
+      // pending waterfall lookup can never mis-route it into the invalid-zip
+      // coach. Self-contained answer; the brain is not woken.
+      if (await handleZipRecallSpeech(userText)) {
+        return;
+      }
+
+      // Timezone by voice (2026-06-11): zip / "wrong time zone" / place-with-
+      // time-context. Stateless; window-scoped bare answers; cannot trap.
+      if (await handleTimezoneSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      // r18: "what time is it?" — the app speaks the exact clock itself.
+      if (await handleTimeAskSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
       }
 
       if (pendingListDeleteRef.current) {
@@ -4502,7 +9784,9 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      const listIntent = detectListIntent(userText);
+      const listIntent = shouldAllowDetectedListIntent(userText)
+        ? detectListIntent(userText)
+        : null;
 
       if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
         clearAccountEmailEntry();
@@ -4540,20 +9824,32 @@ const LiveAvatarSessionComponent: React.FC<{
         setListFocusNonce((value) => value + 1);
         const spoken = "I closed the list.";
         await interrupt();
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
+        // DOUBLE-CLOSE FIX (2026-06-14): in voice/shopping mode the avatar is
+        // stopped, so clearing activeListId above trips the belt-and-suspenders
+        // return effect, which already speaks "You got it - one sec, bringing
+        // myself back." Speaking "I closed the list." here too made a close say
+        // TWO lines. Only voice the close-confirm when 6 is on screen; in voice
+        // mode the belt return line carries it. We STILL bump the spoken counter
+        // in voice mode so the post-dispatch bulletproof guard (which checks
+        // `voiceSpokenCounterRef.current === before`) treats this turn as handled
+        // and does NOT fire an extra brain reply after the close.
+        if (voicePresenceRef.current === "avatar") {
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+        } else {
+          voiceSpokenCounterRef.current += 1;
+        }
         schedulePromptBrain(userText);
         return;
       }
 
       if (endSessionConfirmationPendingRef.current) {
-        if (confirmsEndSession(userText)) {
-          void handleEndSession();
-          return;
-        }
+        // Ignore empty/echo fragments — keep waiting for a real answer.
+        if (!userText.trim()) return;
         if (END_SESSION_CANCEL_RE.test(userText)) {
           endSessionConfirmationPendingRef.current = false;
+          endSessionConfirmationAskedAtRef.current = 0;
           const spoken = "Okay, we'll keep going.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
@@ -4561,45 +9857,396 @@ const LiveAvatarSessionComponent: React.FC<{
           schedulePromptBrain(userText);
           return;
         }
-        if (Date.now() - endSessionConfirmationAskedAtRef.current < 8000) {
+        if (confirmsEndSession(userText)) {
+          void handleEndSession();
           return;
         }
-        endSessionConfirmationAskedAtRef.current = Date.now();
-        const spoken =
-          "I can close it. Say stop or close to end it, or keep going.";
-        await interrupt();
-        if (mode === "FULL") {
-          stopListening();
-          resumeListeningAfterAvatarSpeech(4500);
-        }
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
-        lastVisionResponseTimeRef.current = Date.now();
-        return;
+        // Not a confirm and not a cancel: the user simply kept talking. Drop the
+        // close prompt and handle their words normally below — never swallow the
+        // turn or auto-close on a passing mention.
+        endSessionConfirmationPendingRef.current = false;
+        endSessionConfirmationAskedAtRef.current = 0;
       }
 
       if (await handlePromptSizeSpeech(userText)) {
-        schedulePromptBrain(userText);
+        // NO prompt-brain on sizing turns (G 23:37: pills started saying
+        // "Adjust Text Size" / "Try Different Fonts" — label churn from the
+        // sizing chatter). Labels hold their normal topics through a resize.
+        return;
+      }
+
+      // STT-SHARD CLOSE STITCH (G 2026-06-14): STT split "close the session"
+      // into "close the" then a bare "session" — neither shard matched, so the
+      // tail woke the brain. If THIS bare close-object tail directly follows a
+      // recent close-verb head (same ~6s utterance window the block re-check
+      // uses), finish the close instead of routing it to the brain. The helper
+      // re-checks END_SESSION_BLOCK_RE on the stitched phrase, so a stitched
+      // question ("how do I close" + "the session") still never closes.
+      if (
+        priorUserSpeech.text &&
+        Date.now() - priorUserSpeech.at < 6000 &&
+        isStitchedSessionClose(priorUserSpeech.text, userText)
+      ) {
+        endSessionConfirmationPendingRef.current = false;
+        endSessionConfirmationAskedAtRef.current = 0;
+        await interrupt();
+        void handleEndSession();
         return;
       }
 
       if (hasEndSessionIntent(userText)) {
-        endSessionConfirmationPendingRef.current = true;
-        endSessionConfirmationAskedAtRef.current = Date.now();
-        const spoken = SESSION_END_CONFIRMATION_MESSAGE;
-        await interrupt();
-        if (mode === "FULL") {
-          stopListening();
-          resumeListeningAfterAvatarSpeech(5000);
+        // EAGER close (G 2026-06-03): a clear close closes IMMEDIATELY — no
+        // confirm turn to fight 6's brain over. BUT guard against a close-verb
+        // FRAGMENT inside a QUESTION about closing: STT split "Let me ask you,
+        // if I [close this site out, would you remember me next time]" across
+        // chunks, so the bare "close this site out" fragment slipped past the
+        // "if i" block and closed mid-question. Re-check the block with the
+        // prior fragment stitched on when it arrived within the same utterance
+        // window (~6s); if the wider context is a question/hypothetical, do NOT
+        // close — fall through and treat it as normal conversation.
+        const stitchedForClose =
+          priorUserSpeech.text && Date.now() - priorUserSpeech.at < 6000
+            ? `${priorUserSpeech.text} ${userText}`
+            : userText;
+        if (!END_SESSION_BLOCK_RE.test(stitchedForClose)) {
+          endSessionConfirmationPendingRef.current = false;
+          endSessionConfirmationAskedAtRef.current = 0;
+          await interrupt();
+          void handleEndSession(
+            isDirectAvatarStopCommand(userText) ? { pause: true } : undefined,
+          );
+          return;
         }
-        await repeat(spoken);
-        lastAvatarResponseRef.current = spoken;
+      }
+
+      if (await handleBuildInterestSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      const wildWorks = resolveWildWorksLinkTurn(userText, wildWorksOfferStateRef.current);
+      if (wildWorks) {
+        wildWorksOfferStateRef.current = wildWorks.nextState;
+        setWildWorksOfferState(wildWorks.nextState);
+        if (wildWorks.handled && wildWorks.spoken) {
+          await repeat(wildWorks.spoken);
+          lastAvatarResponseRef.current = wildWorks.spoken;
+          rememberConversationLine("assistant", wildWorks.spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          return;
+        }
+      }
+
+      const avatarSite = resolveAvatarSiteIntent(userText);
+      if (avatarSite) {
+        await repeat(avatarSite);
+        lastAvatarResponseRef.current = avatarSite;
+        rememberConversationLine("assistant", avatarSite);
         lastVisionResponseTimeRef.current = Date.now();
         return;
       }
 
-      if (await handleAccountSetupSpeech(userText)) {
+      let setupHandled = false;
+      try {
+        setupHandled = await handleAccountSetupSpeech(userText);
+      } catch (machineError) {
+        void captureClientError(machineError, {
+          where: "signup-machine",
+          userText: userText.slice(0, 160),
+        });
+      }
+      // signup-tracer (2026-06-10): G's 09:44 session showed the BRAIN running
+      // the whole signup while this scripted machine stayed dark — and we could
+      // not tell which gate failed from the transcript alone. Until root-caused:
+      // log every signup-shaped utterance the machine does NOT handle, with the
+      // full gate state, into error_logs (server-readable, no console needed).
+      if (
+        !setupHandled &&
+        (ACCOUNT_SETUP_TRIGGER_RE.test(userText) ||
+          accountSetupAwaitingReadyRef.current ||
+          accountSetupAwaitingEmailRef.current ||
+          accountSetupAwaitingNameRef.current ||
+          accountSetupAwaitingSendRef.current ||
+          accountSetupPendingEmailRef.current !== null)
+      ) {
+        void captureClientError(
+          new Error("signup-tracer: signup-shaped utterance NOT handled"),
+          {
+            where: "signup-tracer",
+            userText: userText.slice(0, 160),
+            userName: deviceProfileRef.current.name ?? "",
+            signedIn: accountSignedInRef.current,
+            awaitingReady: accountSetupAwaitingReadyRef.current,
+            awaitingEmail: accountSetupAwaitingEmailRef.current,
+            awaitingName: accountSetupAwaitingNameRef.current,
+            awaitingSend: accountSetupAwaitingSendRef.current,
+            pendingEmail: accountSetupPendingEmailRef.current ?? "",
+          },
+        );
+      }
+      if (setupHandled) {
         schedulePromptBrain(userText);
+        return;
+      }
+
+      // ITEM 4 (2026-06-14): resolve a pending add-offer ("Want me to add milk?")
+      // BEFORE the brain. Sits downstream of every other yes/no confirm (delete,
+      // send, end-session, account) so it can never steal their "yes". One-shot.
+      if (pendingAddRef.current) {
+        const slot = pendingAddRef.current;
+        if (Date.now() - slot.at > 45000) {
+          pendingAddRef.current = null; // expired — let this turn route normally
+        } else if (isAddOfferAffirmative(userText)) {
+          pendingAddRef.current = null;
+          const targetId =
+            slot.listId &&
+            assistantListsLiveRef.current.some((l) => l.id === slot.listId)
+              ? slot.listId
+              : activeListId ??
+                ensureAssistantList({ title: "My List", kind: "custom" });
+          const receipt = addItemsToList(targetId, slot.items);
+          const spoken = buildAddItemsAcknowledgment(
+            receipt,
+            formatListItemsForSpeech,
+          );
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          logAppEvent("list_action_receipt", {
+            source: userText.slice(0, 300),
+            spoken: spoken.slice(0, 200),
+            added: receipt.added.slice(0, 20),
+            alreadyPresent: receipt.alreadyPresent.slice(0, 20),
+            rejectedByLimit: receipt.rejectedByLimit.slice(0, 20),
+            revisionBefore: receipt.revisionBefore,
+            revisionAfter: receipt.revisionAfter,
+            mutationStatus: receipt.status,
+            via: "add_offer_yes",
+            listId: targetId,
+          });
+          schedulePromptBrain(userText);
+          return;
+        } else {
+          // Negative or unrelated — drop the one-shot slot and route normally.
+          pendingAddRef.current = null;
+        }
+      }
+
+      // ITEM 5 (2026-06-14, G asked twice): REAL "list of lists". When the user
+      // asks for the menu/index of their saved lists, read the NAMES back and
+      // show them as a card on 6's CHEST (avatar stays — same chest pattern as
+      // lookup results). Runs BEFORE the singular "show me the list" opener
+      // (LIST_INDEX_RE is plural-only so it never steals that) and BEFORE the
+      // online lookup, so the brain can never fake a menu again.
+      if (LIST_INDEX_RE.test(userText) && !activeListId && !isShoppingMode) {
+        const entries: ListIndexEntry[] = assistantLists.map((l) => ({
+          id: l.id,
+          title: l.title,
+        }));
+        // clear any lookup card so only one chest card shows
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        setOnlineLookupNotice(null);
+        setOnlineLookupResultLines([]);
+        setListIndexOnChest(entries.length > 0 ? entries : null);
+        listIndexPickRef.current = entries.length > 0 ? entries : null;
+        const spoken = buildListIndexReply(entries.map((e) => e.title));
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+        logAppEvent("list_index_shown", { count: entries.length });
+        return;
+      }
+      // PICK from the index by voice ("the first one" / "the grocery one" /
+      // "Walmart"). Only active right after the index was shown; resolveListPick
+      // returns null on no clear match so ordinary speech is never hijacked.
+      if (
+        listIndexPickRef.current &&
+        listIndexPickRef.current.length > 0 &&
+        !activeListId &&
+        !isShoppingMode
+      ) {
+        const picked = resolveListPick(userText, listIndexPickRef.current);
+        if (picked) {
+          listIndexPickRef.current = null;
+          setListIndexOnChest(null);
+          setActiveListId(picked.id);
+          setIsShoppingMode(false);
+          const spoken = `I opened the ${picked.title}.`;
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          logAppEvent("list_index_pick", { id: picked.id });
+          return;
+        }
+      }
+
+      // r32 (G live 2026-06-12 20:49: "show me the list" → "Tell me your
+      // five-digit ZIP code" — the lookup ate it): showing a list always
+      // wins over searching the internet.
+      if (
+        /\bshow (?:me )?(?:the |my )?(?:\w+ )?list\b|\bput (?:the |my )?list (?:back )?up\b|\bwhere(?:'s| is) (?:the |my )list\b/i.test(
+          userText,
+        ) &&
+        // ITEM 3 (G 2026-06-14): a garbled half-sentence ("I'll show me the
+        // list") or a fragment that ends mid-thought ("...show me the") must NOT
+        // open a list. isGarbledListOpen rejects the "[I'll|I'm gonna|let me] show
+        // me" mashup; endsOnDanglingWord rejects copula/modal/cut-off endings.
+        // Real opens ("show me the to-do list") pass both. On reject we fall
+        // through so the next chunk on this turn is handled normally.
+        !isGarbledListOpen(userText) &&
+        !endsOnDanglingWord(userText) &&
+        assistantLists.length > 0
+      ) {
+        // G 2026-06-14 dogfood: "show me my Walmart list" opened GROCERY — the
+        // opener ignored the spoken NAME and showed the active/first list.
+        // Resolve the named list first (resolveListPick: ordinal -> title ->
+        // fuzzy, pure + tested); fall back to active/first only when no name is
+        // named, so bare "show me the list" is unchanged. Robust to the
+        // "X or no, actually Y" self-correction (keys on the trailing name).
+        const _picked = resolveListPick(
+          userText,
+          assistantLists.map((l) => ({ id: l.id, title: l.title })),
+        );
+        const shown = _picked
+          ? (() => {
+              setActiveListId(_picked.id);
+              return assistantLists.find((l) => l.id === _picked.id) ?? null;
+            })()
+          : activeList ?? moveActiveList(1);
+        if (shown) {
+          const spoken = `I opened the ${shown.title}.`;
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          lastVisionResponseTimeRef.current = Date.now();
+          schedulePromptBrain(userText);
+          return;
+        }
+      }
+
+      // G 2026-06-13 waterfall bug: when lookup RESULTS are on 6's chest and G asks
+      // to read "what's in these boxes" / "say them in order" / "read them back",
+      // read the RESULT lines in order — NOT the default idea pills, and never the
+      // online-search pipeline (handleOnlineLookupSpeech would re-run a search
+      // because onlineLookupLocationRef is still set after a lookup). Runs only when
+      // results are showing and no real list owns the screen. NOTE: the regex must
+      // NOT key on the word "list" (verb or noun) — "start a grocery list" / "add X
+      // to the list" would be hijacked into a readback while results are up. Gated
+      // on box/order/them/these/those/results/options instead.
+      // G live 2026-06-13/14: when RESULTS are on 6's chest, G wants to control
+      // the spoken order. Two new shapes, checked BEFORE the read-all block:
+      //  (1) PICK one by position — "say the first one", "what's the second one",
+      //      "read the third one", "the first one".
+      //  (2) REORDER by name — "start with X", "say X first then Y". Names are
+      //      resolved against the result lines; if none match (e.g. "say that
+      //      first"), we fall through to the read-all block, never reorder noise.
+      // Same guards as read-all so a real list / shopping mode never gets hijacked,
+      // and we return BEFORE handleOnlineLookupSpeech (which would re-run a search
+      // because onlineLookupLocationRef is still set after a lookup).
+      if (
+        onlineLookupResultLines.length > 0 &&
+        !activeListId &&
+        !isShoppingMode
+      ) {
+        const _RESULT_ORDINALS: Record<string, number> = {
+          first: 1, second: 2, third: 3, fourth: 4, fifth: 5,
+          "1st": 1, "2nd": 2, "3rd": 3,
+        };
+        const _pickMatch = userText.match(
+          /\b(?:the\s+)?(first|second|third|fourth|fifth|1st|2nd|3rd)\s+(?:one|option|spot|place|result)\b/i,
+        );
+        if (_pickMatch) {
+          const _pos = _RESULT_ORDINALS[_pickMatch[1].toLowerCase()] ?? 0;
+          const _picked =
+            _pos >= 1 ? onlineLookupResultLines[_pos - 1] : undefined;
+          const spoken = _picked
+            ? `The ${_pickMatch[1].toLowerCase()} one is ${_picked}.`
+            : `I only have ${onlineLookupResultLines.length} for you. Want me to read them all?`;
+          await interrupt();
+          await repeat(spoken);
+          lastAvatarResponseRef.current = spoken;
+          rememberConversationLine("assistant", spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          return;
+        }
+        const _reorderGate =
+          /\b(?:start (?:with|on)\b|say\b[^.]*\bfirst\b|read\b[^.]*\bfirst\b|do\b[^.]*\bfirst\b|first\b[^.]*\bthen\b)/i.test(
+            userText,
+          );
+        if (_reorderGate) {
+          const _lower = userText.toLowerCase();
+          const _stop =
+            /^(?:the|club|comedy|reservoir|valley|lake|park|hall|house|center|centre|theater|theatre|zone|spot|spots|near|city)$/i;
+          const _hits: { line: string; idx: number }[] = [];
+          for (const _ln of onlineLookupResultLines) {
+            const _probes = [
+              _ln,
+              ..._ln
+                .split(/\s+/)
+                .filter((w) => w.length >= 4 && !_stop.test(w)),
+            ];
+            for (const _p of _probes) {
+              const _idx = _lower.indexOf(_p.toLowerCase());
+              if (_idx >= 0) {
+                _hits.push({ line: _ln, idx: _idx });
+                break;
+              }
+            }
+          }
+          _hits.sort((a, b) => a.idx - b.idx);
+          const _ordered = [...new Set(_hits.map((h) => h.line))];
+          for (const _ln of onlineLookupResultLines) {
+            if (!_ordered.includes(_ln)) _ordered.push(_ln);
+          }
+          // Only act when a named result actually moved to the front; otherwise
+          // ("say that first" with no name) fall through to the read-all block.
+          if (
+            _ordered.length > 0 &&
+            _ordered[0] !== onlineLookupResultLines[0]
+          ) {
+            const spoken = `In order: ${formatListItemsForSpeech(_ordered)}.`;
+            await interrupt();
+            await repeat(spoken);
+            lastAvatarResponseRef.current = spoken;
+            rememberConversationLine("assistant", spoken);
+            lastVisionResponseTimeRef.current = Date.now();
+            return;
+          }
+        }
+      }
+
+      // G 2026-06-13 waterfall bug: when lookup RESULTS are on 6's chest and G asks
+      // to read "what's in these boxes" / "say them in order" / "read them back",
+      // read the RESULT lines in order — NOT the default idea pills, and never the
+      // online-search pipeline (handleOnlineLookupSpeech would re-run a search
+      // because onlineLookupLocationRef is still set after a lookup). Runs only when
+      // results are showing and no real list owns the screen. NOTE: the regex must
+      // NOT key on the word "list" (verb or noun) — "start a grocery list" / "add X
+      // to the list" would be hijacked into a readback while results are up. Gated
+      // on box/order/them/these/those/results/options instead.
+      if (
+        onlineLookupResultLines.length > 0 &&
+        !activeListId &&
+        !isShoppingMode &&
+        /\b(?:read|say|go (?:through|over)|what(?:'?s| is| are| do you (?:see|have)))\b/i.test(
+          userText,
+        ) &&
+        /\b(?:box|boxes|order|them|these|those|results?|options?)\b/i.test(
+          userText,
+        )
+      ) {
+        const spoken = `In order: ${formatListItemsForSpeech(onlineLookupResultLines)}.`;
+        await interrupt();
+        await repeat(spoken);
+        lastAvatarResponseRef.current = spoken;
+        rememberConversationLine("assistant", spoken);
+        lastVisionResponseTimeRef.current = Date.now();
         return;
       }
 
@@ -4630,24 +10277,97 @@ const LiveAvatarSessionComponent: React.FC<{
         }
       }
 
+      logAppEvent("t6", { p: "ht_past_handlers" }); // reached here = early awaited guards all returned
       const referencedAssistantItems =
         LIST_START_WITH_REFERENCED_ITEMS_RE.test(userText)
           ? extractReferencedAssistantListItems(rawLastAssistantText)
           : [];
-      const inferredListIntent =
+      const inferredListIntentRaw =
         listIntent ??
         (referencedAssistantItems.length > 0
           ? { title: "Shopping List", kind: "shopping" as const }
           : null);
+      // r19 (G live 21:06: "It's still a BLANK list" spawned a new list named
+      // "Blank List"): while a list is already up, junk titles are commentary
+      // about THIS list, never an order for a fresh one.
+      const inferredListIntent =
+        inferredListIntentRaw &&
+        // r31 (G 09:03: "I didn't say to do that" spawned a "That To Do
+        // List"): meta/negation sentences never create or open lists.
+        // r32 (G 20:53: "I need to set a reminder" round spawned a
+        // "Reminders To Do List"): reminder talk is cards, never lists.
+        (META_TALK_RE.test(userText) ||
+          /\bremind(?:er|ers)?\b/i.test(userText) ||
+          // ITEM 3 (G 2026-06-14): a chopped fragment that ends mid-thought
+          // ("start the grocery...") or the garbled self-show mashup must never
+          // CREATE/open a list either. Real creates end cleanly and pass through.
+          endsOnDanglingWord(userText) ||
+          isGarbledListOpen(userText) ||
+          // G 2026-06-13: a QUESTION / "right, Six?" / "is that...correct?" about a
+          // list is never a create order. Block ONLY when the turn carries no
+          // explicit list command verb and no add/need signal, so real creates
+          // ("make a Walmart list", "can you open my todo list?") still pass.
+          (LIST_QUESTION_META_RE.test(userText) &&
+            !LIST_COMMAND_ONLY_RE.test(userText) &&
+            !LIST_MUTATION_SIGNAL_RE.test(userText)) ||
+          // G 2026-06-14 copilot: a HYPOTHETICAL / example sentence ("when we
+          // have a Christmas list, a grocery list, a...", "a list of lists") is
+          // NOT a create order. Block only when no command verb + no add signal,
+          // so real "make a grocery list" / "I want a Walmart list" still pass.
+          (/\b(?:when (?:we|you|i|they) (?:have|get|make|need|want)|such as|like a |for example|for instance|what if|imagine|let'?s say|suppose|list of lists)\b/i.test(
+            userText,
+          ) &&
+            !LIST_COMMAND_ONLY_RE.test(userText) &&
+            !LIST_MUTATION_SIGNAL_RE.test(userText)) ||
+          (activeListId &&
+            /^(?:blank|empty|new|the|this|that|same|whole|my)\b\s*(?:list)?$/i.test(
+              inferredListIntentRaw.title.trim(),
+            )))
+          ? null
+          : inferredListIntentRaw;
 
       const targetListId = inferredListIntent
         ? ensureAssistantList(inferredListIntent, {
             preferFresh: shouldStartFreshList(userText),
           })
         : activeListId;
-      const enteringShoppingMode = SHOPPING_MODE_OPEN_RE.test(userText);
+      // FULL_PAGE_LISTS_DORMANT (G 2026-06-14): full-screen / shopping mode is
+      // dead -- 6's face must never disappear. Forcing this false funnels EVERY
+      // list (even an explicit "shopping mode" / "full screen list" request)
+      // into the chest-card path below, where 6 stays on screen. Flip the flag
+      // at the top of the file to revive full-page.
+      const enteringShoppingMode =
+        !FULL_PAGE_LISTS_DORMANT && SHOPPING_MODE_OPEN_RE.test(userText);
 
       if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
+        logAppEvent("t6", { p: "ht_list_enter", pres: voicePresenceRef.current, shop: isShoppingMode });
+        // ITEM 5: opening/creating a list any other way dismisses the index card.
+        if (listIndexPickRef.current) {
+          listIndexPickRef.current = null;
+          setListIndexOnChest(null);
+        }
+        // CHEST-CARD LISTS (2026-06-14, G 6+ times: "on his chest", "I need to
+        // see it on your chest", "the grocery list is still open and you're not
+        // on the screen, Six"): a NORMAL list rides a card on 6's CHEST while he
+        // STAYS on screen (the chest-list panel below, gated on !isShoppingMode +
+        // showActiveList, at the same chest anchor as the lookup-results card).
+        // We only do the VOICE/AVATAR SEPARATION (stop the avatar, ElevenLabs
+        // carries on) when the user EXPLICITLY asks for full-screen / shopping
+        // mode (enteringShoppingMode = SHOPPING_MODE_OPEN_RE). For every other
+        // list open the avatar keeps running: presence stays "avatar", so the
+        // dispatcher's "I started the X..." line speaks through the live session
+        // (repeat() -> sessionRepeat, raced at 4s) and the chest card shows.
+        if (enteringShoppingMode && voicePresenceRef.current === "avatar") {
+          const enteredTitle =
+            lastEnsuredListRef.current?.title ??
+            assistantLists.find((list) => list.id === targetListId)?.title ??
+            "list";
+          setIsShoppingMode(true);
+          void enterVoiceListMode(
+            enteredTitle,
+            Boolean(lastEnsuredListRef.current?.wasNew),
+          );
+        }
         if (enteringShoppingMode) {
           setIsShoppingMode(true);
           await interrupt();
@@ -4655,6 +10375,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
         const displayStyle = detectListDisplayStyle(userText);
         let listActionSpoken: string | null = null;
+        let listAddReceipt: ReturnType<typeof addItemsToList> | null = null;
         if (displayStyle) {
           setListDisplayStyle(targetListId, displayStyle);
           listActionSpoken =
@@ -4665,20 +10386,369 @@ const LiveAvatarSessionComponent: React.FC<{
 
         const targetListBeforeChange =
           assistantLists.find((list) => list.id === targetListId) ?? activeList;
-        const accentUpdate = detectListAccentUpdate(userText, targetListBeforeChange);
+        // G 2026-06-14: color the BOX or the TEXT, plus brighter/darker shades,
+        // all by voice. detectColorTarget picks the surface; detectListAccent-
+        // Update does the color + shade math (reused for both). For TEXT, the
+        // shade base is the current textHex so "make the text darker" darkens the
+        // text, not the box.
+        const _colorTarget = detectColorTarget(userText);
+        const _colorBaseList =
+          _colorTarget === "text" && targetListBeforeChange
+            ? {
+                ...targetListBeforeChange,
+                accentHex:
+                  targetListBeforeChange.textHex ??
+                  targetListBeforeChange.accentHex,
+              }
+            : targetListBeforeChange;
+        const accentUpdate = detectListAccentUpdate(userText, _colorBaseList);
         if (accentUpdate) {
-          setListAccentColor(targetListId, accentUpdate);
-          listActionSpoken = `Done. I made it ${accentUpdate.accentLabel?.toLowerCase() ?? "that color"}.`;
+          if (_colorTarget === "text") {
+            const _textHex =
+              accentUpdate.accentHex ??
+              LIST_ACCENT_COLORS[accentUpdate.accentColor].solid;
+            setListTextColor(targetListId, _textHex, accentUpdate.accentLabel);
+            listActionSpoken = `Done. I made the text ${accentUpdate.accentLabel?.toLowerCase() ?? "that color"}.`;
+          } else {
+            setListAccentColor(targetListId, accentUpdate);
+            listActionSpoken = `Done. I made it ${accentUpdate.accentLabel?.toLowerCase() ?? "that color"}.`;
+          }
         }
 
-        const removeItems = extractRemoveItems(userText);
-        const addItems =
-          referencedAssistantItems.length > 0
+        // r19 (G live 21:05: his coaching sentences became list items — "Number
+        // one says, so in other words"): work clause by clause. Remove-verbs
+        // only read their own sentence, add-verbs only theirs, and bare
+        // verbless speech only counts as items when it's SHORT (real dictation
+        // like "toothpaste, shampoo" — never a monologue).
+        const _LIST_REMOVE_VERB_RE = /\b(?:take|remove|delete|cross|scratch|clear)\b/i;
+        // r32 (G 20:46: "List toothbrush and toothpaste and a blow dryer"
+        // missed every verb and the brain faked the add): "list" is a verb.
+        const _LIST_ADD_VERB_RE = /\b(?:add|put|list|i (?:want|need|have|had)|i'?ve (?:got|had)|we (?:want|need)|need|want|get|grab|buy|throw)\b/i;
+        const _clauses = userText.split(/(?<=[.!?])\s+/).filter(Boolean);
+        const _removeSource = _clauses.find((c) => _LIST_REMOVE_VERB_RE.test(c)) ?? "";
+        const _destinationAddSource = stripDestinationListContext(userText);
+        const _mutationAllowed =
+          referencedAssistantItems.length > 0 ||
+          shouldTreatAsListMutation(userText, {
+            hasActiveList: Boolean(targetListId),
+          });
+        // r33 (G copilot 2026-06-14 03:14: a 5-item batch add spoken in ONE
+        // breath with unrelated commentary -- "it says nothing here yet... that's
+        // not in a brand color. Walmart list, let's add toothbrush, toothpaste..."
+        // -- was wholly dropped because META_TALK_RE matched "it says"/"not" in the
+        // commentary clauses, so _addsBlocked nuked the clean add command and the
+        // turn fell to the brain, which faked the add). Work clause by clause:
+        // keep only the add-verb clauses that are NOT meta-talk, so commentary in
+        // OTHER clauses can't poison a real add. Block adds only when there is no
+        // clean add clause left AND the whole utterance still reads as commentary.
+        const _addClauses = _mutationAllowed
+          ? _clauses.filter((c) => _LIST_ADD_VERB_RE.test(c))
+          : [];
+        const _cleanAddClauses = _addClauses.filter(
+          (c) => !META_TALK_RE.test(c),
+        );
+        const _addSource =
+          _destinationAddSource ?? (_cleanAddClauses.join(" ") || userText);
+        // r29 (G live 2026-06-12 09:01: "The ad is not something that you buy
+        // at a grocery store" → "Added a store"; "I had blackberries" → added
+        // verbatim; his complaint ABOUT the list became more list): talking
+        // ABOUT items is never an order — META_TALK_RE is module-level now
+        // (r31) because list CREATION needs the same guard. r33: only block when
+        // NO clean add clause survives, so a real add beside commentary lands.
+        const _addsBlocked =
+          !_mutationAllowed ||
+          (_cleanAddClauses.length === 0 && META_TALK_RE.test(userText));
+        // r29: bare dictation is pure nouns ("toothpaste, shampoo") — any
+        // pronoun or speech word means it's a sentence, not a grocery run.
+        // G 2026-06-13: greetings/address/banter words also mark a SENTENCE, never
+        // bare dictation — "Hey there, buddy" was being read as items.
+        const _BARE_SPEECH_RE =
+          /\b(?:i|you|me|my|your|he|she|it|we|they|tell|say|says|said|just|um|uh|okay|so|hey|hi|hello|yo|buddy|bud|pal|friend|dude|man|bro|there|right|see|wait|huh|what|yeah|yep|nope|cool|nice|great|wonderful|perfect)\b/i;
+        // G 2026-06-14 ride: while a list is open, EVERY short turn was treated as
+        // a bare grocery add, so interrupted sentence scraps ("11", "Through", "Up
+        // people", "Except for", "2 second") landed as items. A bare add is now
+        // only trusted when the fragment is NOT a lone/leading number and does NOT
+        // lead with a connective/preposition/subordinator. Real items ("milk",
+        // "paper towels", "half and half") still pass; explicit-verb adds ("add
+        // eggs") are unaffected (they ride _LIST_ADD_VERB_RE below).
+        const _looksLikeFragment =
+          // Herm TASK_008: block only bare-number / spoken-fragment shapes —
+          // NOT real grocery tokens like "2% milk", "12 eggs", "16 oz".
+          /^\d+$/.test(userText.trim()) ||
+          /^\d+\s*(?:st|nd|rd|th)$/i.test(userText.trim()) ||
+          /^\d+\s*(?:secs?|seconds?|mins?|minutes?)\b/i.test(userText.trim()) ||
+          /^(?:and|or|but|so|because|except|through|up|down|over|under|with|without|for|from|to|of|at|in|on|then|also|like|as|while|when|if|that|which|who)\b/i.test(
+            userText.trim(),
+          ) ||
+          // G 2026-06-14 ride (STILL junk-adding his venting: "Same", "Problems",
+          // "Fucking problems"): profanity, question words, or "talking-about-it"
+          // verbs mean this turn is CHATTER, not a grocery item — never bare-add it.
+          // Clean items ("milk", "eggs", "paper towels") have none of these.
+          // Herm TASK_008: vague-quantity words (everything/anything/...) moved to
+          // the EXACT chokepoint so real items like "everything bagels" survive.
+          /\b(?:fuck|fucking|fucked|shit|goddamn|damn|hell|what|why|how|where|when|who|which|keep|saying|said|same|problem|problems|stuck|issue|issues)\b/i.test(
+            userText,
+          ) ||
+          /\byou know\b/i.test(userText);
+        const _shortBare =
+          userText.trim().split(/\s+/).length <= 6 &&
+          !_BARE_SPEECH_RE.test(userText) &&
+          !_looksLikeFragment;
+        // r23 (G 22:54: "I do not see I'm gonna, A screenshot your face..."):
+        // commentary shards can't be remove-items — drop anything long or
+        // carrying speech words; cap the batch.
+        const _ITEM_JUNK_RE = /\b(?:i'?m|you|your|gonna|okay|so|everything|else|should|know|mean|like)\b/i;
+        const removeItems = (_removeSource ? extractRemoveItems(_removeSource) : [])
+          .filter((it) => it.split(/\s+/).length <= 5 && !_ITEM_JUNK_RE.test(it))
+          .slice(0, 4);
+        const addItems = (
+          _addsBlocked
+            ? []
+            : referencedAssistantItems.length > 0
             ? referencedAssistantItems
-            : extractListItems(userText, {
-                allowBareItems: Boolean(activeListId || inferredListIntent),
-              });
-        if (removeItems.length > 0) {
+            : extractListItems(
+                _destinationAddSource !== null || _LIST_ADD_VERB_RE.test(userText)
+                  ? _addSource
+                  : userText,
+                {
+                  // INTENT-FIRST (G 2026-06-14, root regression b5781651): a bare
+                  // utterance adds ONLY when it reads as a real item — NOT merely
+                  // because a list is open. canInferListItems is the intent test
+                  // (rejects questions/fragments/meta/banter, requires a clean
+                  // <=3-word noun); _shortBare keeps the venting deny-list as a
+                  // second guard. Explicit-verb adds ("add eggs") still ride
+                  // _LIST_ADD_VERB_RE. The old `activeListId || inferredListIntent`
+                  // trust (the hole that junk-added his venting) is gone.
+                  allowBareItems:
+                    // G 2026-06-14: bare single/stray words ("Look", "Claude",
+                    // "same", "problems") must NEVER auto-add — that's talk, not a
+                    // grocery item. Add ONLY when the user ASKS (add/need/get/put X)
+                    // or lists several at once ("milk, eggs, bread"). This matches
+                    // what G said worked — "when I'd ask for things." Kills the
+                    // conversational junk-adds at the root, no more deny-list chase.
+                    _destinationAddSource !== null ||
+                    _LIST_ADD_VERB_RE.test(userText) ||
+                    // G 2026-06-14 ride: the comma/"and" branch leaked chatter
+                    // ("Wow, you can reorder it", "Yes, that's great", "Claude,
+                    // change them now") because ANY comma returned true. Require
+                    // it to read as item dictation, not a sentence.
+                    (/[,;\n]|\band\b/i.test(userText) &&
+                      !_BARE_SPEECH_RE.test(userText) &&
+                      !/\b(?:change|move|reorder|rename|swap|why|talking|can you|could you|them|then|now)\b/i.test(
+                        userText,
+                      ) &&
+                      canInferListItems(userText, { allowBareItems: true })),
+                },
+              )
+        )
+          // r23/r24 (G: "put ON blueberries" → "On blueberries"; "A toothpaste
+          // should say toothpaste"; "Added Instead of" / "Two could say a
+          // toothbrush" = commentary): strip spoken lead-ins, and bare items
+          // carrying speech words are never groceries.
+          .map((it) => {
+            // r-2026-06-14 ride: strip leading fillers/prepositions REPEATEDLY so
+            // "to on rice" (from "I want to put on rice") collapses to "rice",
+            // not "To on rice". One-pass stripping left the stacked lead-ins.
+            let s = it.trim();
+            let prev = "";
+            while (s !== prev) {
+              prev = s;
+              s = s.replace(/^(?:to|put|on|in|at|the|some|of|a|an)\s+/i, "").trim();
+            }
+            return s;
+          })
+          .filter(Boolean)
+          .filter(
+            (it) =>
+              !/\b(?:could|should|would|say|says|saying|instead|okay|so|number|gonna|you|your|i'?m|the x|al?l\s?right|alright|tell|here'?s|list|me|bring|yourself|back|see|seen|same|problem|problems)\b/i.test(
+                it,
+              ),
+          )
+          // G 2026-06-14 copilot: app/UI words the user says while DISCUSSING the
+          // app (not dictating groceries) must never become list items - "I need
+          // a zip" added "Zip", "search results" added "Search results". Reject
+          // the app-mechanic terms outright.
+          .filter(
+            (it) =>
+              !/^(?:zips?|zip ?codes?|searches?|results?|boxes?|cards?|screens?)$/i.test(
+                it,
+              ) &&
+              !/\b(?:pill ?box(?:es)?|pillbox(?:es)?|search ?results?|zip ?code)\b/i.test(
+                it,
+              ),
+          )
+          // G 2026-06-14 ride: conversational fragments kept becoming items while
+          // a list was open — "I need HIM up and running" -> "Him up and Running",
+          // "I want the FULL PAGE list when I" -> "Full page when I", "THEY need to
+          // be the normal" -> "They to be the normal", "Page 1A", "For the next".
+          // A real list item is never a sentence about a person or the app itself.
+          // Reject items carrying subject/object pronouns, "to be", "when i", app
+          // mechanics, or a leading "page"/"for". Kept narrow so real items
+          // ("half and half", "paper towels", "ground beef") still add fine.
+          .filter(
+            (it) =>
+              !/\b(?:he|she|him|her|they|them|to be|when i|full ?page|the normal|keep my|second list|another list|new list|called|rename)\b/i.test(
+                it,
+              ) && !/^(?:page|for)\b/i.test(it),
+          )
+          // r26 (G live 2026-06-12 08:37: "number three says, all right" — his
+          // "All right, so I also need..." lead-in became a grocery): pure
+          // acknowledgments are never items.
+          .filter(
+            (it) => !/^(?:yeah|yes|no|nope|sure|well|um|uh|hmm|right)$/i.test(it),
+          )
+          // G 2026-06-14 ride: a bare number ("11", "2") or a lone connective/
+          // preposition/adverb ("Through", "Except for", "Up") is never a grocery
+          // item — it's an interrupted sentence scrap. Real items (with a noun)
+          // are untouched; "half and half" survives (>1 content word).
+          .filter((it) => !/^\d+$/.test(it.trim()))
+          .filter(
+            (it) =>
+              !/^(?:through|except|except for|up|down|over|under|with|without|for|from|to|of|at|in|on|then|also|as|while|when|if|that|which|who|people|second|seconds|minute|minutes)$/i.test(
+                it.trim(),
+              ),
+          )
+          // G 2026-06-14 ride: a bare command/add verb said alone ("Yeah, put,
+          // um" -> "Added Put") is never a grocery item.
+          // G 2026-06-14: ONE tested sanity gate at the chokepoint — a real item
+          // is a short noun-ish thing, never a name/pronoun/meta/app-term/scrap.
+          // This is the answer to "why do non-walmart things keep coming up."
+          // Corpus: tests/lists/itemSanity.test.ts.
+          .filter(isPlausibleListItem);
+        // r26 (G live 2026-06-12 08:37: "Change toothbrush to be a capital T"
+        // got "I found toothbrush on the list" three times — no handler): a
+        // capital-letter ask fixes the whole list. New adds auto-cap now, so
+        // this repairs older lowercase items.
+        const wantsCapitals =
+          /\bcapitaliz|\bcapital\s+letter|\bcapital\s+[A-Za-z]\b|\bupper\s?case\b/i.test(
+            userText,
+          );
+        const _ORDINALS: Record<string, number> = {
+          one: 1, two: 2, three: 3, four: 4, five: 5,
+          six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+        };
+        // r32: "make number four say yogurt" / "number 4 should say X" /
+        // "change item two to read X" — rename by number, checked first.
+        const _renameMatch = userText.match(
+          /\b(?:make|change|fix)?\s*(?:number|item)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:should\s+)?(?:to\s+)?(?:just\s+)?(?:say|read|be)\s+(?:just\s+)?([^.!?,]{1,40})/i,
+        );
+        // G 2026-06-13 dogfood: REMOVE by position — "take off number one",
+        // "remove number 2", "take number 3 off". (He said it 4+ times and 6 kept
+        // hunting for an item literally NAMED "Number one.") Checked before the
+        // literal-text remove so the number is treated as a position, not a name.
+        // G 2026-06-13 dogfood: REMOVE by position — "take off number one", "take
+        // off the first one", "cross off the third item". parseRemoveByPosition
+        // (pure, tested) returns the 1-based slot; checked before literal-text
+        // remove so the number/ordinal is a POSITION, not an item name.
+        const _removePos = parseRemoveByPosition(userText);
+        // G 2026-06-14: "Remove both 1 and 2" hunted for an item named "Both 1".
+        // Plural positions removed together, checked before the single branch.
+        const _removePositions = parseRemovePositions(userText);
+        // G 2026-06-13 dogfood: "read me the list" / "what's on the list" / "what
+        // do you see on the list" must RELIABLY read it back (it only worked once,
+        // by accident, when the brain happened to know). Dedicated handler now.
+        // G 2026-06-13 dogfood: "read me the list" / "what's on the list" / bare
+        // "what do you see" must RELIABLY read it back (never hunt for an item
+        // named "See"). wantsListReadback is pure + tested; safe on the bare form
+        // because this whole block only runs when a list is the active context.
+        const _wantsReadback = wantsListReadback(userText);
+        // G 2026-06-14 (said it ~26 times, nothing cleared): "clear the list" /
+        // "remove everything" must EMPTY the list in one go. Runs first so it
+        // beats the per-item remove path (where "everything" was junk-filtered to
+        // [], leaving the brain to fake "done").
+        const _wantsClearAll = isClearAllCommand(userText);
+        const _reorder = parseReorderCommand(userText);
+        if (_wantsClearAll && targetListId) {
+          const _clrList = assistantLists.find((l) => l.id === targetListId);
+          if (_clrList && _clrList.items.length > 0) {
+            const cleared = removeItemsFromList(targetListId, [..._clrList.items]);
+            listActionSpoken = cleared
+              ? `Done - cleared everything off your ${_clrList.title}.`
+              : "Hmm - I couldn't clear it. Say that again?";
+          } else {
+            listActionSpoken = `Your ${_clrList?.title ?? "list"} is already empty.`;
+          }
+        } else if (_reorder && targetListId) {
+          const _roList = assistantLists.find((l) => l.id === targetListId);
+          const _roItems = _roList?.items ?? [];
+          let _fromIdx =
+            typeof _reorder.from === "number"
+              ? _reorder.from - 1
+              : _roItems.findIndex(
+                  (it) =>
+                    it.toLowerCase() === String(_reorder.from).toLowerCase(),
+                );
+          if (_fromIdx < 0 && typeof _reorder.from === "string") {
+            const _needle = String(_reorder.from).toLowerCase();
+            _fromIdx = _roItems.findIndex((it) =>
+              it.toLowerCase().includes(_needle),
+            );
+          }
+          if (_fromIdx >= 0 && _fromIdx < _roItems.length) {
+            const _movedName = _roItems[_fromIdx];
+            const _toIdx =
+              _reorder.to === "top"
+                ? 0
+                : _reorder.to === "bottom"
+                  ? _roItems.length - 1
+                  : _reorder.to - 1;
+            const _clampTo = Math.max(0, Math.min(_roItems.length - 1, _toIdx));
+            const moved = reorderListItem(targetListId, _fromIdx, _clampTo);
+            listActionSpoken = moved
+              ? `Done - ${_movedName} is number ${_clampTo + 1} now.`
+              : `${_movedName} is already number ${_clampTo + 1}.`;
+          } else {
+            listActionSpoken =
+              "I couldn't find that one to move. Which item, and where should it go?";
+          }
+        } else if (_wantsReadback && targetListId) {
+          const _rbList = assistantLists.find((l) => l.id === targetListId);
+          const _rbItems = _rbList?.items ?? [];
+          listActionSpoken = _rbItems.length
+            ? `Your ${_rbList?.title ?? "list"} has ${formatListItemsForSpeech(_rbItems)}.`
+            : `Your ${_rbList?.title ?? "list"} is empty so far — tell me what to add.`;
+        } else if (_removePositions.length >= 2 && targetListId) {
+          const _mpList = assistantLists.find((l) => l.id === targetListId);
+          const _mpItems = _removePositions
+            .map((p) => _mpList?.items?.[p - 1])
+            .filter((it): it is string => Boolean(it));
+          if (_mpItems.length) {
+            const removed = removeItemsFromList(targetListId, _mpItems);
+            listActionSpoken = removed
+              ? `Done - took ${formatListItemsForSpeech(_mpItems)} off the list.`
+              : "Hmm - I couldn't remove those. Tell me again?";
+          } else {
+            listActionSpoken = "I don't see those numbers on the list yet.";
+          }
+        } else if (_removePos && targetListId) {
+          const pos = _removePos;
+          const _posList = assistantLists.find((l) => l.id === targetListId);
+          const _posItem = pos >= 1 ? _posList?.items?.[pos - 1] : undefined;
+          if (_posItem) {
+            const removed = removeItemsFromList(targetListId, [_posItem]);
+            listActionSpoken = removed
+              ? `Done - took ${_posItem} off the list.`
+              : `Hmm - I couldn't remove number ${pos}. Tell me again?`;
+          } else {
+            listActionSpoken = `There's no number ${pos} on the list yet.`;
+          }
+        } else if (_renameMatch && targetListId) {
+          const idxRaw = _renameMatch[1].toLowerCase();
+          const idx =
+            (/^\d+$/.test(idxRaw)
+              ? parseInt(idxRaw, 10)
+              : _ORDINALS[idxRaw] ?? 0) - 1;
+          const newText = _renameMatch[2].trim();
+          const renamed = renameListItem(targetListId, idx, newText);
+          listActionSpoken = renamed
+            ? `Done - number ${idx + 1} says ${newText} now.`
+            : `Hmm - I couldn't change number ${_renameMatch[1]}. Tell me again?`;
+        } else if (wantsCapitals) {
+          const capped = capitalizeListItems(targetListId);
+          listActionSpoken = capped
+            ? "Done - capital letters on the list."
+            : "Those already have capital letters.";
+        } else if (removeItems.length > 0) {
           const removed = removeItemsFromList(targetListId, removeItems);
           listActionSpoken = removed
             ? `I took ${
@@ -4686,12 +10756,14 @@ const LiveAvatarSessionComponent: React.FC<{
               } off the list.`
             : `I do not see ${formatListItemsForSpeech(removeItems)} on this list.`;
         } else if (addItems.length > 0) {
-          const added = addItemsToList(targetListId, addItems);
-          listActionSpoken = added
-            ? addItems.length === 1
-              ? `Added ${addItems[0]}.`
-              : "Added those."
-            : `${formatListItemsForSpeech(addItems)} is already on the list.`;
+          listAddReceipt = addItemsToList(targetListId, addItems);
+          // G 2026-06-13 dogfood: name only the items the transaction receipt
+          // proves were persisted. Duplicates, capacity rejects, and missing
+          // targets must never be spoken as successful adds.
+          listActionSpoken = buildAddItemsAcknowledgment(
+            listAddReceipt,
+            formatListItemsForSpeech,
+          );
         } else {
           const mentionedItem = findMentionedListItem(activeList, userText);
           if (mentionedItem) {
@@ -4727,13 +10799,19 @@ const LiveAvatarSessionComponent: React.FC<{
           const closeEducation = listCloseEducationSpokenRef.current
             ? ""
             : ` ${LIST_CLOSE_EDUCATION}`;
+          if (!listCloseEducationSpokenRef.current) {
+            persistListCloseEducationShown();
+          }
           listCloseEducationSpokenRef.current = true;
           listActionSpoken = `I ${action} the ${ensured?.title ?? inferredListIntent.title}. Just tell me what goes on it.${closeEducation}`;
         }
 
         if (enteringShoppingMode) {
+          // G 2026-06-14 (chose "6 steps out but snaps right back"): full-screen
+          // mode shuts off the live face to save credits, so TELL him he's one
+          // word away — never let it feel like he vanished.
           const spoken =
-            "Got it. I'll keep the list up and stay out of the way. Tell me what to remove, or ask me to close the list.";
+            "Here's the full-screen list - I stepped back so it fills the screen. Say 'show me 6' or tap my photo and I'm right back.";
           await repeat(spoken);
           lastAvatarResponseRef.current = spoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -4742,6 +10820,25 @@ const LiveAvatarSessionComponent: React.FC<{
         }
 
         if (listActionSpoken) {
+          // r29 telemetry: every list change records WHAT changed, the exact
+          // sentence that caused it, and which path fired — so a junk item is
+          // a one-minute lookup instead of detective work.
+          logAppEvent("list_action_receipt", {
+            source: userText.slice(0, 300),
+            spoken: listActionSpoken.slice(0, 200),
+            added: listAddReceipt?.added.slice(0, 20) ?? [],
+            alreadyPresent:
+              listAddReceipt?.alreadyPresent.slice(0, 20) ?? [],
+            rejectedByLimit:
+              listAddReceipt?.rejectedByLimit.slice(0, 20) ?? [],
+            revisionBefore: listAddReceipt?.revisionBefore ?? null,
+            revisionAfter: listAddReceipt?.revisionAfter ?? null,
+            mutationStatus: listAddReceipt?.status ?? null,
+            removed: removeItems.slice(0, 20),
+            addsBlocked: _addsBlocked,
+            viaReferenced: referencedAssistantItems.length > 0,
+            listId: targetListId,
+          });
           await repeat(listActionSpoken);
           lastAvatarResponseRef.current = listActionSpoken;
           lastVisionResponseTimeRef.current = Date.now();
@@ -4749,14 +10846,24 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
 
+        logAppEvent("t6", { p: "ht_pre_catchall", shop: isShoppingMode, hadAction: !!listActionSpoken, mode, vision: visionMode });
         if (isShoppingMode) {
+          // G 2026-06-13 SILENT-6-ON-LIST ROOT CAUSE: in list mode, an utterance
+          // that is NOT a list command ("Be there six?", "you there?") reached
+          // here and only called schedulePromptBrain (which updates UI pills and
+          // NEVER speaks) → 6 logged the user turn but never replied. No throw,
+          // no timeout → tripped zero recovery nets, survived two prior patches.
+          // Mirror the CUSTOM handler below so 6 actually answers: in voice
+          // presence sendMessage routes to /api/openai-chat-complete (listMode:
+          // true = one short sentence) and speaks via voiceSay (dedup-guarded).
           schedulePromptBrain(userText);
+          await sendMessage(buildMemoryAugmentedMessage(userText), utteranceId);
           return;
         }
       }
       if (mode === "CUSTOM" && visionMode !== "streaming") {
         schedulePromptBrain(userText);
-        await sendMessage(buildMemoryAugmentedMessage(userText));
+        await sendMessage(buildMemoryAugmentedMessage(userText), utteranceId);
         return;
       }
       if (mode === "FULL" && visionMode !== "streaming") {
@@ -4772,7 +10879,7 @@ const LiveAvatarSessionComponent: React.FC<{
             text: normalizedUserText,
             at: Date.now(),
           };
-          await sendMessage(buildMemoryAugmentedMessage(userText));
+          await sendMessage(buildMemoryAugmentedMessage(userText), utteranceId);
         }
         return;
       }
@@ -4894,6 +11001,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 body: JSON.stringify({
                   sessionId: captureSessionId,
                   text: userText,
+                  testerLabel: testerLabelRef.current,
                 }),
               })
             : null;
@@ -4935,7 +11043,7 @@ const LiveAvatarSessionComponent: React.FC<{
       ) {
         console.log("User asked about video, re-sending video context");
         const contextMessage = `You are directly viewing a video. Here's what you see: ${videoAnalysis}. When the user asks about the video, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the video, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this video. When user asks about the video, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this footage.`;
-        sessionRef.current.message(contextMessage);
+        injectFullModeContext(contextMessage);
       }
 
       // Process the question using the reusable function (only in streaming mode)
@@ -4946,101 +11054,30 @@ const LiveAvatarSessionComponent: React.FC<{
       "Setting up USER_TRANSCRIPTION listener, vision mode:",
       visionMode,
     );
-    sessionRef.current.on(
-      AgentEventsEnum.USER_TRANSCRIPTION,
-      handleUserTranscription,
-    );
-    let customSpeechRecognition: any = null;
-    let customSpeechCancelled = false;
-    let customSpeechRestartTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    if (
-      mode === "CUSTOM" &&
-      hasUserPressedVoiceStart &&
-      voiceIsActive &&
-      typeof window !== "undefined"
-    ) {
-      const SpeechRecognitionCtor =
-        (window as any).SpeechRecognition ||
-        (window as any).webkitSpeechRecognition;
-      if (SpeechRecognitionCtor) {
-        customSpeechRecognition = new SpeechRecognitionCtor();
-        customSpeechRecognition.continuous = true;
-        customSpeechRecognition.interimResults = false;
-        customSpeechRecognition.lang = navigator.language || "en-US";
-        customSpeechRecognition.onresult = (event: any) => {
-          if (isAvatarTalking) return;
-          const results = Array.from(event.results ?? []);
-          const transcript = results
-            .slice(event.resultIndex ?? 0)
-            .map((result: any) => result?.[0]?.transcript ?? "")
-            .join(" ")
-            .trim();
-          if (transcript) {
-            void handleUserTranscription({ text: transcript });
-          }
-        };
-        customSpeechRecognition.onerror = (event: any) => {
-          console.warn("Custom speech recognition error:", event?.error ?? event);
-        };
-        customSpeechRecognition.onend = () => {
-          if (customSpeechCancelled || mode !== "CUSTOM" || !voiceIsActive) {
-            return;
-          }
-          customSpeechRestartTimeout = setTimeout(() => {
-            try {
-              customSpeechRecognition?.start?.();
-            } catch {
-              // Browser recognition can throw if a restart overlaps an existing session.
-            }
-          }, 350);
-        };
-        try {
-          customSpeechRecognition.start();
-        } catch (error) {
-          console.warn("Custom speech recognition start failed:", error);
-        }
-      } else {
-        console.warn("Browser speech recognition is unavailable in this browser.");
-      }
-    }
-
-    return () => {
-      customSpeechCancelled = true;
-      if (customSpeechRestartTimeout) {
-        clearTimeout(customSpeechRestartTimeout);
-      }
-      try {
-        customSpeechRecognition?.stop?.();
-      } catch {
-        // Ignore cleanup errors from browser speech recognition.
-      }
-      if (processingTimeoutRef.current) {
-        clearTimeout(processingTimeoutRef.current);
-      }
-      if (promptBrainTimeoutRef.current) {
-        clearTimeout(promptBrainTimeoutRef.current);
-      }
-      if (sessionRef.current) {
-        console.log("Cleaning up USER_TRANSCRIPTION listener");
-        // Use removeListener if off is not available
-        if (typeof (sessionRef.current as any).off === "function") {
-          (sessionRef.current as any).off(
-            AgentEventsEnum.USER_TRANSCRIPTION,
-            handleUserTranscription,
-          );
-        } else if (
-          typeof (sessionRef.current as any).removeListener === "function"
-        ) {
-          (sessionRef.current as any).removeListener(
-            AgentEventsEnum.USER_TRANSCRIPTION,
-            handleUserTranscription,
-          );
-        }
-      }
+    // Voice-list mode bridge (2026-06-11): our own ears feed the SAME
+    // dispatcher the LiveAvatar pipeline feeds — every machine handler
+    // (lists, reminders, sizing, signup, time) keeps working with the
+    // avatar stopped; only the transport changed.
+    voiceDispatchRef.current = async (text: string) => {
+      // G 2026-06-13 LIST-MODE DEADLOCK FIX (the wedge that beat a dozen patches):
+      // processVoiceUtterance (the list-mode turn) is ALREADY a link on
+      // turnChainRef. Routing through handleUserTranscription chained
+      // processUserTurn onto that SAME queue BEHIND the still-running
+      // processVoiceUtterance, then awaited it — so processVoiceUtterance waited
+      // for processUserTurn while processUserTurn waited for processVoiceUtterance.
+      // They deadlocked the instant a list opened, and every turn after went
+      // silent (ht_pu_start never fired; only the watchdog timeout half-rescued
+      // it). Call processUserTurn DIRECTLY: it runs inside the slot
+      // processVoiceUtterance already holds — still serialized, no second queue
+      // entry, no deadlock. (Avatar-mode turns still use handleUserTranscription
+      // via the USER_TRANSCRIPTION event — single link, never deadlocked.)
+      await processUserTurn({ text });
     };
+    sdkUserTranscriptionDispatchRef.current = handleUserTranscription;
+
   }, [
     sessionRef,
+    sessionEpoch,
     visionMode,
     processCameraQuestion,
     isRecording,
@@ -5053,14 +11090,25 @@ const LiveAvatarSessionComponent: React.FC<{
     activeList,
     activeListId,
     addItemsToList,
+    capitalizeListItems,
+    renameListItem,
+    reorderListItem,
     assistantLists,
     buildMemoryAugmentedMessage,
     deleteAssistantList,
     ensureAssistantList,
     handleAccountSetupSpeech,
+    handleDataDeleteSpeech,
+    handleDataExportSpeech,
     handleEndSession,
     handleOnlineLookupSpeech,
     handlePromptSizeSpeech,
+    handleReminderSpeech,
+    handleSmsOptInSpeech,
+    handleTimezoneSpeech,
+    handleTimeAskSpeech,
+    signupFlags,
+    signupPorts,
     moveActiveList,
     removeItemsFromList,
     rememberConversationLine,
@@ -5069,12 +11117,223 @@ const LiveAvatarSessionComponent: React.FC<{
     savePendingAccountState,
     sendMessage,
     setListAccentColor,
+    setListTextColor,
     setListDisplayStyle,
     stopListening,
     hasUserPressedVoiceStart,
     voiceIsActive,
     clearAccountEmailEntry,
+    enterVoiceListMode,
   ]);
+
+  // SUP #53/#54: bind SDK listeners only when the actual session epoch changes.
+  // The forwarding ref above supplies fresh turn logic without detach/attach
+  // churn on every list, vision, signup, or UI state update.
+  useEffect(() => {
+    const listenerSession = sessionRef.current;
+    if (!listenerSession) return;
+
+    const forwardUserTranscription = (event: { text: string }) => {
+      dispatchAuthoritativeAvatarSpeech("liveavatar_sdk", event);
+    };
+    const handleUserSpeakStarted = () => {
+      // MUTE 2026-08-21: the SECOND barge-in door. The app's own RMS poll is
+      // gated in the barge-in effect, but HeyGen's VAD rides the LiveKit track
+      // and fires this independently — and on the healthy-avatar path (where
+      // isAvatarTalking is actually true) nothing else stops it. Without this a
+      // muted user clearing their throat still cuts 6 off mid-sentence while
+      // the button shows a red MicOff.
+      if (micMutedRef.current) return;
+      if (isAvatarTalkingRef.current) {
+        void latestInterruptRef.current();
+      }
+    };
+    const cleanupUserTranscription = bindSessionListener(
+      listenerSession as any,
+      AgentEventsEnum.USER_TRANSCRIPTION,
+      forwardUserTranscription,
+    );
+    const cleanupUserSpeakStarted = bindSessionListener(
+      listenerSession as any,
+      AgentEventsEnum.USER_SPEAK_STARTED,
+      handleUserSpeakStarted,
+    );
+
+    return () => {
+      console.log("Cleaning up session-bound transcription listeners");
+      cleanupUserTranscription();
+      cleanupUserSpeakStarted();
+    };
+  }, [dispatchAuthoritativeAvatarSpeech, sessionEpoch, sessionRef]);
+
+  // Keep browser speech recognition on its own narrow lifecycle. It forwards to
+  // the latest dispatcher just like the SDK listener, so ordinary state changes
+  // cannot repeatedly stop/restart the microphone recognizer.
+  useEffect(() => {
+    if (
+      mode !== "CUSTOM" ||
+      !hasUserPressedVoiceStart ||
+      !voiceIsActive ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!shouldUseBrowserSpeechRecognition(mode, navigator.userAgent)) {
+      authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+        mode,
+        false,
+      );
+      speechRecognitionRef.current = null;
+      return;
+    }
+    if (!SpeechRecognitionCtor) {
+      authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+        mode,
+        false,
+      );
+      console.warn("Browser speech recognition is unavailable in this browser.");
+      return;
+    }
+
+    authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+      mode,
+      true,
+    );
+    const recognition: any = new SpeechRecognitionCtor();
+    let cancelled = false;
+    let fatalRecognitionError = false;
+    let restartTimeout: ReturnType<typeof setTimeout> | null = null;
+    // The ONE owner of the restart timer. Used by applyMicMute on every tap and
+    // by the cleanup below on every rebuild, so a timer armed before either
+    // can never call start() on an instance that is already running.
+    const clearRestart = () => {
+      if (restartTimeout) {
+        clearTimeout(restartTimeout);
+        restartTimeout = null;
+      }
+    };
+    // MUTE 2026-08-21: hand the live instance to applyMicMute so it can stop
+    // and restart capture directly. Stopping the recognizer (rather than only
+    // discarding what it produces) is the honest half of the mute — this is the
+    // capture that streams the user's audio off-device.
+    speechRecognitionRef.current = { recognition, clearRestart };
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = navigator.language || "en-US";
+    recognition.onresult = (event: any) => {
+      // Race guard: a final result already queued when the mute landed.
+      if (micMutedRef.current) return;
+      const transcript = Array.from(event.results ?? [])
+        .slice(event.resultIndex ?? 0)
+        .map((result: any) => result?.[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+      if (transcript) {
+        // A completed browser final is evidence that the user has the floor,
+        // not an echo to discard. The old early return here lost ordinary
+        // follow-ups spoken over a greeting, forcing the user to wait for the
+        // whole line (or speak again). Keep source arbitration and downstream
+        // duplicate/echo guards intact, but interrupt before routing the final.
+        if (isAvatarTalkingRef.current) {
+          void latestInterruptRef.current();
+        }
+        dispatchAuthoritativeAvatarSpeech("app_browser", { text: transcript });
+      }
+    };
+    recognition.onerror = (event: any) => {
+      const errorCode = String(event?.error ?? "unknown");
+      // Only silence/abort are safely recoverable in-place. Permission, device,
+      // network, service, and unknown failures fall back to the SDK so CUSTOM
+      // never stays locked to a recognizer that can no longer produce turns.
+      const recoverableRecognitionError = /^(?:no-speech|aborted)$/i.test(
+        errorCode,
+      );
+      fatalRecognitionError = !recoverableRecognitionError;
+      if (fatalRecognitionError) {
+        authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+          mode,
+          false,
+        );
+      }
+      console.warn("Custom speech recognition error:", errorCode);
+    };
+    recognition.onend = () => {
+      if (cancelled || fatalRecognitionError) return;
+      // MUTE 2026-08-21: stay stopped. Without this the 350ms restart loop
+      // reopens the recognizer applyMicMute just closed, ~3 times a second,
+      // for the whole mute.
+      if (micMutedRef.current) return;
+      restartTimeout = setTimeout(() => {
+        restartTimeout = null;
+        // Re-check INSIDE the timer, not only above it. A continuous recognizer
+        // spends much of its life in this 350ms window (a silent user trips
+        // "no-speech", which is classified recoverable and lands here). A MUTE
+        // tap during it clears this timer through clearRestart() — this guard
+        // is the belt to that brace, for any future caller that flips the ref
+        // without going through applyMicMute.
+        if (micMutedRef.current) return;
+        try {
+          recognition.start();
+        } catch (error) {
+          fatalRecognitionError = true;
+          authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+            mode,
+            false,
+          );
+          console.warn("Custom speech recognition restart failed:", error);
+        }
+      }, 350);
+    };
+    try {
+      // MUTE 2026-08-21: if this effect re-runs while the user is holding MUTE
+      // (a mid-mount reconnect, or a recognizer rebuild), do not hand back a hot
+      // mic they did not ask for.
+      if (!micMutedRef.current) recognition.start();
+    } catch (error) {
+      authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+        mode,
+        false,
+      );
+      console.warn("Custom speech recognition start failed:", error);
+    }
+
+    return () => {
+      cancelled = true;
+      if (speechRecognitionRef.current?.recognition === recognition) {
+        speechRecognitionRef.current = null;
+      }
+      clearRestart();
+      if (authoritativeAvatarSpeechSourceRef.current === "app_browser") {
+        authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+          mode,
+          false,
+        );
+      }
+      try {
+        recognition.stop();
+      } catch {
+        // Ignore cleanup errors from browser speech recognition.
+      }
+    };
+  }, [
+    dispatchAuthoritativeAvatarSpeech,
+    hasUserPressedVoiceStart,
+    mode,
+    // MUTE 2026-08-21: micMuted is deliberately NOT in this list — this effect's
+    // own contract (see the comment above it) is that ordinary state changes
+    // must not stop/restart the recognizer, and mute is an ordinary state
+    // change. applyMicMute drives it imperatively instead. recognizerEpoch is
+    // the ONLY mute-related re-run: applyMicMute bumps it when un-muting could
+    // not restart the recognizer, so a would-be permanent deafness rebuilds
+    // itself instead of failing silently.
+    recognizerEpoch,
+    voiceIsActive,
+  ]);
+
 
   // Track if initial analysis has been triggered to prevent repeated automatic analysis
   const hasInitialAnalysisRef = useRef<boolean>(false);
@@ -5434,7 +11693,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
         if (mode === "FULL" && sessionRef.current) {
           const contextMessage = `You are directly viewing a video. Here's what you see: ${data.analysis}. When the user asks about the video, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the video, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this video. When user asks about the video, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this footage.`;
-          sessionRef.current.message(contextMessage);
+          injectFullModeContext(contextMessage);
         }
 
         setIsAnalyzingVideo(false);
@@ -5656,7 +11915,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // For FULL mode, send the analysis as context to the AI (no scripted repeat prompt)
         if (mode === "FULL" && sessionRef.current) {
           const contextMessage = `You are directly viewing an image. Here's what you see: ${data.analysis}. When the user asks about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the image, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this image. When user asks about the image, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this image.`;
-          sessionRef.current.message(contextMessage);
+          injectFullModeContext(contextMessage);
         }
       } catch (error) {
         console.error("Error analyzing image:", error);
@@ -5707,7 +11966,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // For FULL mode, send the analysis as context to the AI (no scripted repeat prompt)
         if (mode === "FULL" && sessionRef.current) {
           const contextMessage = `You are directly viewing a video. Here's what you see: ${data.analysis}. When the user asks about the video, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility. Never say you can't see the video, that you don't have eyes, or that you're relying on someone else's analysis. You are directly viewing this video. When user asks about the video, respond briefly (1-2 sentences). Never tell them to point a camera or offer to take a look—you already have this footage.`;
-          sessionRef.current.message(contextMessage);
+          injectFullModeContext(contextMessage);
         }
       } catch (error) {
         console.error("Error analyzing video:", error);
@@ -5730,13 +11989,155 @@ const LiveAvatarSessionComponent: React.FC<{
     }
   };
 
-  const lookupPanelVisible = Boolean(
-    onlineLookupNotice || onlineLookupResultLines.length > 0,
+  // v1 dormant: LOOKUP_UI_DORMANT hides the popup. Logic still runs so 6 answers verbally.
+  // r29 telemetry (G 2026-06-12: "there are no pill boxes on screen" must be
+  // visible in sup): log every pillbox show/hide flip WITH the gate values,
+  // so the one that went false is named in the row.
+  const pillboxesVisible =
+    !BRAND_BUILDER_PILOT_MODE &&
+    visionMode !== "streaming" &&
+    !isCameraActive &&
+    !shouldShowLoadingSurface &&
+    sessionState !== SessionState.DISCONNECTED &&
+    isStreamReady &&
+    voiceIsActive &&
+    !isShoppingMode &&
+    !emailEntryOpen &&
+    !showChestEmail;
+  const pillboxesVisibleRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (pillboxesVisibleRef.current === pillboxesVisible) return;
+    const first = pillboxesVisibleRef.current === null;
+    pillboxesVisibleRef.current = pillboxesVisible;
+    if (first && !pillboxesVisible) return; // page load default — not a flip
+    logAppEvent("pillboxes_visibility", {
+      visible: pillboxesVisible,
+      gates: {
+        // Pilot-only key (Chief 2026-08-20): omitted unless true, so the
+        // general-path payload is byte-identical to today.
+        ...(BRAND_BUILDER_PILOT_MODE ? { brandBuilderPilotMode: true } : {}),
+        visionMode,
+        isCameraActive,
+        sessionState,
+        isStreamReady,
+        voiceIsActive,
+        isShoppingMode,
+        emailEntryOpen,
+        showChestEmail,
+      },
+    });
+  }, [
+    pillboxesVisible,
+    visionMode,
+    isCameraActive,
+    sessionState,
+    isStreamReady,
+    voiceIsActive,
+    isShoppingMode,
+    emailEntryOpen,
+    showChestEmail,
+  ]);
+
+  // r32 (G's wish, live 2026-06-12 20:44: "one of those pill boxes could
+  // shake a little bit every once in a while"): when the room's been quiet
+  // ~25s+, ONE random pillbox wiggles — random pill, random beat, never a
+  // metronome. Chaos is the brand.
+  const [wigglingPromptIndex, setWigglingPromptIndex] = useState<number | null>(
+    null,
   );
-  const visiblePromptLimit = lookupPanelVisible ? 3 : 4;
+  useEffect(() => {
+    if (!pillboxesVisible) return;
+    let wiggleTimer: ReturnType<typeof setTimeout> | null = null;
+    const id = setInterval(() => {
+      const lastTalk = Math.max(
+        prevUserSpeechRef.current?.at ?? 0,
+        lastVisionResponseTimeRef.current,
+      );
+      if (Date.now() - lastTalk < 25_000) return;
+      if (Math.random() < 0.45) return; // skip beats at random
+      setWigglingPromptIndex(Math.floor(Math.random() * 4));
+      wiggleTimer = setTimeout(() => setWigglingPromptIndex(null), 1000);
+    }, 12_000);
+    return () => {
+      clearInterval(id);
+      if (wiggleTimer) clearTimeout(wiggleTimer);
+    };
+  }, [pillboxesVisible]);
+
+  // r32 (G's wish, live 2026-06-12 20:45: "if the person's quiet you could
+  // say... just talk to me, I'm full of ideas"): one gentle spoken nudge per
+  // quiet stretch, only on the open stage (never mid-list/signup/camera —
+  // the pillbox gate covers all of those), max 2 per session.
+  const idleNudgeCountRef = useRef(0);
+  const idleNudgeArmedRef = useRef(false);
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (voicePresenceRef.current !== "avatar") return;
+      if (!pillboxesVisibleRef.current) return;
+      if (isAvatarTalking) return;
+      const lastTalk = Math.max(
+        prevUserSpeechRef.current?.at ?? 0,
+        lastVisionResponseTimeRef.current,
+      );
+      if (lastTalk === 0) return; // nobody has talked yet — the greeting owns the open
+      const idleMs = Date.now() - lastTalk;
+      if (idleMs < 75_000) {
+        idleNudgeArmedRef.current = true;
+        return;
+      }
+      if (!idleNudgeArmedRef.current) return;
+      if (idleNudgeCountRef.current >= 2) return;
+      idleNudgeArmedRef.current = false;
+      idleNudgeCountRef.current += 1;
+      const line = "Just talk to me - I'm full of ideas.";
+      lastAvatarResponseRef.current = line;
+      rememberConversationLine("assistant", line);
+      void repeat(line);
+      logAppEvent("idle_nudge", { count: idleNudgeCountRef.current });
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [isAvatarTalking, rememberConversationLine, repeat]);
+  // v1 dormant: LIST_UI_DORMANT hides the list panels. activeList state still tracked.
+  const showActiveList = !LIST_UI_DORMANT && activeList;
+  // G 2026-06-13: lookup/planning RESULTS get the same chest treatment as a list
+  // — a card on 6's CHEST + the 4 pillboxes flipped into a 2x2 grid on his HANDS.
+  // (His spec: "list on six's chest and then a 2x2 pillboxes up on his hands.")
+  // Reuses the existing results panel (un-hidden + chest-anchored below) and the
+  // existing showActiveList pillbox-grid layout — no new list, so it never
+  // pollutes the grocery-list logic.
+  const lookupResultsOnChest =
+    !LIST_UI_DORMANT &&
+    onlineLookupResultLines.length > 0 &&
+    voiceIsActive &&
+    !isShoppingMode;
+  // Pillboxes go 2x2 (on the hands) for an active list, lookup results, OR the
+  // list-of-lists index card (review 2026-06-14: the index card must flip the
+  // pills to 2x2 too, or the stacked column can overlap it on short viewports).
+  const chestGrid =
+    Boolean(showActiveList) ||
+    lookupResultsOnChest ||
+    Boolean(listIndexOnChest && listIndexOnChest.length > 0);
+  // G 2026-06-14 (screenshots): the 2x2 pills are ALWAYS forward-moving suggestion
+  // chips — NEVER an echo of the card's result/notice text (the "never see" state
+  // was the lookup notice duplicated into a single pill). Lookup RESULTS live in
+  // the chest CARD; the 4 pills stay forward suggestions. Always 4 for a full 2x2.
+  const chestPrompts = visibleThoughtPrompts.slice(0, 4);
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-black md:bg-[radial-gradient(circle_at_center,#251407_0%,#080403_58%,#000_100%)] flex flex-col">
+    <div
+      data-six-active-stage={
+        sessionState === SessionState.CONNECTED && isStreamReady ? "1" : undefined
+      }
+      className="aiasap-tablet-idle-stage fixed inset-0 h-[100svh] min-h-0 w-screen overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] flex flex-col [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:h-screen md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]"
+    >
+      {shouldShowLoadingSurface && (
+          <div
+            data-six-loading-only="1"
+            className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-transparent"
+        >
+          <SixLoadingIndicator />
+        </div>
+      )}
       {/* Session start error (e.g. no credits) - show message and do not auto-restart */}
       {sessionStartError && (
         <div className="absolute inset-x-0 top-0 z-50 bg-red-900/95 text-white px-4 py-4 text-center shadow-lg">
@@ -5758,32 +12159,17 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {!ACCOUNT_BETA_DISABLED && accountNotice && !isShoppingMode && (
-        <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[75] rounded-lg border border-[#f2be73]/45 bg-[#090604]/92 px-4 py-3 text-[#fff6e6] shadow-2xl backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <p className="min-w-0 text-sm font-semibold">{accountNotice}</p>
-            <button
-              type="button"
-              aria-label="Dismiss account notice"
-              title="Dismiss account notice"
-              onClick={() => setAccountNotice(null)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f2be73]/16"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
-          </div>
-          {accountVerificationUrl && (
-            <a
-              href={accountVerificationUrl}
-              className="mt-2 block rounded-md border border-[#fff2d2] bg-[#f2be73] px-3 py-2 text-center text-sm font-black text-[#090604]"
-            >
-              Finish Account Setup
-            </a>
-          )}
-        </div>
-      )}
+      {/* G 2026-06-01: top account-notice banner REMOVED — "no boxes up above;
+          anything important about email setup goes in the primary box on 6's
+          chest." Email-setup state (e.g. "Account Link Sent") shows in the
+          on-chest box via chestEmailStatus; the rest 6 says by voice. */}
 
-      {!ACCOUNT_BETA_DISABLED && emailEntryOpen && !isShoppingMode && (
+      {/* Typed email fallback form (dormant per G — EMAIL_TYPED_FALLBACK_ENABLED).
+          Kept intact for future use; flip the flag true to restore it. */}
+      {EMAIL_TYPED_FALLBACK_ENABLED &&
+        !ACCOUNT_BETA_DISABLED &&
+        emailEntryOpen &&
+        !isShoppingMode && (
         <form
           onSubmit={(event) => void handleTypedAccountEmailSubmit(event)}
           className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+5.2rem)] z-[76] flex w-[min(92%,30rem)] -translate-x-1/2 flex-col gap-2 rounded-lg border border-[#e0aa62]/28 bg-[#120b06]/90 px-4 py-3 text-[#e0aa62] shadow-2xl backdrop-blur"
@@ -5829,21 +12215,118 @@ const LiveAvatarSessionComponent: React.FC<{
         </form>
       )}
 
-      {lookupPanelVisible && !isShoppingMode && !emailEntryOpen && (
-        <div className="fixed left-1/2 top-[47vh] md:top-[52vh] z-[29] w-[min(88%,31rem)] max-h-[31vh] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-lg border border-[#e0aa62]/62 bg-[#221c17]/76 px-4 py-4 text-[#f1c477] shadow-[0_18px_52px_rgba(0,0,0,0.42)] backdrop-blur-md">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
+      {listIndexOnChest &&
+        listIndexOnChest.length > 0 &&
+        voiceIsActive &&
+        !isShoppingMode &&
+        !showActiveList &&
+        !lookupResultsOnChest &&
+        !emailEntryOpen && (
+        <div
+          className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border px-4 py-4 text-[#f1c477] backdrop-blur-md"
+          style={{
+            top: "calc(var(--stage-top) + var(--stage-height) * 0.47)",
+            maxHeight: "calc(var(--stage-height) * 0.30)",
+            borderColor: "rgba(232,180,107,0.56)",
+            background:
+              "radial-gradient(circle at 18% 0%, rgba(232,180,107,0.28), transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))",
+            boxShadow:
+              "inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px rgba(232,180,107,0.18)",
+          }}
+        >
+          <div
+            className="absolute inset-x-6 top-0 h-1 rounded-b-full"
+            style={{ backgroundColor: "#e0aa62" }}
+          />
+          <div className="flex items-start justify-between gap-3 pt-1">
+            <div className="brand-scroll min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
+              <p className="text-[1.2rem] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
+                Your Lists
+              </p>
+              <div className="mt-2 grid gap-2">
+                {listIndexOnChest.map((entry, index) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => {
+                      listIndexPickRef.current = null;
+                      setListIndexOnChest(null);
+                      setActiveListId(entry.id);
+                      setIsShoppingMode(false);
+                    }}
+                    className="w-full rounded-[0.95rem] border px-3 py-2 text-left text-[0.9rem] font-black leading-snug md:text-[0.95rem]"
+                    style={{
+                      background:
+                        "linear-gradient(180deg, rgba(255,226,176,0.08), rgba(0,0,0,0.24))",
+                      borderColor: "rgba(232,180,107,0.28)",
+                      boxShadow:
+                        "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
+                    }}
+                  >
+                    <span className="bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                      {index + 1}. {entry.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                aria-label="Dismiss list menu"
+                title="Dismiss list menu"
+                onClick={() => {
+                  listIndexPickRef.current = null;
+                  setListIndexOnChest(null);
+                }}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[#e0aa62]/55 bg-gradient-to-b from-[#4a2a0c]/92 to-[#241406]/92 text-[#f1c477] transition hover:scale-105"
+              >
+                <X className="h-6 w-6" aria-hidden />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {lookupResultsOnChest && !emailEntryOpen && (
+        <div
+          className="fixed left-1/2 z-[29] w-[92%] max-w-[32rem] min-h-[8.75rem] -translate-x-1/2 overflow-hidden rounded-[1.35rem] border px-4 py-4 text-[#f1c477] backdrop-blur-md"
+          style={{
+            top: "calc(var(--stage-top) + var(--stage-height) * 0.47)",
+            maxHeight: "calc(var(--stage-height) * 0.30)",
+            borderColor: "rgba(232,180,107,0.56)",
+            background:
+              "radial-gradient(circle at 18% 0%, rgba(232,180,107,0.28), transparent 34%), linear-gradient(180deg, rgba(62,39,21,0.9), rgba(23,17,14,0.9) 46%, rgba(8,5,4,0.9))",
+            boxShadow:
+              "inset 0 1px 22px rgba(255,215,146,0.12), 0 18px 48px rgba(0,0,0,0.52), 0 0 42px rgba(232,180,107,0.18)",
+          }}
+        >
+          <div
+            className="absolute inset-x-6 top-0 h-1 rounded-b-full"
+            style={{ backgroundColor: "#e0aa62" }}
+          />
+          <div className="flex items-start justify-between gap-3 pt-1">
+            <div className="brand-scroll min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1 touch-pan-y">
               {onlineLookupNotice?.trim() && (
-                <p className="text-[1.2rem] font-black leading-tight text-[#f1c477]">{onlineLookupNotice}</p>
+                <p className="text-[1.2rem] font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">{onlineLookupNotice}</p>
               )}
               {onlineLookupResultLines.length > 0 && (
                 <div className="grid gap-2">
                   {onlineLookupResultLines.map((line, index) => (
                     <div
                       key={`${index}-${line}`}
-                      className="rounded-md border border-[#e0aa62]/38 bg-[#2f2b27]/72 px-3 py-2 text-[0.9rem] font-black leading-snug text-[#f1c477] md:text-[0.95rem]"
+                      className="rounded-[0.95rem] border px-3 py-2 text-[0.9rem] font-black leading-snug md:text-[0.95rem]"
+                      style={{
+                        background:
+                          "linear-gradient(180deg, rgba(255,226,176,0.08), rgba(0,0,0,0.24))",
+                        borderColor: "rgba(232,180,107,0.28)",
+                        boxShadow:
+                          "inset 0 1px 0 rgba(255,224,170,0.08), 0 10px 26px rgba(0,0,0,0.2)",
+                      }}
                     >
-                      {line}
+                      <span className="bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                        {line}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -5863,7 +12346,7 @@ const LiveAvatarSessionComponent: React.FC<{
                   setSourcePreview(null);
                   setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
                 }}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-[#e0aa62]/48 bg-[#e0aa62]/12 text-[#f1c477]"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-[#e0aa62]/55 bg-gradient-to-b from-[#4a2a0c]/92 to-[#241406]/92 text-[#f1c477] transition hover:scale-105"
               >
                 <X className="h-6 w-6" aria-hidden />
               </button>
@@ -5883,18 +12366,16 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {/* Text overlays at the top */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-4 sm:pt-6 pb-2 md:top-[calc(11.5vh-5.15rem)] md:pt-0">
-        <div className="text-center px-4">
-          <div className="flex items-start justify-center">
-            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-3 bg-gradient-to-b from-[#f1c477] via-[#d7a05a] to-[#a87534] bg-clip-text text-[2.35rem] sm:text-[3rem] md:text-[4rem] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
-              aiASAP
-            </h1>
-          </div>
-        </div>
-        {microphoneWarning && (
-          <div className="mt-4 bg-yellow-500 text-black px-4 py-2 rounded-md max-w-2xl text-center">
-            <p className="font-semibold">⚠️ Warning: {microphoneWarning}</p>
+      {/* Text overlays — locked inside avatar frame top via --stage-top var (scales with viewport) */}
+      {!shouldShowLoadingSurface && (
+      <StageBrandLockup>
+        {(microphoneWarning || microphonePermissionNotice) && (
+          <div
+            className={`mt-4 bg-yellow-500 text-black px-4 py-2 rounded-md max-w-2xl text-center ${
+              shouldShowBlockedMicrophoneRecovery ? "hidden md:block" : ""
+            }`}
+          >
+            <p className="font-semibold">⚠️ Warning: {microphonePermissionNotice ?? microphoneWarning}</p>
           </div>
         )}
         {/* {isAnalyzingImage && (
@@ -5907,27 +12388,46 @@ const LiveAvatarSessionComponent: React.FC<{
             <p className="font-semibold">✅ Image analyzed successfully</p>
           </div>
         )} */}
-      </div>
+      </StageBrandLockup>
+      )}
+      {shouldShowBlockedMicrophoneRecovery && (
+        <MicrophoneRecoveryCard
+          onCheckAgain={() => void handleVoiceStartStop({ retryMicrophone: true })}
+        />
+      )}
 
       {/* Full screen video */}
       <div
-        className={`relative w-full flex-1 flex items-center justify-center md:px-8 ${isCameraActive ? "pt-24" : ""}`}
+        data-six-stage-media="1"
+        className={`relative w-full flex-1 overflow-hidden md:flex md:items-center md:justify-center md:overflow-visible md:px-8 ${isCameraActive ? "pt-24" : ""}`}
       >
         {/* Avatar video - full screen when camera inactive, small overlay in left corner when active */}
         <video
           ref={videoRef}
+          poster="/startscreen-noband.png"
+          onLoadedData={(event) => attemptAvatarVideoPlayback(event.currentTarget)}
+          onCanPlay={(event) => attemptAvatarVideoPlayback(event.currentTarget)}
+          onPlaying={(event) => requestRenderableAvatarFrame(event.currentTarget)}
+          onTimeUpdate={(event) => requestRenderableAvatarFrame(event.currentTarget)}
           autoPlay // Native autoplay
           playsInline
           preload="auto"
           muted={true} // Start muted to prevent mouth movement during loading
-          className={`${
+          className={`six-primary-scene ${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
-              : "h-full w-full object-contain md:h-[77vh] md:max-h-[62rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#e0aa62]/18 md:bg-black/35 md:shadow-[0_0_0_1px_rgba(255,255,255,0.035),0_30px_90px_rgba(0,0,0,0.72)]"
+              : "absolute inset-0 h-full w-full object-cover object-top rounded-none border-0 md:relative md:inset-auto md:m-0 md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           }`}
+          // START/returned STOP is the per-viewport crop authority. Keeping the
+          // live node object-top makes RUNNING consume that same visible box.
         />
 
-        {mode === "FULL" && (
+        {/* r22 (G's laptop + phone: "no tap/click line... he looked alive but
+            he wasn't there"): this fragment held the ENTIRE interactive UI —
+            tap gate, pills, lists, chest, Terms — and was gated FULL-only
+            since the May custom experiment. CUSTOM is the default now; the
+            UI belongs to both modes. */}
+        {(mode === "FULL" || mode === "CUSTOM") && (
           <>
             <input
               ref={cameraInputRef}
@@ -5974,10 +12474,8 @@ const LiveAvatarSessionComponent: React.FC<{
               </div>
             ) : cameraAvailable === false && !fallbackImagePreview ? (
               // Loading fallback image
-              <div className="flex flex-col items-center justify-center w-full h-full max-w-4xl max-h-[calc(100vh-8rem)] bg-gray-900 rounded-lg p-8">
-                <div className="text-center">
-                  <p className="text-inset text-lg">Loading...</p>
-                </div>
+              <div className="flex flex-col items-center justify-center w-full h-full max-w-4xl max-h-[calc(100vh-8rem)] bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] rounded-lg p-8">
+                <SixLoadingIndicator />
               </div>
             ) : fallbackImagePreview ? (
               // User uploaded image preview
@@ -6055,30 +12553,21 @@ const LiveAvatarSessionComponent: React.FC<{
         )}
       </div>
 
-      {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 top-[54vh] z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none">
-          <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
-            <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] text-[#f1c477]/84">
-              Loading
-            </p>
-            <div className="mx-auto mt-3 h-1.5 w-36 overflow-hidden rounded-full bg-white/10">
-              <span className="block h-full w-1/2 animate-[loading-sweep_2.15s_ease-in-out_infinite] rounded-full bg-[#e0aa62]" />
-            </div>
-          </div>
-        </div>
-      )}
-
       {shouldShowBeginSurface && (
         <button
           type="button"
           aria-label="Begin talking with 6"
           className="fixed inset-0 z-30 cursor-pointer bg-transparent"
-          onClick={() => void handleVoiceStartStop()}
+          onClick={() => void handleVoiceStartStop({ retryMicrophone: true })}
         />
       )}
 
       {/* Fixed buttons at bottom - positioned relative to viewport */}
-      {mode === "FULL" && (
+      {/* r22: THIS is the fragment that holds the whole interactive UI (tap
+          gate, pills, lists, chest, Terms) — its first children are dead
+          commented-out buttons, which is why the FULL-only gate hid here so
+          well. CUSTOM is the default now; both modes get the full UI. */}
+      {(mode === "FULL" || mode === "CUSTOM") && (
         <>
           {/* <button
             className="fixed bottom-20 left-1/4 bg-white text-black px-6 py-3 rounded-md z-20 transform -translate-x-1/2 flex items-center justify-center gap-2"
@@ -6134,28 +12623,18 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
-          {visionMode !== "streaming" && !isCameraActive && !voiceIsActive && (
-            <div className="fixed left-1/2 bottom-[10.875rem] sm:bottom-[11.375rem] md:bottom-[calc(11.5vh+13rem)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
+          {visionMode !== "streaming" && !isCameraActive && !hasUserPressedVoiceStart && !voiceIsActive && !shouldShowLoadingSurface && (
+            <div className="fixed left-1/2 bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.08)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.14)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
-                !isAvatarTalking &&
                 isStreamReady && (
                   <div className="w-full flex items-center justify-center text-center">
                     <p className="px-1 w-full max-w-none text-balance">
-                      {voiceStartAwaitingReady ? (
-                        <span className="block">Starting…</span>
-                      ) : (
-                        <span
-                          className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
-                          style={tapPromptFont}
-                        >
-                          <span className="flex translate-y-0.5 items-center text-[0.92rem] font-extrabold uppercase tracking-[0.14em] text-[#f1c477]/82">
-                            Tap Anywhere
-                          </span>
-                          <span className="text-[1.95rem] sm:text-[2.3rem] font-black tracking-[-0.025em] leading-none">
-                            To Talk to 6
-                          </span>
-                        </span>
-                      )}
+                      <span
+                        className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
+                        style={tapPromptFont}
+                      >
+                        <span className="sr-only">Microphone start control</span>
+                      </span>
                     </p>
                   </div>
                 )}
@@ -6170,7 +12649,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       voiceStartAwaitingReady ||
                       (voiceIsLoading && !voiceIsActive)
                     }
-                    onClick={() => void handleVoiceStartStop()}
+                    onClick={() => void handleVoiceStartStop({ retryMicrophone: true })}
                   >
                     {/* <span className="inline-flex items-center gap-1.5">
                       <span
@@ -6233,14 +12712,30 @@ const LiveAvatarSessionComponent: React.FC<{
             </div>
           )}
 
-          {activeList && isShoppingMode && (
+          {showActiveList && isShoppingMode && (
             <div
-              className="fixed inset-0 z-[80] flex flex-col px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+1rem)]"
+              className="fixed left-1/2 z-[80] flex -translate-x-1/2 flex-col overflow-hidden rounded-[2rem] border border-[#e0aa62]/45 px-4 pb-4 pt-4 shadow-[0_0_0_1px_rgba(215,160,90,0.25)] touch-pan-y"
+              onTouchStart={handleListTouchStart}
+              onTouchMove={handleListTouchMove}
+              onTouchEnd={handleListTouchEnd}
               style={{
+                // r20 (G screenshot: "the list should only be the size of the
+                // avatar, not the whole screen"): the list lives exactly where
+                // 6's video sits — the page's brown glow stays visible on the
+                // sides, the avatar just swaps out for the list.
+                top: "var(--stage-top)",
+                height: "var(--stage-height)",
+                width: "var(--stage-width)",
                 background: activeListUsesBlackTheme
                   ? "linear-gradient(145deg, #f7f2e8 0%, #d7ccba 48%, #a7977f 100%)"
-                  : `radial-gradient(circle at 18% 8%, ${activeListTheme.soft}, transparent 34%), linear-gradient(145deg, #120b08 0%, #24150d 52%, #050302 100%)`,
-                color: activeListTheme.foreground,
+                  // r35 (G's screenshot ask 2026-06-12 21:55: "the colors
+                  // should be nicer and more brown in the center, not this
+                  // hard color. that is not a brand color"): warm brand
+                  // browns — center rides #3a2108, no near-black.
+                  : accentIsCustomColor
+                  ? `radial-gradient(circle at 18% 8%, ${softFromHex(activeListTheme.foreground, 0.5)}, transparent 55%), linear-gradient(180deg, ${softFromHex(activeListTheme.foreground, 0.14)}, transparent 65%), linear-gradient(145deg, #34200d 0%, #3a2108 50%, #241406 100%)`
+                  : `radial-gradient(circle at 18% 8%, ${activeListTheme.soft}, transparent 34%), linear-gradient(145deg, #34200d 0%, #3a2108 50%, #241406 100%)`,
+                color: activeListTextColor,
                 colorScheme: activeListUsesBlackTheme ? "light" : "dark",
               }}
             >
@@ -6249,29 +12744,79 @@ const LiveAvatarSessionComponent: React.FC<{
                 style={compactListPanelStyle}
               >
                 <div className="min-w-0">
-                  <p
-                    className="text-xs font-bold uppercase tracking-[0.16em]"
-                    style={compactListMutedStyle}
-                  >
-                    6 Listening
-                  </p>
-                  <h2 className="truncate text-3xl font-black leading-tight">
+                  {/* r28 (G's screenshot): "6 Listening" label REMOVED ("six
+                      listening should not be there") and the mute button is
+                      GONE ("microphone button needs to go"). The title gets
+                      the whole row — no more "Gro..." truncation; it wraps. */}
+                  <h2 className="break-words text-[clamp(1.05rem,5.5vw,1.875rem)] font-black leading-tight">
                     {activeList.title}
                   </h2>
                 </div>
-                <button
-                  type="button"
-                  aria-label="Close list"
-                  title="Close list"
-                  onClick={() => {
-                    setIsShoppingMode(false);
-                    setActiveListId(null);
-                  }}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition hover:scale-105"
-                  style={compactListControlStyle}
-                >
-                  <X className="h-5 w-5" aria-hidden />
-                </button>
+                <div className="flex shrink-0 items-center gap-3">
+                  {/* 6's face — smaller circle (G's screenshot ask), pulsing in
+                      REAL TIME with whoever is talking (the 60ms voice meters
+                      drive glow + scale). Tap = bring him back; closing the
+                      list is by voice ("close the list"). */}
+                  <button
+                    type="button"
+                    aria-label="Bring 6 back"
+                    title="Bring 6 back"
+                    onClick={() => {
+                      // a tap is an explicit ask — always gets a fresh budget
+                      voiceReturnAttemptsRef.current = 0;
+                      void beginAvatarReturn(true);
+                    }}
+                    className="relative h-14 w-14 shrink-0 rounded-full focus:outline-none"
+                  >
+                    {/* GOLDEN GLOW in the SPACE AROUND the circle (G 2026-06-14
+                        inked screenshot: "put a golden glow inside that area that
+                        pulses with all speech from the user and from six"). It is
+                        its OWN un-clipped layer — the old button overflow-hidden
+                        was swallowing the halo so it never showed in the space
+                        around the face. The voice meters write this element's
+                        boxShadow in real time (6's audio AND the user's mic) so it
+                        pulses with ALL speech; this inline style is the resting /
+                        React fallback state. */}
+                    <span
+                      id="six-voice-glow"
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-full transition-all duration-150"
+                      style={
+                        voiceUserTalking ||
+                        voiceSixTalking ||
+                        voicePresence === "returning"
+                          ? {
+                              boxShadow:
+                                "0 0 0 5px rgba(215,160,90,0.46), 0 0 31px 11px rgba(244,208,134,0.64)",
+                            }
+                          : {
+                              boxShadow: "0 0 15px 4px rgba(215,160,90,0.38)",
+                            }
+                      }
+                    />
+                    {/* Face — clipped to the circle so the 1.7x framing stays
+                        inside the ring. startscreen IS 6; object-position frames
+                        his face. */}
+                    <span
+                      className={`absolute inset-0 block overflow-hidden rounded-full border-2 transition-all duration-150 ${
+                        voiceUserTalking ||
+                        voiceSixTalking ||
+                        voicePresence === "returning"
+                          ? "border-[#ffe9c2]"
+                          : "border-[#d7a05a]/70"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        id="six-voice-circle"
+                        src="/startscreen.png"
+                        alt="6 - tap to bring him back"
+                        className="h-full w-full scale-[1.7] object-cover"
+                        style={{ objectPosition: "50% 12%" }}
+                      />
+                    </span>
+                  </button>
+                </div>
               </div>
 
               <div
@@ -6279,18 +12824,23 @@ const LiveAvatarSessionComponent: React.FC<{
                 style={{ backgroundColor: activeListTheme.foreground }}
               />
 
-              <div ref={shoppingListScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+              <div ref={shoppingListScrollRef} className="brand-scroll min-h-0 flex-1 overflow-y-auto">
                 {activeList.items.length > 0 ? (
-                  <ol className="space-y-3 text-2xl font-bold leading-tight">
+                  // r24 (G live: "the text is way too big... like half"):
+                  // 2xl → lg, and the size level still rides on top.
+                  <ol
+                    className="space-y-2.5 font-bold leading-tight"
+                    style={{ fontSize: `${(1.1 * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem` }}
+                  >
                     {activeList.items.map((item, index) => (
                       <li
                         key={`${item}-${index}`}
                         data-list-index={index}
-                        className="grid min-h-[4.15rem] grid-cols-[2.8rem_1fr_3rem] items-center gap-3 rounded-[1.2rem] border px-3 py-3"
+                        className="grid min-h-[2.9rem] grid-cols-[1.9rem_1fr_2rem] items-center gap-2.5 rounded-[1rem] border px-3 py-2"
                         style={compactListRowStyle}
                       >
                         <span
-                          className="flex h-10 w-10 items-center justify-center rounded-full border text-lg font-black"
+                          className="flex h-7 w-7 items-center justify-center rounded-full border text-sm font-black"
                           style={compactListBadgeStyle}
                         >
                           {activeList.displayStyle === "numbered"
@@ -6303,20 +12853,48 @@ const LiveAvatarSessionComponent: React.FC<{
                           aria-label={`Remove ${item}`}
                           title={`Remove ${item}`}
                           onClick={() => removeListItemAtIndex(activeList.id, index)}
-                          className="flex h-11 w-11 items-center justify-center rounded-full border transition hover:scale-105"
+                          className="flex h-6 w-6 items-center justify-center rounded-full border transition hover:scale-105"
                           style={compactListControlStyle}
                         >
-                          <X className="h-5 w-5" aria-hidden />
+                          <X className="h-3 w-3" aria-hidden />
                         </button>
                       </li>
                     ))}
                   </ol>
                 ) : (
-                  <p className="pt-16 text-center text-2xl font-black" style={compactListMutedStyle}>
-                    Blank list
+                  <p className="pt-16 text-center text-xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
+                    Nothing here yet - just say what to add.
                   </p>
                 )}
               </div>
+              {/* G 2026-06-14: more than one list -> tap ‹ › (desktop/laptop)
+                  or swipe sideways (touch) to flip between them, with a whoosh.
+                  Shows which list you're on (2 / 3). */}
+              {assistantLists.length > 1 && (
+                <div className="mt-3 flex items-center justify-center gap-3 text-[#f1c87e]">
+                  <button
+                    type="button"
+                    aria-label="Previous list"
+                    title="Previous list"
+                    onClick={() => flipList(-1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e0aa62]/45 bg-[#241608]/75 text-2xl font-black leading-none backdrop-blur-[2px] transition hover:scale-110"
+                  >
+                    ‹
+                  </button>
+                  <span className="text-sm font-black tracking-wide">
+                    {Math.max(1, assistantLists.findIndex((l) => l.id === activeListId) + 1)} / {assistantLists.length}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Next list"
+                    title="Next list"
+                    onClick={() => flipList(1)}
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-[#e0aa62]/45 bg-[#241608]/75 text-2xl font-black leading-none backdrop-blur-[2px] transition hover:scale-110"
+                  >
+                    ›
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -6326,11 +12904,19 @@ const LiveAvatarSessionComponent: React.FC<{
             isStreamReady &&
             voiceIsActive &&
             !isShoppingMode &&
-            !lookupPanelVisible &&
-            activeList && (
+            !lookupResultsOnChest &&
+            !listIndexOnChest &&
+            showActiveList && (
               <div
-                className="fixed bottom-[calc(env(safe-area-inset-bottom)+3.35rem)] left-1/2 z-30 flex h-[37vh] w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md md:h-[39vh]"
-                style={compactListPanelStyle}
+                className="fixed left-1/2 z-30 flex w-[92%] max-w-[32rem] -translate-x-1/2 flex-col overflow-hidden rounded-[1.35rem] border px-4 py-4 shadow-[0_18px_48px_rgba(0,0,0,0.48)] backdrop-blur-md touch-pan-y"
+                onTouchStart={handleListTouchStart}
+                onTouchMove={handleListTouchMove}
+                onTouchEnd={handleListTouchEnd}
+                style={{
+                  ...compactListPanelStyle,
+                  top: "calc(var(--stage-top) + var(--stage-height) * 0.47)",
+                  height: "calc(var(--stage-height) * 0.30)",
+                }}
               >
                 <div
                   className="absolute inset-x-6 top-0 h-1 rounded-b-full"
@@ -6338,7 +12924,7 @@ const LiveAvatarSessionComponent: React.FC<{
                 />
                 <div className="mb-3 flex items-center justify-between gap-3 pt-1">
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-[1.45rem] font-black leading-tight drop-shadow-[0_3px_16px_rgba(30,14,0,0.62)]">
+                    <h2 className="truncate font-black leading-tight drop-shadow-[0_3px_16px_rgba(30,14,0,0.62)]" style={{ fontSize: `${(1.45 * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem` }}>
                       {activeList.title}
                     </h2>
                   </div>
@@ -6364,9 +12950,9 @@ const LiveAvatarSessionComponent: React.FC<{
                     </button>
                   </div>
                 </div>
-                <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div ref={listScrollRef} className="brand-scroll min-h-0 flex-1 overflow-y-auto pr-1">
                   {activeList.items.length > 0 ? (
-                    <ol className="space-y-2 text-[1.06rem] font-bold leading-tight">
+                    <ol className="space-y-2 font-bold leading-tight" style={{ fontSize: `${(1.06 * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem` }}>
                       {activeList.items.map((item, index) => (
                         <li
                           key={`${item}-${index}`}
@@ -6399,66 +12985,324 @@ const LiveAvatarSessionComponent: React.FC<{
                       ))}
                     </ol>
                   ) : (
-                    <p className="pt-6 text-center text-[1.2rem] font-black leading-snug" style={compactListMutedStyle}>
-                      Blank list
+                    <p className="pt-6 text-center text-[1.2rem] font-black leading-snug bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_10px_rgba(0,0,0,0.55)]">
+                      Nothing here yet - just say what to add.
                     </p>
                   )}
                 </div>
               </div>
             )}
 
-          {visionMode !== "streaming" &&
+          {/* FIX 1 (2026-06-01): on-chest email box. Sits directly above the top
+              pillbox, centered, bottom-anchored so it scales with the viewport.
+              Shows the address the user is SPELLING, live. 6 never reads it back
+              by voice — this box is the source of truth the user checks.
+              Lowered to the CENTER of 6's chest per G (2026-06-01): bottom
+              multiplier 0.28 (mobile) / 0.38 (md). The 4 pillboxes drop away
+              (hidden via !showChestEmail) and this box rises into the chest —
+              keep that motion.
+              When chestEmailStatus is set (e.g. "Account Link Sent") it shows
+              that status in place of the label + address, then fades. */}
+          {!ACCOUNT_BETA_DISABLED &&
+            showChestEmail &&
+            !emailEntryOpen &&
+            visionMode !== "streaming" &&
             !isCameraActive &&
             sessionState !== SessionState.DISCONNECTED &&
             isStreamReady &&
-            voiceIsActive &&
-            !activeList &&
-            !emailEntryOpen && (
+            !isShoppingMode && (
               <div
-                className="fixed left-1/2 bottom-[calc(env(safe-area-inset-bottom)+var(--prompt-lift))] md:bottom-[calc(11.5vh+9rem)] z-30 flex w-[94%] max-w-[32rem] -translate-x-1/2 flex-col items-center gap-1.5 md:gap-2 text-center pointer-events-none"
-                style={{
-                  "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
-                } as React.CSSProperties}
+                className="fixed left-1/2 z-[31] -translate-x-1/2 flex w-[90%] max-w-[min(26rem,calc(var(--stage-width)*0.88))] flex-col items-center gap-[calc(var(--stage-height)*0.004)] rounded-2xl border border-[#e0aa62]/55 bg-[#3a2108]/55 px-4 py-[calc(var(--stage-height)*0.012)] text-center shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_10px_28px_rgba(0,0,0,0.42)] backdrop-blur-[3px] pointer-events-none bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.30)]"
               >
-                {visibleThoughtPrompts.slice(0, visiblePromptLimit).map((prompt, index) => {
+                {chestEmailStatus ? (
+                  <span
+                    className="w-full font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+                    style={{
+                      fontFamily:
+                        '"Cascadia Code", "Consolas", "SFMono-Regular", ui-monospace, monospace',
+                      // Voice sizing covers "the writing on your chest" too
+                      // (G 2026-06-10 23:15). Level 2 = the exact old size.
+                      fontSize: `calc(var(--stage-height) * ${(0.024 * UI_CARD_SCALE[promptSizeLevel]).toFixed(4)})`,
+                    }}
+                  >
+                    {`${chestEmailStatus} ✓`}
+                  </span>
+                ) : (
+                  <>
+                    <span
+                      className="font-semibold uppercase tracking-[0.18em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+                      style={{
+                        fontSize: `calc(var(--stage-height) * ${(0.015 * UI_CARD_SCALE[promptSizeLevel]).toFixed(4)})`,
+                      }}
+                    >
+                      Your Email
+                    </span>
+                    <span
+                      className="w-full break-all font-black leading-tight bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
+                      style={{
+                        fontFamily:
+                          '"Cascadia Code", "Consolas", "SFMono-Regular", ui-monospace, monospace',
+                        fontSize: `calc(var(--stage-height) * ${(0.024 * UI_CARD_SCALE[promptSizeLevel]).toFixed(4)})`,
+                      }}
+                    >
+                      {chestEmailText || "spell your email…"}
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
+          {/* G 2026-06-14: signed-in email badge — TOP-center under "Take the
+              Leap", shown ~2.5s at the start then fades out (so you know which
+              account you're in without it cluttering the screen). */}
+          {accountEmail && sessionState !== SessionState.DISCONNECTED && (
+            <div
+              className={`fixed left-1/2 z-40 -translate-x-1/2 pointer-events-none rounded-full border border-[#e0aa62]/40 bg-[#241608]/70 px-3 py-1 backdrop-blur-[2px] transition-opacity duration-700 ${
+                signedInBadgeShown ? "opacity-100" : "opacity-0"
+              }`}
+              style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.13)" }}
+            >
+              <span className="text-[11px] font-semibold tracking-wide bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#b97f3e] bg-clip-text text-transparent">
+                Signed in: {accountEmail}
+              </span>
+            </div>
+          )}
+
+          {!BRAND_BUILDER_PILOT_MODE &&
+            visionMode !== "streaming" &&
+            !isCameraActive &&
+            !shouldShowLoadingSurface &&
+            sessionState !== SessionState.DISCONNECTED &&
+            isStreamReady &&
+            voiceIsActive &&
+            !isShoppingMode &&
+            !emailEntryOpen &&
+            !showChestEmail && (
+              <div
+                className={`fixed left-1/2 z-30 -translate-x-1/2 text-center pointer-events-none ${
+                  chestGrid
+                    ? "top-[calc(var(--stage-top)+var(--stage-height)*0.79)] grid w-[92%] max-w-[32rem] grid-cols-2 grid-rows-2 gap-2 md:gap-2.5"
+                    : "bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.12)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] flex w-[94%] flex-col items-center gap-[calc(var(--stage-height)*0.010)]"
+                }`}
+                style={
+                  chestGrid
+                    ? ({
+                        "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
+                        height: "calc(var(--stage-height) * 0.10)",
+                        maxWidth: "min(32rem, calc(var(--stage-width) * 0.95))",
+                      } as React.CSSProperties)
+                    : ({
+                        "--prompt-lift": `${3.15 + promptSizeLevel * 0.25}rem`,
+                        /* LOCKED SPEC per CLAUDE.md aiASAP build facts:
+                             bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.20)
+                             Tweak envelope 0.16-0.21.
+                           Bottom-anchored so the stack stays at the same visual
+                           position no matter how tall pillboxes get (font, padding,
+                           gap). DO NOT switch back to top-anchored values without
+                           an explicit ask. */
+                        maxWidth: "min(42rem, calc(var(--stage-width) * 1.0))",
+                      } as React.CSSProperties)
+                }
+              >
+                {chestPrompts.map((prompt, index) => {
                   const isDissolving = dissolvingPrompt === prompt;
-                  const compactPrompt = prompt.length > 25;
+                  const _visiblePromptsForSize = chestPrompts;
+                  const _maxPromptLen = Math.max(...(_visiblePromptsForSize.map((p) => p.length)), 0);
+                  let _tierBase: number;
+                  if (_maxPromptLen > 26) _tierBase = 0.70;
+                  else if (_maxPromptLen > 22) _tierBase = 0.85;
+                  else _tierBase = 1.06;
+                  // Compact pills (the 4 on the home stage), G 2026-06-11:
+                  // "text should generally fill most of the pill boxes...
+                  // when text got bigger, pills got taller but not wider,
+                  // they should stay in proportion." The pill is now a
+                  // function of its TEXT: font = the smaller of the fill cap
+                  // (3% of stage height) and the exact width budget for the
+                  // longest visible label (0.55em avg char, conservative —
+                  // measured Trebuchet semibold runs ~0.47em, so real text
+                  // sits ~85% of the inner width). Pill height = font × 1.5
+                  // (text fills two-thirds), width rides the size level.
+                  // This replaces the 2026-06-07 length-tier table — same
+                  // "drop to whatever fits" intent, continuous instead of
+                  // stepped, and it can never clip at any stage size/level.
+                  const _pillScale = UI_CARD_SCALE[promptSizeLevel];
+                  const _pillMaxWidth = `min(calc(var(--stage-width) * ${(0.56 * _pillScale).toFixed(4)}), 92vw)`;
+                  // r18: budget floor 18 = the default-set maximum. Sets of
+                  // short labels no longer POP bigger and (with the ≤18 filter
+                  // in normalizeThoughtPrompts) long ones no longer shrink the
+                  // stack — the font is stable across prompt rotation. Level-2
+                  // default look unchanged (defaults already max at 18).
+                  const _pillFont = `min(calc(var(--stage-height) * ${(0.030 * _pillScale).toFixed(5)}), calc((${_pillMaxWidth} - 2rem) / ${(0.55 * Math.max(_maxPromptLen, 18)).toFixed(2)}))`;
                   return (
                     <button
                       type="button"
                       key={prompt}
                       onClick={() => void handleThoughtPromptTap(prompt)}
                       disabled={Boolean(dissolvingPrompt)}
-                      className={`pointer-events-auto min-h-[2.72rem] md:min-h-[3.12rem] w-[min(100%,17.25rem)] md:w-[min(100%,21rem)] overflow-hidden rounded-full border border-[#9b9b9b]/50 bg-[#4c4c4c]/42 px-4 py-2.5 md:px-6 md:py-3 whitespace-nowrap text-ellipsis text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.12rem)] font-semibold leading-none text-[#e0aa62] shadow-[inset_0_1px_10px_rgba(255,255,255,0.08),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                      className={`pointer-events-auto overflow-hidden rounded-full border font-semibold leading-tight text-[#f1c477] shadow-[inset_0_1px_10px_rgba(255,255,255,0.10),0_8px_24px_rgba(0,0,0,0.3)] backdrop-blur-[3px] drop-shadow-[0_3px_16px_rgba(30,14,0,0.9)] transition-all duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:pointer-events-none ${
+                        // G 2026-06-13 (screenshot): in the 2x2-on-his-body layout the
+                        // pills were too faint against the denim. Richer gold gradient +
+                        // brighter border so the brand colors POP. Bottom stack untouched.
+                        chestGrid
+                          ? "border-[#e0aa62]/85 bg-gradient-to-b from-[#4a2a0c]/92 to-[#241406]/92"
+                          : "border-[#e0aa62]/55 bg-[#3a2108]/30"
+                      } ${
+                        chestGrid
+                          ? "h-full w-full px-2 py-0.5 md:px-3 md:py-1 text-[var(--prompt-font-size)] md:text-[calc(var(--prompt-font-size)+0.05rem)] whitespace-normal break-words leading-[1.05]"
+                          : "flex items-center justify-center w-full px-4 whitespace-nowrap"
+                      } ${
                         isDissolving
                           ? "animate-prompt-dissolve"
                           : "animate-prompt-enter"
-                      }`}
+                      }${wigglingPromptIndex === index ? " pill-wiggle" : ""}`}
                       style={{
                         animationDelay: `${index * 80}ms`,
-                        "--prompt-font-size": `${(compactPrompt ? 0.96 : 1.06) + promptSizeLevel * 0.1}rem`,
+                        // G 23:36 "total fail": the compact home-stage pills
+                        // computed fontSize from stage height ALONE — the size
+                        // level never reached them. Both the text AND the box
+                        // (minHeight) now ride UI_CARD_SCALE; level 2 is
+                        // byte-identical to the old values.
+                        // G 2026-06-14: chest 2x2 pill TEXT matches the home-stage
+                        // sizes (was a fixed small 0.9rem). Same _tierBase budget as
+                        // the bottom stack so the labels fill the boxes.
+                        "--prompt-font-size": `${((_tierBase + 0.2) * UI_CARD_SCALE[promptSizeLevel]).toFixed(3)}rem`,
+                        ...(chestGrid
+                          ? {}
+                          : {
+                              fontSize: _pillFont,
+                              // Height follows the text (flex centers it) —
+                              // no static py, or it would un-proportion the
+                              // fill the moment the width budget binds.
+                              minHeight: `calc(${_pillFont} * 1.5)`,
+                              maxWidth: _pillMaxWidth,
+                            }),
                         color: "#e0aa62",
                         fontFamily:
                           '"Trebuchet MS", "Aptos", "Segoe UI", system-ui, sans-serif',
                       } as React.CSSProperties}
                     >
-                      {prompt}
+                      <span className="bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
+                        {prompt}
+                      </span>
                     </button>
                   );
                 })}
               </div>
             )}
 
-          {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+1.45rem)] md:bottom-auto md:top-[calc(88.5vh+1rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
-              <Link
-                href="/terms"
-                target="_blank"
-                className="block text-center text-[10px] sm:text-[11px] text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors whitespace-nowrap"
-              >
-                &copy; 2026 aiASAP All Rights Reserved &middot; Terms
-              </Link>
-            </div>
+          {/* THE FOUR BUTTONS (G, 2026-08-21, drawn on a screenshot): a 2x2
+              over 6's chest.
+                    STOP / START        VOICE
+                       MUTE             QUIET
+              This replaces the earlier three-button vertical strip on the right
+              edge. Same handlers, G's layout. STOP tears the session down for
+              real - it bills by the block - and lands on the stopped stage,
+              where this same top-left button now reads START. VOICE drops the
+              avatar entirely and keeps talking: the one control here that SAVES
+              money instead of spending it. MUTE is the user's microphone (6's
+              ears). QUIET is 6's voice.
+
+              2026-08-21: MUTE finally has a variable of its own (micMuted). It
+              used to run handleVoiceStartStop, i.e. a second STOP, which is why
+              G said "the mute didn't work the first time" and why un-muting
+              re-spoke the opening line. micOff keeps the OLD derivation as its
+              second half on purpose: these controls sit at z-60 OVER the
+              invisible z-30 begin surface, so before the first tap the voice
+              loop genuinely is not running and 6 genuinely cannot hear anyone.
+              Dropping it would paint a live-mic icon on the very first frame of
+              the very first session and lie to a first-time visitor. */}
+          {!shouldShowLoadingSurface &&
+            visionMode !== "streaming" &&
+            !isCameraActive &&
+            !isShoppingMode && (
+              <>
+              <ContactCaptureBox
+                stage={buildInterestState.stage}
+                method={buildInterestState.method}
+                value={buildInterestState.value}
+                sendLink={{
+                  status: sendLinkFallbackStatus,
+                  email: sendLinkFallbackEmail,
+                  onSend: handleSendLinkFallbackClick,
+                }}
+              />
+              {wildWorksOfferState === "shown" && (
+                <WildWorksLinkButton
+                  onDismiss={() => {
+                    wildWorksOfferStateRef.current = "idle";
+                    setWildWorksOfferState("idle");
+                  }}
+                />
+              )}
+              <StageControls
+                mobileStartControls
+                running={sessionState === SessionState.CONNECTED && isStreamReady}
+                micOff={micMuted || (!(voiceIsActive && hasUserPressedVoiceStart) && !microphonePreflightGranted)}
+                quiet={voiceMuted}
+                disabledStopStart={sessionState !== SessionState.CONNECTED || !isStreamReady}
+                onStopStart={() => {
+                  logAppEvent("stage_control", { control: "stop", to: "stopped_on_stage" });
+                  void handleEndSessionRef.current?.({ pause: true });
+                }}
+                onToggleMic={() => {
+                  // 2026-08-21: while the loop is UP this is a microphone mute
+                  // and NOTHING else. It used to call handleVoiceStartStop(),
+                  // whose off-branch is a full voice-loop teardown — so MUTE was
+                  // a second STOP, and turning it back on cold-started the loop
+                  // and re-spoke the opening line ("Hi, I'm 6" x3 in 85s).
+                  // toggleMicMute reads the REF, so two fast taps cannot both
+                  // see a stale value and cancel each other out.
+                  const action = micPressAction(
+                    voiceIsActive,
+                    voiceStartAwaitingReady,
+                    voiceIsLoading,
+                  );
+                  if (action === "toggle_mute") {
+                    toggleMicMute();
+                    return;
+                  }
+                  // Loop not up yet — first tap on a fresh stage. UNCHANGED, and
+                  // load-bearing: these buttons sit at z-60 over the invisible
+                  // z-30 begin surface, so MUTE is the first thing a thumb lands
+                  // on and it is provably how the loop gets started (the
+                  // 21:05:57 `stage_control control=mic to=on` row is this
+                  // handler; the begin surface logs nothing). Make MUTE a pure
+                  // toggle and that first tap becomes a no-op and 6 stays deaf
+                  // on a billing session — worse than the bug.
+                  //
+                  // Same guard the old Mic button carried as `disabled`: do not
+                  // let a second press land while the voice loop is still coming
+                  // up, or the start/stop toggles past itself.
+                  if (action === "wait") return;
+                  logAppEvent("stage_control", {
+                    control: "mic",
+                    to: "on",
+                    how: "start",
+                  });
+                  void handleVoiceStartStop({ retryMicrophone: true });
+                }}
+                onToggleQuiet={() => {
+                  logAppEvent("stage_control", { control: "quiet", to: voiceMuted ? "off" : "on" });
+                  toggleSpeakerMute();
+                }}
+                onGallery={() => {
+                  logAppEvent("stage_control", { control: "gallery", to: "open" });
+                  // The gallery path already existed in this app (hidden file
+                  // input -> captureMedia -> /api/media/capture). It just had no
+                  // button on the stage, only one buried in the vision panel.
+                  void handleGalleryClick();
+                }}
+              />
+              </>
+            )}
+
+          {!shouldShowLoadingSurface && visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
+            <StageLegalFooter
+              phoneFlow
+              phoneStackPaddingBottom="12px"
+              placementClassName="aiasap-tablet-idle-legal md:absolute md:bottom-2 md:left-1/2 md:-translate-x-1/2"
+              onBeforeNavigate={stopAvatarForLegal}
+            />
           )}
         </>
       )}
@@ -6483,15 +13327,11 @@ const LiveAvatarSessionComponent: React.FC<{
               </button>
             </div>
           </div>
-          <div className="fixed bottom-1 left-1/2 -translate-x-1/2 z-20">
-            <Link
-              href="/terms"
-              target="_blank"
-              className="block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-1"
-            >
-              Terms
-            </Link>
-          </div>
+          <StageLegalFooter
+            phoneFlow
+            placementClassName="md:fixed md:bottom-1 md:left-1/2 md:-translate-x-1/2"
+            onBeforeNavigate={stopAvatarForLegal}
+          />
         </>
       )}
       <style>{`
@@ -6543,6 +13383,7 @@ const LiveAvatarSessionComponent: React.FC<{
         .animate-prompt-dissolve {
           animation: prompt-dissolve 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
         }
+
       `}</style>
     </div>
   );
@@ -6550,16 +13391,23 @@ const LiveAvatarSessionComponent: React.FC<{
 
 export const LiveAvatarSession: React.FC<{
   mode: "FULL" | "CUSTOM";
+  microphonePreflightGranted?: boolean;
   sessionAccessToken: string;
   onSessionStopped: (opts?: SessionStoppedReason) => void;
   onExit?: () => void;
-}> = ({ mode, sessionAccessToken, onSessionStopped, onExit }) => {
+  /** STOP: real teardown, but land on tap-to-return instead of Session Ended. */
+  onPause?: () => void;
+  onVoiceOnly?: () => void;
+}> = ({ mode, microphonePreflightGranted = false, sessionAccessToken, onSessionStopped, onExit, onPause, onVoiceOnly }) => {
   return (
     <LiveAvatarContextProvider sessionAccessToken={sessionAccessToken} mode={mode}>
       <LiveAvatarSessionComponent
         mode={mode}
+        microphonePreflightGranted={microphonePreflightGranted}
         onSessionStopped={onSessionStopped}
         onExit={onExit}
+        onPause={onPause}
+        onVoiceOnly={onVoiceOnly}
       />
     </LiveAvatarContextProvider>
   );

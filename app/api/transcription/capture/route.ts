@@ -4,6 +4,7 @@ import {
 } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 import { persistUserUtteranceLeadCapture } from "../../../../src/lib/leadCaptureFromUserText";
+import { normalizeTesterLabel } from "../../../../src/lib/testerAttribution";
 
 export async function POST(request: Request) {
   const originErr = assertAllowedOrigin(request);
@@ -30,7 +31,12 @@ export async function POST(request: Request) {
     }
 
     const sessionId = rawSessionId.trim();
-    const result = await persistUserUtteranceLeadCapture(sessionId, rawText);
+    const testerLabel = normalizeTesterLabel(body.testerLabel);
+    const result = await persistUserUtteranceLeadCapture(
+      sessionId,
+      rawText,
+      testerLabel,
+    );
 
     return new Response(
       JSON.stringify({

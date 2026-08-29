@@ -151,6 +151,34 @@ export function isLiveAvatarCreditLimitEnabled(): boolean {
   return isRedisConfigured() || isSupabaseConfigured();
 }
 
+/**
+ * Say out loud when the daily credit cap is not actually running.
+ *
+ * Cross-site audit 2026-08-21: `assertCanMintSessionToken` returns ok:true the
+ * instant this is false, and "enabled" depends on Redis or Supabase env being
+ * present. So losing one env var turns the money cap off SILENTLY — the app
+ * keeps minting and nothing anywhere says the guard is gone.
+ *
+ * Deliberately a warning and not a refusal: making the mint fail closed here
+ * would take the live site down the moment a Supabase env var went missing,
+ * which trades a money risk for an outage. The real backstop is the local rate
+ * limiter on the mint routes, which needs no configuration and therefore cannot
+ * be switched off by a missing variable.
+ */
+let creditCapWarned = false;
+export function warnIfCreditCapOff(where: string): void {
+  if (isLiveAvatarCreditLimitEnabled()) return;
+  if (creditCapWarned) return;
+  creditCapWarned = true;
+  console.warn(
+    `[liveavatar-credits] DAILY CREDIT CAP IS OFF (${where}). ` +
+      (process.env.LIVEAVATAR_CREDIT_LIMIT_DISABLED === "1"
+        ? "LIVEAVATAR_CREDIT_LIMIT_DISABLED=1 is set."
+        : "Neither Redis nor Supabase is configured, so the cap cannot be evaluated.") +
+      " Mints are bounded only by the local rate limiter.",
+  );
+}
+
 export function getDailyCreditLimit(): number {
   const v = process.env.LIVEAVATAR_DAILY_CREDIT_LIMIT;
   if (v === undefined || v === "") return DEFAULT_DAILY_CREDIT_LIMIT;
@@ -289,7 +317,11 @@ export async function getCreditsUsedToday(): Promise<number> {
 export async function assertCanMintSessionToken(): Promise<
   { ok: true } | { ok: false; message: string }
 > {
-  if (!isLiveAvatarCreditLimitEnabled()) return { ok: true };
+  if (!isLiveAvatarCreditLimitEnabled()) {
+    // Fails open, on purpose (see warnIfCreditCapOff) — but never silently.
+    warnIfCreditCapOff("assertCanMintSessionToken");
+    return { ok: true };
+  }
   try {
     const used = await getCreditsUsedToday();
     const open = await getOpenSupabaseCreditsToday();

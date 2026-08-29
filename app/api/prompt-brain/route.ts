@@ -4,7 +4,12 @@ import {
   truncateUtf8String,
 } from "../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../src/lib/rateLimit";
+import { normalizeTesterLabel } from "../../../src/lib/testerAttribution";
 import { OPENAI_API_KEY } from "../secrets";
+import {
+  getListContextPrompts,
+  normalizeListContext,
+} from "../../../src/lib/promptBrain/listContextPrompts";
 
 const OPENAI_MODEL =
   process.env.OPENAI_PROMPT_BRAIN_MODEL ||
@@ -12,14 +17,14 @@ const OPENAI_MODEL =
   "gpt-4.1-mini";
 
 const FALLBACK_PROMPTS = [
-  "Plan This Weekend",
-  "To Do List",
-  "Start a Grocery List",
-  "Explore aiASAP",
+  "Build Relationships",
+  "Financial Freedom",
+  "Set & Track Goals",
+  "Build Your Socials",
 ];
 
 const BLOCKED_PROMPT_RE =
-  /\b(?:contact|contacts|named g|for g|with g|call g|text g|email g|remind|reminder|notify|notification|g's|change subject|confirm understanding|review key points|check understanding)\b/i;
+  /\b(?:contact|contacts|named g|for g|with g|call g|text g|email g|remind|reminder|notify|notification|g's|change subject|confirm understanding|review key points|check understanding|develop\s+\w+\s+strateg|learn\s+\w+\s+tip|practice\s+\w+\s+technique|to\s+do\s+list|grocery\s+list|walmart\s+list|shopping\s+list|gift\s+list|honey[-\s]?do\s+list|christmas\s+list|birthday\s+list|meaningful|(?:that|our)\s+bond|common\s+ground|set\s+better|build\s+stronger|(?:find|build)\s+deeper|build\s+trust\s+daily|trust\s+daily|create\s+your\s+vision|next\s+move|money\s+moves|smart\s+investments|\bmvp\b|\bkpi\b|\bmrr\b|\barr\b|\broi\b|minimum\s+viable|build\s+your\s+faith|set\s+faith\s+goals|grow\s+your\s+belief|spiritual\s+(?:habits|goals)|faith\s+goals|build\s+faith|build\s+your\s+focus|clarify\s+your\s+\w+|find\s+your\s+priorities|find\s+priorities|focus\s+your\s+\w+|align\s+your\s+\w+|optimize\s+your\s+\w+|sharpen\s+your\s+\w+|streamline\s+your\s+\w+|find\s+(?:\w+\s+)?income|find\s+(?:\w+\s+)?hustle|find\s+(?:\w+\s+)?streams|explore\s+(?:\w+\s+)?ideas|explore\s+(?:passive|active|new)\s+\w+|find\s+(?:passive|active|new)\s+\w+|discover\s+(?:\w+\s+)?income|make\s+your\s+move|make\s+a\s+move|just\s+begin\s+now|just\s+begin|begin\s+now|start\s+small\s+today|start\s+small\s+now|start\s+small|ask\s+for\s+examples?|ai[-\s]?asap\s+style|build\s+real\s+connection|grow\s+real\s+connections?|plan\s+(?:a|your)\s+meetup|set\s+a\s+date|set\s+share\s+goals|talk\s+it\s+out|find\s+common\s+interests?)\b/i;
 
 const LOWERCASE_TITLE_WORDS = new Set([
   "a",
@@ -82,8 +87,8 @@ function cleanPrompt(value: unknown): string | null {
     .trim();
 
   const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
-  if (wordCount < 2 || wordCount > 4) return null;
-  if (cleaned.length < 3 || cleaned.length > 32) return null;
+  if (wordCount < 2 || wordCount > 3) return null;
+  if (cleaned.length < 3 || cleaned.length > 22) return null;
   if (BLOCKED_PROMPT_RE.test(cleaned)) return null;
   return toPromptTitleCase(cleaned);
 }
@@ -105,7 +110,25 @@ function normalizePrompts(value: unknown): string[] {
     .filter((prompt): prompt is string => Boolean(prompt));
 
   const unique = [...new Set(prompts)];
-  return keepExploreAiASAPLow([...unique, ...FALLBACK_PROMPTS])
+
+  // G 2026-05-27: always 4 topic-relevant pillboxes. If brain returns 0, use
+  // FALLBACK_PROMPTS. If brain returns 1-3, pad to 4 with FALLBACK_PROMPTS
+  // entries that are NOT exact duplicates of what brain returned (case-insensitive).
+  // This prevents stale prior-render pillboxes from leaking through and ensures
+  // a fresh 4-pill set on every brain call.
+  if (unique.length === 0) {
+    return keepExploreAiASAPLow([...FALLBACK_PROMPTS])
+      .filter((prompt, index, all) => all.indexOf(prompt) === index)
+      .filter((prompt) => !/^change subject$/i.test(prompt))
+      .slice(0, 4);
+  }
+
+  // Pad to 4 with FALLBACK_PROMPTS minus exact duplicates of brain's output.
+  const lowerSet = new Set(unique.map((p) => p.toLowerCase()));
+  const padding = FALLBACK_PROMPTS.filter((p) => !lowerSet.has(p.toLowerCase()));
+  const filled = [...unique, ...padding].slice(0, 4);
+
+  return keepExploreAiASAPLow(filled)
     .filter((prompt, index, all) => all.indexOf(prompt) === index)
     .filter((prompt) => !/^change subject$/i.test(prompt))
     .slice(0, 4);
@@ -116,13 +139,6 @@ export async function POST(request: Request) {
   if (originErr) return originErr;
   const rateLimitErr = await checkRateLimit(request);
   if (rateLimitErr) return rateLimitErr;
-
-  if (!OPENAI_API_KEY) {
-    return new Response(JSON.stringify({ prompts: FALLBACK_PROMPTS }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
 
   try {
     const body = await request.json();
@@ -147,6 +163,34 @@ export async function POST(request: Request) {
           .map((item: string) => truncateUtf8String(item.trim(), 120))
           .filter(Boolean)
       : [];
+    const sessionId =
+      typeof body.sessionId === "string" && body.sessionId.length > 0
+        ? body.sessionId
+        : null;
+    const testerLabel = normalizeTesterLabel(body.testerLabel);
+
+    // G 2026-06-14 ("when do prompts become things people NEED on their lists?"):
+    // when a list is on screen, return list-relevant pills (Add Toothpaste/Milk/
+    // Eggs, Find Deals) deterministically — BEFORE any OpenAI call — so they
+    // never fall back to the life-goals. (Herm TASK_013.)
+    const listContext = normalizeListContext(body.listContext);
+    if (listContext) {
+      const prompts = normalizePrompts(getListContextPrompts(listContext));
+      console.log(
+        `[prompt-brain] list-context pills for ${sessionId ? sessionId.substring(0, 8) : "NULL"}: ${prompts.join(" | ")}`,
+      );
+      return new Response(JSON.stringify({ prompts }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    if (!OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ prompts: FALLBACK_PROMPTS }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (!latestUserText && recentUserTexts.length === 0) {
       return new Response(JSON.stringify({ prompts: FALLBACK_PROMPTS }), {
@@ -159,7 +203,7 @@ export async function POST(request: Request) {
       {
         role: "system",
         content:
-          "You are the quiet on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four tappable conversation prompts for what the user is discussing right now. No numbering. No labels. No quotes. No punctuation at the end. Keep each prompt 2 to 4 words. Use title case, but keep the brand exactly aiASAP and keep small connector words lowercase, such as a, an, and, for, of, the, this, and to. All four prompts should be useful: tightly related to the topic, or a natural segue toward improving the user's life. Never use Change Subject, Confirm Understanding, Review Key Points, or labels that describe what 6 is thinking. The prompts are for leading the user to the next helpful action. Avoid the word activities; say plans, cool things to do, places, or plain words that fit. Prefer concrete, practical help that improves daily life: lists, To Do lists, errands, birthday plans, weekend plans, hikes, cool things to do, follow-ups, small next steps, useful personal organization, and ethical ways to make more money. Keep Explore aiASAP as a lower-priority default; only put it first when the user is directly asking what aiASAP is or how 6 works. Keep Start a Grocery List as a useful option, but do not put it first unless the user is clearly discussing groceries, shopping, or store errands. Keep Plan This Weekend as a strong proactive option when weekend, free time, family, friends, energy, health, or getting out of the house fits. The exact prompt To Do List is preferred whenever tasks, chores, plans, work, family, or open loops are in the conversation. If the user already has or is building a grocery list, prefer Add to Grocery List over Start a Grocery List. Do not create reminder prompts, notification prompts, or prompts about adding contacts named G, setting reminders for G, calling G, texting G, or emailing G; G is the Creator/Builder/Founder/Financier/CEO aiASAP, not a random contact. Avoid stale ideas, vague coaching, sales language, or entertainment-only ideas. If the conversation changed, replace stale ideas with new relevant ones.",
+          "You are the on-screen idea brain for aiASAP's voice assistant, 6. Return JSON only, shaped like {\"prompts\":[\"\",\"\",\"\",\"\"]}. Generate exactly four short tappable conversation prompts that fit what the user is discussing right now. The prompts are buttons that lead the user FORWARD into the next part of the conversation — they pull the user forward, they do NOT summarize what just happened.\n\naiASAP's CORE TOPICS (use these as your default voice and style):\n\nLOCKED TOP 4 (the always-available defaults when no specific topic dominates): Build Relationships, Financial Freedom, Set & Track Goals, Build Your Socials.\n\nCORE POOL (sprinkle these in when the topic fits): Build a Better Life, Make More Money, Find Your Life Partner, Build a Business, Build Friendships, Build Your Brand, Market Yourself, Plan Your Weekend, Market Your Product, Market Your Service, Next Vacation Ideas.\n\nSTYLE RULES — every prompt must match this style:\n- 2 to 4 words. Title case. Keep the brand exactly aiASAP. Keep small connector words lowercase: a, an, and, for, of, the, this, to, with.\n- Start with an action verb when natural: Build, Create, Set, Find, Make, Market, Plan, Grow.\n- Aspirational and personal: 'Your Brand', 'Your Socials', 'Your Life Partner', 'Your Sound'.\n- Warm, inviting, real-life. NOT clinical, NOT technical, NOT therapist-y.\n\nNEVER use these dry/clinical patterns:\n- 'Develop X Strategies', 'Learn X Tips', 'Practice X Techniques', 'Explore X Options', 'Discuss X', 'Review X', 'Plan X Steps', 'Confirm X', 'Check X', 'Master X', 'Improve X Skills'.\n\nNEVER use list-creation prompts (the v1 beta has NO visible list UI):\n- 'To Do List', 'Start a Grocery List', 'Add to Grocery List', 'Walmart List', 'Shopping List', 'Birthday Gift List', 'Honey Do List', 'Christmas List', 'Plan a Gift'.\n\nNEVER use: reminders, notifications, 'Set Reminder', 'Notify Me', 'Save for Later'. NEVER use contact-G prompts ('Call G', 'Text G', 'Email G' — G is the Founder/Builder, not a contact). NEVER use 'Change Subject', 'Confirm Understanding', 'Review Key Points'.\n\nDYNAMIC TOPIC HANDLING — the user can talk about ANYTHING (cooking, fitness, gardening, parenting, music, faith, travel, work, retirement, hobbies, sports, grief, kids, in-laws, anxiety, sleep — any real-life thing). For any topic, generate 4 prompts that lead forward in the aiASAP action-verb + warm + aspirational style.\n\nExamples:\n- User talking about anxiety: 'Build Calm Habits', 'Find What Helps', 'Set Small Wins', 'Build Better Sleep' (NOT 'Develop Coping Strategies').\n- User talking about a parent: 'Build That Bond', 'Plan a Visit', 'Set Better Talks', 'Find Common Ground'.\n- User talking about music: 'Find Your Sound', 'Build Your Audience', 'Plan Your First Show', 'Market Your Music'.\n- User talking about fitness: 'Set Fitness Goals', 'Build a Routine', 'Find Your Sport', 'Plan Your Week'.\n\nMIX: Top 4 + relevant pool entries should appear roughly 50-70% of the time across a conversation. Custom prompts in the same warm action-verb style fill the rest, fitted to the user's specific topic. All four prompts must lead the user forward. If the conversation has moved on, replace stale prompts with new relevant ones in the same style.\n\nCRITICAL — NO TOPIC ECHO: If the user is ALREADY actively discussing one of the Locked Top 4 themes (relationships, financial freedom, goals, socials), DO NOT include that exact default in your 4 prompts. The user is past that label — generate 4 FRESH variations specific to their next step. Example: user is talking about building relationships → return 4 specifics like 'Find Common Interests', 'Grow Your Network', 'Plan a Meetup', 'Build Real Connection' — NOT 'Build Relationships' itself. The pillboxes pull forward, not echo back what the user just named.\n\nHARD COUNT — return EXACTLY 4 prompts every time. Never 1, 2, or 3. If you can't find 4 strong topic-fits, generate aspirational variations in the same theme. 4 is the count, no exceptions.\n\nBANNED CORPORATE/MANAGEMENT-SPEAK LABELS (2026-05-27 — G hated these in testing): NEVER generate abstract management-consultant labels. These are the patterns to AVOID:\n- 'Build Your Focus' (vague, what does that mean?)\n- 'Clarify Your Challenge' (corporate SaaS-speak, NOT how a friend talks)\n- 'Find Your Priorities' (management-speak, abstract)\n- 'Align Your X', 'Optimize Your X', 'Sharpen Your X', 'Streamline Your X' (all corporate templates)\n- 'Clarify Your X', 'Focus Your X' (same problem)\n\nWHEN STUCK, USE CONCRETE TIER-1 LABELS — what a friend would actually say over coffee:\n- 'Pick One Thing', 'Make a Move', 'Start Small', 'Take the Next Step'\n- 'Try Something New', 'Get Started', 'Do The First Thing', 'Just Begin'\n- 'Talk It Out', 'Write It Down', 'Make a Plan', 'Set a Date'\n\nIF the LLM can't find 4 GOOD labels, it is BETTER to repeat a Locked Top 4 default than to ship a corporate-speak label. The no-echo rule above is a preference, not absolute — when the alternative is 'Clarify Your Challenge' or 'Build Your Focus', DEFAULT BACK to Top 4.\n\nVERB-NOUN FIT RULE (LOCKED 2026-05-27 — G's rejection: 'You don't FIND income, you BUILD it'): The action verb MUST naturally fit the noun. Wrong verb makes the label nonsense.\n\nBANNED MISMATCHES (G rejected these):\n- 'Find X Income' (you don't FIND income — you BUILD, CREATE, GROW, MAKE income)\n- 'Find X Hustle' or 'Find Side Hustles' (you BUILD a hustle, don't FIND one)\n- 'Find X Streams' (you BUILD/CREATE income streams, don't FIND them)\n- 'Explore X Ideas' (too vague — 'Brainstorm Ideas' or 'List Ideas' is concrete)\n- 'Explore Passive Income/Ideas' (action unclear)\n- 'Discover X Income' (same passive vibe — use BUILD/CREATE/MAKE)\n\nCORRECT VERB-NOUN PAIRINGS:\n- Income: BUILD, CREATE, GROW, MAKE (NOT find/discover/explore)\n- Side hustle: BUILD, START, LAUNCH (NOT find)\n- Money: MAKE, EARN, GROW, SAVE (NOT find)\n- Skills: BUILD, GROW, SHARPEN, LEARN (NOT find — though 'sharpen' is OK for skills)\n- Goals: SET, TRACK, HIT, REACH (NOT find)\n- Connections/friends: BUILD, MAKE, GROW, FIND (FIND is OK for people/friends)\n- Ideas: BRAINSTORM, LIST, WRITE DOWN (NOT 'explore' alone)\n\nGUT CHECK: Could a real American friend say this label naturally? 'Hey, want to find passive income?' sounds weird. 'Hey, want to build passive income?' sounds right. Use that mental test.",
       },
       {
         role: "user",
@@ -199,6 +243,40 @@ export async function POST(request: Request) {
     const content = data?.choices?.[0]?.message?.content;
     const parsed = typeof content === "string" ? JSON.parse(content) : {};
     const prompts = normalizePrompts(parsed.prompts);
+
+    // Prompt suggestions are product telemetry, not assistant speech. Keep them
+    // out of conversation_messages so transcript history contains only what the
+    // user and 6 actually said; audit them in app_events instead.
+    const supaUrl = process.env.SUPABASE_URL;
+    const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    console.log(
+      `[prompt-brain] returned ${prompts.length} prompts for sessionId=${sessionId ? sessionId.substring(0, 8) : "NULL"}`,
+    );
+    if (supaUrl && supaKey && sessionId) {
+      void fetch(`${supaUrl}/rest/v1/app_events`, {
+        method: "POST",
+        headers: {
+          apikey: supaKey,
+          Authorization: `Bearer ${supaKey}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          event_type: "prompt_brain_suggestions",
+          severity: "low",
+          provider: "openai",
+          route: "/api/prompt-brain",
+          payload: {
+            latest_user_chars: latestUserText.length,
+            prompts,
+            ...(testerLabel ? { tester_label: testerLabel } : {}),
+          },
+        }),
+      }).catch((err) =>
+        console.error("[prompt-brain] app event log failed:", err),
+      );
+    }
 
     return new Response(JSON.stringify({ prompts }), {
       status: 200,

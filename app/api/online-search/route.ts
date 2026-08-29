@@ -13,6 +13,9 @@ const OPENAI_WEB_SEARCH_MODEL =
 
 const MAX_LOCATION_CHARS = 120;
 const MAX_ANSWER_CHARS = 320;
+// ONLINE-SEARCH TIMEOUT (Herm review 2026-06-14): bound the OpenAI web-search
+// call so a slow upstream returns a clean 504 instead of hanging 6 in silence.
+const ONLINE_SEARCH_TIMEOUT_MS = 18000;
 
 type OnlineSearchPayload = {
   query?: unknown;
@@ -159,12 +162,20 @@ export async function POST(request: Request) {
     }
     const weatherQuery = isWeatherQuery(query);
 
-    const res = await fetch("https://api.openai.com/v1/responses", {
+    const searchController = new AbortController();
+    const searchTimeoutId = setTimeout(
+      () => searchController.abort(),
+      ONLINE_SEARCH_TIMEOUT_MS,
+    );
+    let res: Response;
+    try {
+      res = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
+      signal: searchController.signal,
       body: JSON.stringify({
         model: OPENAI_WEB_SEARCH_MODEL,
         tools: [{ type: "web_search" }],
@@ -185,7 +196,18 @@ export async function POST(request: Request) {
           },
         ],
       }),
-    });
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return new Response(
+          JSON.stringify({ error: "Online lookup timed out" }),
+          { status: 504, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(searchTimeoutId);
+    }
 
     if (!res.ok) {
       console.error("online search OpenAI error:", await res.text());

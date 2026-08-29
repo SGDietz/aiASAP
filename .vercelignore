@@ -1,0 +1,11 @@
+.next
+.next.*
+artifacts
+node_modules
+.env*
+*.log
+results
+__scratch__
+__scratch2__
+.hermes-supabase-readonly
+supabase/.temp

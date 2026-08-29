@@ -163,6 +163,13 @@ const IM_STATUS_WORDS = new Set([
   "fine.",
 ]);
 
+/** Occupations introduced by "I'm a/an ..." describe work, not identity. */
+function isOccupationIntroduction(text: string): boolean {
+  return /\b(?:i am|i'?m|im)\s+(?:a|an)\s+[\p{L}][\p{L}'-]*(?:\s+[\p{L}][\p{L}'-]*){0,3}(?:[.!?,;:]|$)/iu.test(
+    text.trim(),
+  );
+}
+
 /** Never treat as a person's name (whole value or word). */
 const INVALID_NAME_TOKENS = new Set([
   "email",
@@ -183,6 +190,16 @@ const INVALID_NAME_TOKENS = new Set([
   "www",
   "fine",
   "good",
+]);
+
+/** Values that must never be trusted even when they came from a durable source. */
+const UNSAFE_IDENTITY_TOKENS = new Set([
+  "loser",
+  "idiot",
+  "moron",
+  "stupid",
+  "worthless",
+  "failure",
 ]);
 
 function trimNameValue(s: string): string {
@@ -262,8 +279,22 @@ function extractLetterSpelledName(text: string): string | null {
   return null;
 }
 
+export function isUnsafePersonNameCandidate(
+  s: string | null | undefined,
+): boolean {
+  if (!s?.trim()) return true;
+  const words = s
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""))
+    .filter(Boolean);
+  return words.some((word) => UNSAFE_IDENTITY_TOKENS.has(word));
+}
+
 export function isGarbageNameCandidate(s: string | null | undefined): boolean {
   if (!s?.trim()) return true;
+  if (isUnsafePersonNameCandidate(s)) return true;
   const t = s.trim();
   const lower = t.toLowerCase();
   if (INVALID_NAME_TOKENS.has(lower)) return true;
@@ -430,6 +461,7 @@ function extractFullNameSingleWord(text: string): string | null {
 
 function extractFullName(text: string): string | null {
   if (looksLikeAssistantOrDemoPersona(text)) return null;
+  if (isOccupationIntroduction(text)) return null;
   const raw =
     extractLetterSpelledName(text) ??
     extractMyNameIsExplicit(text) ??

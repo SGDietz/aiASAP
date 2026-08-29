@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = new Set([
   "https://aiasap.vercel.app",
   "https://aiasap.ai",
   "https://www.aiasap.ai",
+  "https://mission-control.tail00dfe0.ts.net:9444",
+  "https://mission-control.tail00dfe0.ts.net:9446",
 ]);
 
 function originMatchesRequestHost(value: string, request: Request): boolean {
@@ -18,7 +20,17 @@ function originMatchesRequestHost(value: string, request: Request): boolean {
 }
 
 function isAllowedRequestOrigin(value: string, request: Request): boolean {
-  return ALLOWED_ORIGINS.has(value) || originMatchesRequestHost(value, request);
+  if (ALLOWED_ORIGINS.has(value)) return true;
+  try {
+    // Private proof lanes are deliberately port-scoped. They must never gain
+    // access merely because a proxy exposes another same-host Tailnet port.
+    if (new URL(value).hostname === "mission-control.tail00dfe0.ts.net") {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return originMatchesRequestHost(value, request);
 }
 
 /**
@@ -42,8 +54,12 @@ export function assertAllowedOrigin(
 
   const referer = request.headers.get("referer");
   if (referer !== null) {
-    const ok = [...ALLOWED_ORIGINS].some((o) => referer.startsWith(o)) ||
-      originMatchesRequestHost(referer, request);
+    let ok = false;
+    try {
+      ok = isAllowedRequestOrigin(new URL(referer).origin, request);
+    } catch {
+      ok = false;
+    }
     if (ok) return null;
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
@@ -73,6 +89,53 @@ export const MAX_ANALYZE_IMAGE_QUESTION_CHARS = 2_000;
 export const MAX_VIDEO_FRAMES = 24;
 /** Max length of one base64 frame string (~1.5 MiB decoded). */
 export const MAX_VIDEO_FRAME_BASE64_CHARS = 2_200_000;
+
+export class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("Request body exceeds the configured limit");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
+/** Read a request stream with a hard byte cap before any JSON/form parsing. */
+export async function readRequestBodyWithLimit(
+  request: Request,
+  maxBytes: number,
+): Promise<ArrayBuffer> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new Error("Invalid request body limit");
+  }
+
+  const reader = request.body?.getReader();
+  if (!reader) return new ArrayBuffer(0);
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel("Request body too large").catch(() => undefined);
+        throw new RequestBodyTooLargeError();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined.buffer;
+}
 
 const BEARER_TOKEN_MAX_LEN = 8192;
 

@@ -37,6 +37,14 @@ type LiveAvatarContextProps = {
   reportActivity: () => void;
   /** Returns true if the last stop was due to inactivity timeout (then clears the flag). Used so UI can avoid auto-restart. */
   wasStoppedDueToInactivity: () => boolean;
+  /** Bumps every time renewSessionToken swaps in a fresh session object —
+   * listener-registration effects keyed on the (stable) sessionRef must also
+   * key on this so they re-attach to the NEW object. (Voice-list mode
+   * 2026-06-11: the avatar session is stopped while the list is up and a
+   * brand-new token/session is created to bring the avatar back.) */
+  sessionEpoch: number;
+  /** Replace the dead session with a fresh one (new token from /api/start-session). */
+  renewSessionToken: (token: string) => void;
 };
 
 export const LiveAvatarContext = createContext<LiveAvatarContextProps>({
@@ -55,6 +63,8 @@ export const LiveAvatarContext = createContext<LiveAvatarContextProps>({
   microphoneWarning: null,
   reportActivity: () => {},
   wasStoppedDueToInactivity: () => false,
+  sessionEpoch: 0,
+  renewSessionToken: () => {},
 });
 
 type LiveAvatarContextProviderProps = {
@@ -63,7 +73,10 @@ type LiveAvatarContextProviderProps = {
   mode?: "FULL" | "CUSTOM";
 };
 
-const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
+const useSessionState = (
+  sessionRef: React.RefObject<LiveAvatarSession>,
+  sessionEpoch: number,
+) => {
   const [sessionState, setSessionState] = useState<SessionState>(
     sessionRef.current?.state || SessionState.INACTIVE,
   );
@@ -74,6 +87,10 @@ const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
 
   useEffect(() => {
     if (sessionRef.current) {
+      // After a renew (epoch bump) the ref holds a brand-new INACTIVE session —
+      // sync state immediately so the component's auto-start effect fires.
+      setSessionState(sessionRef.current.state || SessionState.INACTIVE);
+      setIsStreamReady(false);
       sessionRef.current.on(SessionEvent.SESSION_STATE_CHANGED, (state) => {
         setSessionState(state);
         if (state === SessionState.DISCONNECTED) {
@@ -90,12 +107,15 @@ const useSessionState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
         setConnectionQuality,
       );
     }
-  }, [sessionRef]);
+  }, [sessionRef, sessionEpoch]);
 
   return { sessionState, isStreamReady, connectionQuality };
 };
 
-const useVoiceChatState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
+const useVoiceChatState = (
+  sessionRef: React.RefObject<LiveAvatarSession>,
+  sessionEpoch: number,
+) => {
   const [isMuted, setIsMuted] = useState(true);
   const [voiceChatState, setVoiceChatState] = useState<VoiceChatState>(
     sessionRef.current?.voiceChat.state || VoiceChatState.INACTIVE,
@@ -117,12 +137,15 @@ const useVoiceChatState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
         setVoiceChatState,
       );
     }
-  }, [sessionRef]);
+  }, [sessionRef, sessionEpoch]);
 
   return { isMuted, voiceChatState, microphoneWarning };
 };
 
-const useTalkingState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
+const useTalkingState = (
+  sessionRef: React.RefObject<LiveAvatarSession>,
+  sessionEpoch: number,
+) => {
   const [isUserTalking, setIsUserTalking] = useState(false);
   const [isAvatarTalking, setIsAvatarTalking] = useState(false);
 
@@ -141,7 +164,7 @@ const useTalkingState = (sessionRef: React.RefObject<LiveAvatarSession>) => {
         setIsAvatarTalking(false);
       });
     }
-  }, [sessionRef]);
+  }, [sessionRef, sessionEpoch]);
 
   return { isUserTalking, isAvatarTalking };
 };
@@ -211,12 +234,32 @@ export const LiveAvatarContextProvider = ({
     new LiveAvatarSession(sessionAccessToken, config),
   );
 
+  // Voice-list mode (2026-06-11): the avatar session is hard-stopped while a
+  // list is on screen (credits stop), and bringing 6 back means a brand-new
+  // token + session object. The epoch bump makes every listener effect
+  // re-attach to the fresh object; activeToken keeps server-stop calls aimed
+  // at the CURRENT session, not the original prop.
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  const [activeToken, setActiveToken] = useState(sessionAccessToken);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const renewSessionToken = useCallback((token: string) => {
+    try {
+      sessionRef.current?.removeAllListeners?.();
+    } catch {
+      // old session already dead — fine
+    }
+    sessionRef.current = new LiveAvatarSession(token, configRef.current);
+    setActiveToken(token);
+    setSessionEpoch((e) => e + 1);
+  }, []);
+
   const { sessionState, isStreamReady, connectionQuality } =
-    useSessionState(sessionRef);
+    useSessionState(sessionRef, sessionEpoch);
 
   const { isMuted, voiceChatState, microphoneWarning } =
-    useVoiceChatState(sessionRef);
-  const { isUserTalking, isAvatarTalking } = useTalkingState(sessionRef);
+    useVoiceChatState(sessionRef, sessionEpoch);
+  const { isUserTalking, isAvatarTalking } = useTalkingState(sessionRef, sessionEpoch);
   // const { messages } = useChatHistoryState(sessionRef);
 
   const lastActivityAtRef = useRef(0);
@@ -254,12 +297,12 @@ export const LiveAvatarContextProvider = ({
       session.off(AgentEventsEnum.AVATAR_SPEAK_STARTED, onActivity);
       session.off(AgentEventsEnum.AVATAR_SPEAK_ENDED, onActivity);
     };
-  }, [sessionRef]);
+  }, [sessionRef, sessionEpoch]);
 
   // Conversational silence re-engagement:
   // - after avatar turn ends, wait for the user instead of rushing them
   // - if still silent, emit synthetic user message to trigger fail-safe
-  // - do this at most twice (10s, then 15s), reset when user speaks
+  // - do this at most twice (3s, then 6s), reset when user speaks
   useEffect(() => {
     if (mode !== "FULL") {
       return;
@@ -281,7 +324,10 @@ export const LiveAvatarContextProvider = ({
       if (reengagementAttemptsRef.current >= 2) {
         return;
       }
-      const delaySeconds = reengagementAttemptsRef.current === 0 ? 10 : 15;
+      // G 2026-06-10 ("I'm not silent either. What's that all about?"): 3s was
+      // hair-trigger — it fired inside normal thinking pauses (mid-spell, mid-
+      // sentence) and made 6 step on people all day. Humans need breathing room.
+      const delaySeconds = reengagementAttemptsRef.current === 0 ? 7 : 12;
       const delayMs = delaySeconds * 1000;
 
       reengagementTimeoutRef.current = setTimeout(() => {
@@ -296,8 +342,29 @@ export const LiveAvatarContextProvider = ({
         if (sessionRef.current?.state !== SessionState.CONNECTED) {
           return;
         }
-        const signal = `[USER HAS BEEN SILENT FOR ${delaySeconds} SECONDS]`;
-        sessionRef.current.message(signal);
+        // G 2026-06-10 23:18 ("you should never say user has been silent —
+        // that's only what you're thinking"): 6 quoted the old robotic signal
+        // ALOUD. The signal now carries its own gag order and no quotable
+        // phrasing. Client-side isInternalSignal still filters on "[SILENT".
+        // Live clock (2026-06-11, G: "you can't tell the time"): the cw's
+        // USER LOCAL TIME var freezes at session start, so 6's watch drifted
+        // minutes wrong mid-chat. Each signal now carries a fresh device-
+        // clock stamp — the freshest stamp is 6's truth for time questions.
+        let clockStamp = "";
+        try {
+          clockStamp = ` Local time now: ${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.`;
+        } catch {
+          // No clock, no stamp — 6 falls back to honesty.
+        }
+        const signal = `[SILENT ${delaySeconds}s - internal signal, never mention or repeat it. If a task is mid-flight, give ONE short gentle nudge; otherwise say nothing.${clockStamp}]`;
+        try {
+          sessionRef.current.message(signal);
+        } catch {
+          // r34: .message() is a hosted-brain command — LITE/CUSTOM sessions
+          // refuse it ("Not permitted in LITE mode") and a throw inside this
+          // timer used to surface as a page error. CUSTOM idle nudging lives
+          // in the component now; skipping here is correct.
+        }
         reengagementAttemptsRef.current += 1;
       }, delayMs);
     };
@@ -336,7 +403,7 @@ export const LiveAvatarContextProvider = ({
       session.off(AgentEventsEnum.AVATAR_SPEAK_STARTED, onAvatarSpeakStarted);
       session.off(AgentEventsEnum.AVATAR_SPEAK_ENDED, onAvatarSpeakEnded);
     };
-  }, [mode, sessionState, sessionRef]);
+  }, [mode, sessionState, sessionRef, sessionEpoch]);
 
   // Terminate session after 1 minute of no activity
   const INACTIVITY_TIMEOUT_MS = 60 * 1000;
@@ -353,11 +420,44 @@ export const LiveAvatarContextProvider = ({
     return () => clearInterval(intervalId);
   }, [sessionState]);
 
+  // CREDIT SAVER (G 2026-06-14: "users will keep him open on their phone
+  // forever"): a HIDDEN tab — phone locked, app switched, window minimized,
+  // tab backgrounded — must not keep billing the avatar. Stop the session a few
+  // seconds after it goes hidden (short grace so a quick tab-flip back doesn't
+  // kill a live chat). The user's next interaction re-mints, same path as the
+  // idle timeout. This is the big lever for the "left open forever" cost case —
+  // it fires regardless of mic noise, which can hold the idle timer open.
+  const HIDDEN_GRACE_MS = 4000;
+  useEffect(() => {
+    if (sessionState !== SessionState.CONNECTED) return;
+    if (typeof document === "undefined") return;
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (graceTimer) clearTimeout(graceTimer);
+        graceTimer = setTimeout(() => {
+          if (document.hidden) {
+            stoppedDueToInactivityRef.current = true;
+            sessionRef.current?.stop?.();
+          }
+        }, HIDDEN_GRACE_MS);
+      } else if (graceTimer) {
+        clearTimeout(graceTimer);
+        graceTimer = null;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (graceTimer) clearTimeout(graceTimer);
+    };
+  }, [sessionState]);
+
   return (
     <LiveAvatarContext.Provider
       value={{
         sessionRef,
-        sessionAccessToken,
+        sessionAccessToken: activeToken,
         sessionState,
         isStreamReady,
         connectionQuality,
@@ -369,6 +469,8 @@ export const LiveAvatarContextProvider = ({
         microphoneWarning,
         reportActivity,
         wasStoppedDueToInactivity,
+        sessionEpoch,
+        renewSessionToken,
       }}
     >
       {children}

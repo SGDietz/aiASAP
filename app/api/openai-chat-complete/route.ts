@@ -6,18 +6,43 @@ import {
 } from "../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../src/lib/rateLimit";
 import { OPENAI_API_KEY } from "../secrets";
+import { getUser } from "../../../src/lib/auth/getUser";
+import {
+  filterNameFactsForResolvedName,
+  resolvePersonName,
+} from "../../../src/lib/auth/resolveUserName";
+import {
+  recallFacts,
+  formatRecalledFactsForPrompt,
+  extractFactsFromTurn,
+  storeFacts,
+} from "../../../src/lib/memory";
 
-const SYSTEM_PROMPT = [
-  "You are 6, the aiASAP personal assistant and buddy.",
-  "You are warm, direct, practical, and concise. You have the user's back.",
-  "Every time you speak the brand name aiASAP, say it exactly as a-i-ASAP. Never say aisap, ai-sap, a-a-six, or A.I. ASAP.",
-  "Help people with lists, weekend plans, practical life tasks, and ways to improve their life or make money honestly.",
-  "Do not ramble. Keep most spoken replies to one or two short sentences unless the user asks for detail.",
-  "Never claim you can do integrations or actions that the app has not connected yet. Offer the next practical step instead.",
-  "Branding phrase when appropriate: Creator/Builder/Founder/Financier/CEO aiASAP.",
-].join(" ");
+// THE BIG MOVE (2026-06-11, G's order): 6's FULL brain — the entire 2.1
+// context window — now lives in our code and powers every reply in CUSTOM
+// mode. The old 8-line mini-prompt is gone; 6 is 6 everywhere, and his
+// personality survives avatar stops and returns because WE hold the brain.
+import { SIX_SYSTEM_PROMPT } from "../../../src/lib/brain/sixSystemPrompt";
+import { buildConversationMessages } from "../../../src/lib/brain/conversationMessages";
 
-const OPENAI_MODEL = "gpt-4o-mini";
+// THE INTERVIEW LEDGER (wired 2026-08-21). It records what somebody has
+// already told us across the nine parts of the $5,000 build interview, and
+// whispers the next unanswered part into 6's context. 6 is free to ignore the
+// whisper - the machine marks, 6 decides. Nothing here may break the voice:
+// every call is wrapped, and a failure just means no whisper this turn.
+import { newLedger, nextHint, hintLine, isComplete } from "../../../src/lib/interview/ledger";
+import type { Ledger } from "../../../src/lib/interview/ledger";
+import { loadLedger, saveLedger } from "../../../src/lib/interview/ledgerStore";
+import { extractInterviewSlots } from "../../../src/lib/interview/extractSlots";
+import { applySlots } from "../../../src/lib/interview/applySlots";
+import { hasVoiceConsent, recordVoiceConsent } from "../../../src/lib/interview/consent";
+import { generateBuildCard } from "../../../src/lib/interview/buildCardFromLedger";
+import { notifyTeam } from "../../../src/lib/teamNotify";
+import { hasExplicitPersonalConnectionRequest } from "../../../src/lib/buildInterestFlow";
+
+const SYSTEM_PROMPT = SIX_SYSTEM_PROMPT;
+
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 export async function POST(request: Request) {
   const originErr = assertAllowedOrigin(request);
@@ -26,8 +51,22 @@ export async function POST(request: Request) {
   if (rateLimitErr) return rateLimitErr;
 
   try {
-    const body = await request.json();
-    const { message: rawMessage, image_analysis: rawImageAnalysis } = body;
+    // G 2026-06-13: an empty/garbled body crashed request.json() with
+    // "Unexpected end of JSON input" (route.ts:34) — harden so a bad request is
+    // a clean 400, never a 500 that looks like a brain failure.
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body !== "object") {
+      return Response.json({ error: "empty or invalid request body" }, { status: 400 });
+    }
+    const {
+      message: rawMessage,
+      image_analysis: rawImageAnalysis,
+      listMode,
+      history: rawHistory,
+      userName: rawUserName,
+      signedInEmail: rawSignedInEmail,
+      buildGateSatisfied: rawBuildGateSatisfied,
+    } = body;
 
     if (typeof rawMessage !== "string" || !rawMessage.trim()) {
       return new Response(JSON.stringify({ error: "message is required" }), {
@@ -62,16 +101,152 @@ export async function POST(request: Request) {
       );
     }
 
-    // Build messages array
-    const messages: Array<{ role: string; content: string }> = [
-      {
-        role: "system",
-        content: image_analysis
-          ? `${SYSTEM_PROMPT}\n\nIMPORTANT CONTEXT: The user has shared an image with you. You can see this image clearly, and here's what you observe: ${image_analysis}\n\nWhen the user asks questions about what they're seeing or asks questions about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility of the image. Never say you can't see the image or that you're relying on someone else's analysis. You are directly viewing this image.`
-          : SYSTEM_PROMPT,
-      },
-      { role: "user", content: message },
-    ];
+    // M1.2 — Memory recall pass. Only signed-in users have memory.
+    // Supabase Auth is the canonical identity source. Client/device identity is
+    // a fallback; semantic-memory names are deliberately last.
+    const authUser = await getUser();
+    const userId = authUser?.id ?? null;
+    const recalled =
+      userId !== null ? await recallFacts({ userId, query: message }) : [];
+    const resolvedUserName = resolvePersonName({
+      authUser,
+      clientName: rawUserName,
+      memoryFacts: recalled,
+    });
+    const promptFacts = filterNameFactsForResolvedName(
+      recalled,
+      resolvedUserName,
+    );
+    const memoryBlock = formatRecalledFactsForPrompt(promptFacts);
+
+    // Load the interview ledger for the whisper. Signed-in only: an interview
+    // has to survive a closed tab and a week away, and there is nowhere to
+    // keep it for somebody we cannot name again.
+    let interviewLedger: Ledger | null = null;
+    if (userId) {
+      interviewLedger = await loadLedger(userId, Date.now());
+    }
+    const clientSignedInEmail =
+      typeof rawSignedInEmail === "string" &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawSignedInEmail.trim())
+        ? truncateUtf8String(rawSignedInEmail.trim(), 254)
+        : "";
+    const signedInEmail = authUser?.email ?? clientSignedInEmail;
+
+    // Assemble system prompt: 6's full brain + live session context +
+    // (optional image context) + (optional memory).
+    const systemSections: string[] = [SYSTEM_PROMPT];
+    // The platform used to inject SESSION CONTEXT dynamic vars; now we do.
+    try {
+      const nowLine = new Date().toLocaleString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/New_York",
+      });
+      systemSections.push(
+        `SESSION CONTEXT (live, from the app): Server time (US Eastern): ${nowLine}. Internal signals from the app may carry a fresher "Local time now" stamp in the user's own zone - the freshest stamp is the truth.`,
+      );
+    } catch {
+      // no clock, no stamp
+    }
+    if (image_analysis) {
+      systemSections.push(
+        `IMPORTANT CONTEXT: The user has shared an image with you. You can see this image clearly, and here's what you observe: ${image_analysis}\n\nWhen the user asks questions about what they're seeing or asks questions about the image, respond as if you're directly viewing it. Describe what you see naturally and confidently - you have full visibility of the image. Never say you can't see the image or that you're relying on someone else's analysis. You are directly viewing this image.`,
+      );
+    }
+    if (memoryBlock) {
+      systemSections.push(memoryBlock);
+    }
+    // THE WHISPER. One line, never spoken, never shown, never a question -
+    // it tells 6 which part is still unanswered so he stops re-asking things
+    // they already covered and stops missing things they never did.
+    if (interviewLedger) {
+      // Consent may have been given before this ledger row existed, so the
+      // table is the truth and the flag is only a cache of it. Without this
+      // top-up the whisper would say "notice not accepted" to somebody who
+      // accepted it last week, and the interview would never start.
+      if (!interviewLedger.noticeAccepted && signedInEmail) {
+        interviewLedger.noticeAccepted = await hasVoiceConsent(signedInEmail);
+      }
+      const line = hintLine(nextHint(interviewLedger));
+      if (line) systemSections.push(line);
+    }
+    // Supabase Auth identity wins. The resolver only falls back to the client
+    // profile and then semantic memory when stronger sources are absent.
+    if (resolvedUserName.name) {
+      systemSections.push(
+        `THE USER'S NAME IS: ${resolvedUserName.name.slice(0, 100)}. Use it naturally. NEVER ask for their name and NEVER say you don't have a name from them.`,
+      );
+    }
+    // r34 (G signed in, the brain asked "first time signing up, or do you
+    // already have an account?"): signed-in users are DONE with signup.
+    if (signedInEmail) {
+      systemSections.push(
+        `THE USER IS SIGNED IN as ${signedInEmail.slice(0, 254)}. NEVER ask if they have an account, never ask first-time-or-returning, never ask them to spell an email, never offer account setup. If they ask about their account, that email is the answer. Switching accounts = tell them to say "log me out". They are a KNOWN returning user — NEVER ask "what should I call you" or for their name; if you don't have a name to use, just greet them warmly and move on. (G 2026-06-13: signed in, you'd just called him "G", then asked his name — jarring.)`,
+      );
+    }
+    if (listMode === true) {
+      // Voice-list mode (2026-06-11): the user is looking at a full-screen
+      // list and 6 is voice-only. First live session lesson — the brain read
+      // a numbered food list ALOUD and gave window-resizing advice for a
+      // screen the app owns.
+      systemSections.push(
+        "RIGHT NOW: a full-screen list is on the user's screen and you are voice-only (your face is hidden). HARD RULES: answer in ONE short sentence - it's a quick back-and-forth, never a lecture. NEVER read out a numbered or multi-item set of suggestions; if you have ideas, name at most two and ask if they want them ON the list. The app owns the screen layout - never claim to move or resize anything yourself. But you CAN open lists, close lists, and add or remove items when the user asks - the app does it the moment you're asked. If the user asks why a list opened or closed on its own, apologize briefly and offer to put it back the way they want - NEVER say you have no control over lists.",
+      );
+    }
+
+    // r26 (copilot 2026-06-12, G live: 6 re-introduced himself on EVERY turn
+    // — "three different voices repeated the intro"): the brain was stateless,
+    // so each call looked like first contact and the CW's greeting script
+    // fired again. The client now sends the running conversation; with it in
+    // place the brain continues instead of restarting.
+    const history: Array<{ role: "user" | "assistant"; content: string }> = [];
+    if (Array.isArray(rawHistory)) {
+      for (const turn of rawHistory.slice(-24)) {
+        if (
+          !turn ||
+          (turn.role !== "user" && turn.role !== "assistant") ||
+          typeof turn.content !== "string"
+        ) {
+          continue;
+        }
+        const content = truncateUtf8String(turn.content.trim(), 500);
+        if (content) history.push({ role: turn.role, content });
+      }
+    }
+    if (history.length > 0) {
+      systemSections.push(
+        "CONVERSATION SO FAR: the turns below already happened in THIS session. Do NOT introduce yourself again - you already did. Continue the conversation naturally.",
+      );
+    }
+
+    // Conversion hard gate. Only an explicit prospect request to personally
+    // connect with G may enter the existing consent-gated contact flow. Build
+    // talk, sales coaching, and handoff rehearsal remain ordinary brain turns.
+    const buildInterestSeen = [
+      ...history.filter((turn) => turn.role === "user").map((turn) => turn.content),
+      message,
+    ].some(hasExplicitPersonalConnectionRequest);
+    const buildGateSatisfied = Boolean(signedInEmail) || rawBuildGateSatisfied === true;
+    if (buildInterestSeen && !buildGateSatisfied) {
+      return Response.json({
+        response: "Before we start Part 1, let’s finish the account or confirm one email or phone number for follow-up.",
+        conversionGate: "required",
+      });
+    }
+
+    // Tracer: history=0 on a turn that should have context means the PAGE is
+    // stale (old bundle not sending history) — check before debugging deeper.
+    console.log(`[chat-complete] history=${history.length} listMode=${listMode === true}`);
+
+    const messages = buildConversationMessages(
+      systemSections.join("\n\n"),
+      history,
+      message,
+    );
 
     // Call OpenAI API
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -104,6 +279,114 @@ export async function POST(request: Request) {
 
     const data = await res.json();
     const response = data.choices[0].message.content;
+
+    // M1.2 — Memory writer pass. Extract durable facts from this turn
+    // and persist them. Fire-and-forget — never block the reply on
+    // the writer. Only runs for signed-in users.
+    if (userId) {
+      void (async () => {
+        try {
+          const facts = await extractFactsFromTurn({
+            userMessage: message,
+            assistantReply: response,
+          });
+          if (facts.length > 0) {
+            await storeFacts({ userId, facts });
+          }
+        } catch (e) {
+          console.error("[memory:writer] failed", e);
+        }
+      })();
+    }
+
+    // Ledger writer. Deliberately a SEPARATE fire-and-forget block from the
+    // memory writer above: if one extractor fails the other must still run,
+    // and neither may delay the reply that is already on its way out.
+    if (userId) {
+      void (async () => {
+        try {
+          const turn = await extractInterviewSlots({
+            userMessage: message,
+            assistantReply: response,
+          });
+          const now = Date.now();
+          const base = interviewLedger ?? newLedger(now);
+          let noticeChanged = false;
+
+          // THE RECORD NOTICE. Writing this down is what lets the interview
+          // start at all, and a decline is worth keeping as much as an
+          // agreement - it is what stops us publishing somebody by mistake.
+          if (turn.notice !== "none" && signedInEmail) {
+            const granted = turn.notice === "granted";
+            const stored = await recordVoiceConsent({
+              email: signedInEmail,
+              granted,
+              spokenText: message,
+            });
+            // The one silent failure in this path with a real cost. Say so.
+            if (!stored) {
+              console.error("[interview:consent] NOT recorded", { granted });
+            }
+            if (granted) {
+              base.noticeAccepted = true;
+              noticeChanged = true;
+            } else {
+              await notifyTeam({
+                kind: "consent_declined",
+                who: signedInEmail,
+                email: signedInEmail,
+                facts: [["What they said", message.slice(0, 300)]],
+                nextStep:
+                  "Do not record, quote or publish anything from this person until they say otherwise.",
+                dedupeKey: `consent-declined:${signedInEmail}:${new Date().toISOString().slice(0, 10)}`,
+              });
+            }
+          }
+
+          if (turn.slots.length === 0 && !noticeChanged) return;
+          const { ledger, changed } = applySlots(base, turn.slots, now);
+
+          // THE MOMENT IT BECOMES BUILDABLE. status is the latch and it is set
+          // BEFORE the card is written, so a slow summariser cannot let the
+          // next turn fire a second one.
+          const justFinished = isComplete(ledger) && ledger.status !== "complete";
+          if (justFinished) ledger.status = "complete";
+
+          // No change means the turn repeated what we already had. Writing
+          // anyway would bump lastActivityAt and hide a stalled interview.
+          if (changed > 0 || noticeChanged || justFinished) {
+            await saveLedger(userId, ledger);
+          }
+
+          if (justFinished) {
+            // The summary that replaces the transcript. 6 promises nobody
+            // reads it line by line - this is what makes that true.
+            const built = await generateBuildCard(ledger);
+            const facts: Array<[string, string | null | undefined]> = built
+              ? [["Build card", built.card]]
+              : [["Build card", "Could not be written this time - read the ledger."]];
+            // A card that ran over its caps still goes out, because Scott needs
+            // the lead either way - but it goes out with the problem named. A
+            // memo quietly calling itself a summary is the failure to avoid.
+            if (built && !built.check.ok) {
+              facts.push(["Card ran over", built.check.problems.join("; ")]);
+            }
+            await notifyTeam({
+              kind: "interview_complete",
+              who: ledger.parts[1].slots.name?.value || signedInEmail || "someone",
+              email: signedInEmail || null,
+              facts,
+              nextStep:
+                "There is enough here to build from. Read the card, then talk to them before taking any money.",
+              // Stable per person, so a retry can never send this twice.
+              dedupeKey: `interview-complete:${userId}`,
+            });
+          }
+        } catch (e) {
+          console.error("[interview:ledger] failed", e);
+        }
+      })();
+    }
 
     return new Response(JSON.stringify({ response }), {
       status: 200,

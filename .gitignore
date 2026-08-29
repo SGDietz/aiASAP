@@ -1,4 +1,5 @@
-.env
+.env*
+!.env.example
 *.log
 node_modules/
 .next/
@@ -10,3 +11,21 @@ telegram_conversations.json
 telegram_conversations.json.tmp
 
 .vercel
+.env*.local
+supabase/.temp/
+.hermes-supabase-readonly/
+__scratch__/
+__scratch2__/
+
+# Plaintext-secret artifacts from the 2026-06-14 Codex key-scrub — NEVER commit.
+# (.env* already covers the .env.LEAKED-* backups; this catches the .md doc +
+# any future LEAKED file that holds real keys in cleartext.)
+LEAKED_CREDENTIALS_ROTATION.md
+*LEAKED*
+
+# Build junk that must never reach a PUBLIC repo (added 2026-08-21).
+# .next/ was already ignored, but a renamed quarantine copy was not - 359 MB
+# of stale July build output was about to be committed.
+.next.quarantine-*/
+build_out.txt
+results/
