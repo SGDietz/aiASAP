@@ -29,3 +29,30 @@ LEAKED_CREDENTIALS_ROTATION.md
 .next.quarantine-*/
 build_out.txt
 results/
+
+# ---------------------------------------------------------------------------
+# GENERATED OUTPUT AND SCRATCH (added 2026-09-04 after a full untracked audit).
+#
+# The repo had 1,740 untracked entries and 1,566 of them - 90% - were generated
+# output that must never reach a PUBLIC repo. github.com/SGDietz/aiASAP is
+# public: anything committed here is world-readable.
+#
+# .next.quarantine-* was already ignored, but .next.corrupt-* is the identical
+# class and was missed, so a dead 578-file corrupt build from 2026-09-03 was
+# sitting one `git add -A` away from being published.
+# ---------------------------------------------------------------------------
+artifacts/
+.next.corrupt-*/
+.next-installer-check/
+.codex-qa/
+work/
+work-output/
+
+# Point-in-time copies taken before an edit. For files that are UNTRACKED these
+# are the only pre-change copy that exists, so they stay on disk - they are just
+# never committed.
+*.bak-*
+
+# Codex's local scratch, not this project's.
+.codex-floating.png
+.codex-verify-floating.py
