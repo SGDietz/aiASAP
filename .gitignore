@@ -56,3 +56,12 @@ work-output/
 # Codex's local scratch, not this project's.
 .codex-floating.png
 .codex-verify-floating.py
+
+# ONE LOCKFILE ONLY (2026-09-04). package-lock.json is tracked and this project
+# runs on npm. A second lockfile for a different package manager lets npm and
+# pnpm disagree about the dependency tree, and lets a build resolve against
+# whichever it finds first - a difference that shows up as a mystery at deploy
+# time, not at commit time. The file stays on disk; it is simply never
+# committed. If the project ever moves to pnpm, that is a deliberate switch:
+# remove package-lock.json in the same change and drop this rule.
+pnpm-lock.yaml
