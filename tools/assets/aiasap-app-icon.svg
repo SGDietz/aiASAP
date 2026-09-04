@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="6">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#50300e"/>
+      <stop offset="1" stop-color="#251306"/>
+    </linearGradient>
+    <linearGradient id="six" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe9c2"/>
+      <stop offset="0.58" stop-color="#d7a05a"/>
+      <stop offset="1" stop-color="#9e6a35"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="492" height="492" rx="96" fill="url(#background)" stroke="#9e6a35" stroke-width="4"/>
+  <text x="256" y="399" fill="url(#six)" font-family="Arial Black, Arial, sans-serif" font-size="396" font-weight="900" text-anchor="middle">6</text>
+</svg>
