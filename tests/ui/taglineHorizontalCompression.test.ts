@@ -45,13 +45,22 @@ describe("tagline horizontal-only compression", () => {
     expect(tagline.match(/<Op>&gt;<\/Op>/g)).toHaveLength(1);
     expect(tagline).not.toContain("<Op>+</Op>");
     expect(tagline).not.toContain("&amp;");
-    // G, "get the > correct visually first try." MEASURED on the rendered
-    // page: the arrow's painted ink centres on the same row as all four
-    // capitals (offset 0.00px at 390x710). 0.14em left it 1px low; 0.26em was
-    // the value he called too high.
-    expect(tagline).toContain("-top-[0.205em]");
+    // OPTICAL, not geometric. 0.205em centres the arrow's painted ink exactly
+    // on the capitals' centre (measured, offset 0.00px) and G said "lower the
+    // > a little it is too high." A ">" wedge carries its mass low and wide,
+    // so geometric centre reads high. 0.14em is his value; do not re-correct
+    // it with a ruler.
+    expect(tagline).toContain("-top-[0.14em]");
     expect(tagline).toContain("font-black");
-    expect(tagline).toContain("mx-[0.11em]");
+    // G: "move the > a little away from cheap and toward autopilot." The
+    // margins were symmetric at 0.11em; the left opened and the right closed,
+    // and the pair still sums to about the old total so the line keeps its
+    // width. ONLY the arrow moved - the words, sizes, copy and colour of this
+    // line are untouched.
+    expect(tagline).toContain("ml-[0.2em] mr-[0.04em]");
+    expect(tagline).not.toContain("mx-[0.11em]");
+    // The line's own paint stays exactly where it was, inline on the span.
+    expect(tagline).toContain("bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text");
     expect(tagline).not.toContain("<br");
   });
 });

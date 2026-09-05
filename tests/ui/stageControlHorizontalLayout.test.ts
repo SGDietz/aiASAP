@@ -121,9 +121,19 @@ describe("open stage-control contents", () => {
     // stops at a warm brown, never near-black. MEASURED after: label luminance
     // 226 -> 150, icon 235 -> 115, against the wordmark's own 209 -> 105.
     expect(css).toContain("--aiasap-blend-small-1: #ffe9c2;");
-    expect(css).toContain("--aiasap-blend-small-2: #f2d29a;");
-    expect(css).toContain("--aiasap-blend-small-3: #dda86a;");
-    expect(css).toContain("--aiasap-blend-small-4: #a06c2e;");
+    expect(css).toContain("--aiasap-blend-small-2: #f6dcac;");
+    expect(css).toContain("--aiasap-blend-small-3: #e6b877;");
+    expect(css).toContain("--aiasap-blend-small-4: #b07a38;");
+    // THE TYPEFACE, which is what actually made the buttons look unlike the
+    // wordmark. Read off the live page: the wordmark is "Archivo Black"
+    // italic, the labels were Lato 700. No weight or gradient on Lato can
+    // imitate an ultra-heavy display face, so the four chest words take the
+    // wordmark's own family (upright - it leans because it is a logo). The
+    // icon stroke follows so it does not look spindly beside the type:
+    // measured, the letters paint 3-4px strokes and 3.4 units on the 24-unit
+    // viewBox paints 3.16px at the rendered 22.27px.
+    expect(css).toContain('font-family: "Archivo Black", "Arial Black", Impact, sans-serif !important;');
+    expect(css).toContain("stroke-width: 3.4 !important;");
     // "Remove all the junk": the hard 1px shadow is replaced by the wordmark's
     // own soft bloom, on the words and the icons alike.
     expect(css).toContain("filter: drop-shadow(0 1px 6px rgba(25, 15, 5, 0.4)) !important;");

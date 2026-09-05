@@ -2201,9 +2201,9 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
      wordmark's own 190 -> 105: brighter at the top, which is the "light" he
      is pointing at, and never muddy at the foot. */
   --aiasap-blend-small-1: #ffe9c2;
-  --aiasap-blend-small-2: #f2d29a;
-  --aiasap-blend-small-3: #dda86a;
-  --aiasap-blend-small-4: #a06c2e;
+  --aiasap-blend-small-2: #f6dcac;
+  --aiasap-blend-small-3: #e6b877;
+  --aiasap-blend-small-4: #b07a38;
 }
 
 [data-public-contact-ink="1"],
@@ -2214,8 +2214,8 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
   background-image: linear-gradient(
     180deg,
     var(--aiasap-blend-small-1) 0%,
-    var(--aiasap-blend-small-2) 40%,
-    var(--aiasap-blend-small-3) 72%,
+    var(--aiasap-blend-small-2) 55%,
+    var(--aiasap-blend-small-3) 85%,
     var(--aiasap-blend-small-4) 100%
   ) !important;
   background-clip: text !important;
@@ -2230,6 +2230,79 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
      it just stops looking like dirt. */
   filter: drop-shadow(0 1px 6px rgba(25, 15, 5, 0.4)) !important;
   text-shadow: none !important;
+}
+
+/* WEIGHT IS WHY THE BUTTONS DID NOT LOOK LIKE THE WORDMARK. G, 2026-09-04:
+   "See how beautiful and light aiASAP is. That should be the way all the
+   buttons are." Measured on the rendered page, one row through the middle of
+   each:
+     wordmark  cap height 36px, stroke 9-10px  -> stroke is 26% of cap height
+     START     cap height 12px, stroke  2-3px  -> stroke is 21%
+     icons     glyph  18px,     stroke  2px    -> stroke is 13%
+   A 9px stroke is wide enough to show the WHOLE cream-to-gold ramp inside
+   every stroke, which is what reads as polished metal. A 2px stroke cannot -
+   the ramp just washes the word from top to bottom, so it reads as fading
+   type rather than a lit object. The fix at this size is ink area: the words
+   take the wordmark's own weight (700, it is `font-bold`), and the icon
+   strokes fatten to sit at the same ratio so the two do not disagree. */
+[data-stage-controls="1"] [data-stage-control-inline-label="1"] {
+  /* THE ACTUAL ANSWER, and it is not a color. Read off the live page:
+       wordmark  font-family "Archivo Black", "Arial Black", Impact  italic 44.8px
+       labels    font-family Lato, "Segoe UI", Arial                 700    16.5px
+     Two completely different typefaces. Archivo Black is an ultra-heavy
+     display face - that is where the wordmark's fat, jewel-like strokes come
+     from, and no weight or gradient applied to Lato can imitate it. So the
+     four chest words take the wordmark's own family. Upright, not italic:
+     the wordmark leans because it is a logo, these are controls.
+     Archivo Black is already loaded by the page, so this costs no new font.
+     Letter-spacing comes down from 0.075em because the face is much wider and
+     GALLERY, the longest label, has to stay inside its column. */
+  font-family: "Archivo Black", "Arial Black", Impact, sans-serif !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.028em !important;
+}
+
+/* LEVEL, MEASURED ON THE ICON INK. G: "the words start and gallery need to be
+   at exactly the same height. mute and quiet also the same height to each
+   other."
+
+   The WORDS were already pixel-identical - measured at his own 605x896, the
+   label boxes are 573.3-595.8 for both START and GALLERY and 646.1-668.5 for
+   both MUTE and QUIET, centre delta 0.0. What is uneven is the INK of the
+   marks above them, because each lucide glyph fills its 24-unit box by a
+   different amount:
+     play 0.749 of the box    images 0.832    mic 0.832    volume 0.667
+   So GALLERY's mark paints 2.5px taller than START's, and MUTE's paints 5.0px
+   taller than QUIET's. The eye reads the whole control, not the label alone,
+   which is what he is seeing. The inks are already concentric (centre delta
+   0.0), so a plain scale about the centre equalises their heights without
+   shifting anything. Target 0.80 of the box - between the extremes, so
+   nothing has to grow or shrink much.
+
+   Re-measure with chest_probe.py after ANY icon swap: these numbers belong to
+   these four glyphs, and the running state swaps two of them. */
+[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg {
+  transform-origin: center center;
+}
+[data-stage-controls-open="1"] [data-stage-control="start"] .stage-control-icon > svg {
+  transform: scale(1.066);
+}
+[data-stage-controls-open="1"] [data-stage-control="gallery"] .stage-control-icon > svg,
+[data-stage-controls-open="1"] [data-stage-control="mute"] .stage-control-icon > svg {
+  transform: scale(0.96);
+}
+[data-stage-controls-open="1"] [data-stage-control="quiet"] .stage-control-icon > svg {
+  transform: scale(1.198);
+}
+
+[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg {
+  /* MATCHED TO THE LETTERS, measured, not picked. With the words on Archivo
+     Black their strokes paint 3-4px on an 11px cap. The icon svg renders at
+     22.27px from a 24-unit viewBox, so a unit is 0.928px: 3.4 units paints
+     3.16px and the icons stop looking spindly next to the type. */
+  stroke-width: 3.4 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
 }
 
 /* The four chest icons are stroked with the same ramp through the SVG

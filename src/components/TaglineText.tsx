@@ -25,38 +25,35 @@ const Initial = ({ children }: { children: React.ReactNode }) => (
 );
 
 /**
- * THE ARROW. G, 2026-09-04: "get the > correct visually first try."
+ * THE ARROW. G, 2026-09-04: "get the > correct visually first try", then
+ * "lower the > a little it is too high", then "move the > a little away from
+ * cheap and toward autopilot".
  *
- * Every number here is one he already signed off on, restored verbatim rather
- * than re-guessed — that is what makes it right on the first try:
- *
- *   -top-[0.205em] He asked for the operators "raised up to kind of the middle
+ *   -top-[0.14em]  He asked for the operators "raised up to kind of the middle
  *                  of the capital words height middle." At the baseline they
- *                  sat at the capitals' FEET. My first correction went to
- *                  0.26em and he said "the boldness is perfect, but they're
- *                  too high" — that had pushed it to the cap TOP. 0.14em was
- *                  accepted next, and it is very close, but MEASURED on the
- *                  rendered page it is still 1px low: the arrow's ink centred
- *                  on row 47.0 while the capitals' ink centres on 46.0.
- *                  0.205em is that last pixel — the Op's own font-size is
- *                  15.4px here, so 1px is 0.065em. It lands the arrow dead on
- *                  the capitals' centre and still sits well below the 0.26em
- *                  he called too high.
+ *                  sat at the capitals' FEET. 0.26em put them at the cap TOP
+ *                  ("the boldness is perfect, but they're too high"). 0.14em
+ *                  was accepted. I later MEASURED 0.14em as 1px low - the
+ *                  arrow's painted ink centres on row 47.0, the capitals on
+ *                  46.0 - and moved it to land dead centre. G looked at that
+ *                  and said it was too high, so this is OPTICAL, not
+ *                  geometric: a ">" wedge carries its mass low and wide, so
+ *                  true centre reads high. His eye wins here. Do NOT
+ *                  re-correct this with a ruler.
  *   font-black     "make them significantly more bold" -> weight 900, and it
  *                  is real, not synthesised: this line resolves to the system
  *                  sans, which carries heavy weights.
  *   text-[0.95em]  Slightly under the body size so a heavy glyph does not
  *                  out-weigh the words it sits between.
- *   mx-[0.11em]    A MARGIN, not a space character, so the gap is tunable
- *                  without touching the glyph. Tuned after "a little bit too
- *                  much space before and after."
- *
- * VERIFIED, not assumed: the arrow's painted ink centre is measured against
- * the neighbouring capitals' ink centre on the rendered page after any change
- * to this span.
+ *   ml / mr        MARGINS, not space characters, so each side tunes on its
+ *                  own. They were symmetric at 0.11em until he asked for the
+ *                  arrow moved off Cheap and toward Autopilot, so the left gap
+ *                  opened and the right closed. The pair still sums to about
+ *                  the old total, so the line keeps its width and only the
+ *                  arrow moves inside it.
  */
 const Op = ({ children }: { children: React.ReactNode }) => (
-  <span className="relative -top-[0.205em] mx-[0.11em] inline-block text-[0.95em] font-black">
+  <span className="relative -top-[0.14em] ml-[0.2em] mr-[0.04em] inline-block text-[0.95em] font-black">
     {children}
   </span>
 );
