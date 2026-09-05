@@ -21,7 +21,6 @@ describe("tagline horizontal-only compression", () => {
     // almost natural and the squeeze lives in the operator gaps: 299px.
     expect(tagline).toContain("origin-center scale-x-[0.9]");
     expect(tagline).toContain("tracking-[-0.005em]");
-    expect(tagline).toContain("mx-[0.11em]");
     expect(tagline).toContain("bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text");
     expect(tagline).toContain("text-transparent");
     expect(tagline).toContain("text-[1.6632em]");
@@ -33,24 +32,17 @@ describe("tagline horizontal-only compression", () => {
 
   it("keeps exact visual and accessibility copy on one line", () => {
     const tagline = source("src/components/TaglineText.tsx");
-    // G, 2026-09-04 evening, THIRD revision and the current one: "Beautiful
-    // Brilliant Cheap > Autopilot" - no plus signs, no periods, one arrow.
-    // (The "+" equation and the period-separated form both came and went the
-    // same evening; TaglineText.tsx carries the history.)
-    expect(tagline).toContain('<span className="sr-only">Beautiful Brilliant Cheap &gt; Autopilot</span>');
+    // G, 2026-09-04 20:50, typed word for word, FOURTH revision and the current
+    // one: "Beautiful Brilliant Cheap Autopilot" - four words, no operators.
+    // (TaglineText.tsx carries the history of the three before it.)
+    expect(tagline).toContain('<span className="sr-only">Beautiful Brilliant Cheap Autopilot</span>');
     // Four initials render at the shared Initial size: B, B, C, A — one for
     // every capital in the exact tagline spelling. It was five while the line
     // read "... Cheap. On Autopilot."; G's equation drops the "On".
     expect(tagline.match(/<Initial>[BCA]<\/Initial>/g)).toHaveLength(4);
-    // Only the arrow survives as an operator; the plus signs went with the
-    // third revision. Matched as its own span so prose plus signs elsewhere in
-    // the file cannot satisfy it.
-    expect(tagline).not.toContain("<Op>+</Op>");
-    expect(tagline).toContain("<Op>&gt;</Op>");
-    // G wanted them at cap-height middle and much heavier, not sitting on the
-    // baseline at body weight.
-    expect(tagline).toContain("-top-[0.14em]");
-    expect(tagline).toContain("font-black");
+    // No operators at all in the fourth revision - no Op span, no plus, no arrow.
+    expect(tagline).not.toContain("<Op>");
+    expect(tagline).not.toContain("&gt;");
     expect(tagline).not.toContain("<br");
   });
 });

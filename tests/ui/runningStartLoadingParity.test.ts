@@ -32,11 +32,10 @@ describe("START/RUNNING literal visual reuse and universal Loading", () => {
     expect(lockup).toContain("aiasap-tablet-idle-tagline");
     expect(lockup).toContain("text-[calc(var(--stage-width)*0.10)]");
     expect(lockup).toContain("drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]");
-    // G, 2026-09-04 evening, THIRD revision and the current one: "Beautiful
-    // Brilliant Cheap > Autopilot" - no plus signs, no periods, one arrow.
-    // (The "+" equation and the period-separated form both came and went the
-    // same evening; TaglineText.tsx carries the history.)
-    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
+    // G, 2026-09-04 20:50, typed word for word, FOURTH revision and the current
+    // one: "Beautiful Brilliant Cheap Autopilot" - four words, no operators.
+    // (TaglineText.tsx carries the history of the three before it.)
+    expect(loadingCopy).toContain("Beautiful Brilliant Cheap Autopilot");
     expect(loadingCopy).toContain("export function LoadingText");
     expect(css).toContain("font-size: calc(var(--stage-width) * 0.1045)");
     expect(css).toContain("transform: skewX(-8deg) scaleX(0.94);");

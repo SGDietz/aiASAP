@@ -23,12 +23,11 @@ describe("shared aiASAP stage tagline", () => {
     expect(lockup).toContain("aiasap-tablet-idle-tagline");
     expect(lockup).toContain('data-stage-tagline="1"');
     expect(lockup).toContain("whitespace-nowrap opacity-100");
-    // G, 2026-09-04 evening, THIRD revision and the current one: "Beautiful
-    // Brilliant Cheap > Autopilot" - no plus signs, no periods, one arrow.
-    // (The "+" equation and the period-separated form both came and went the
-    // same evening; TaglineText.tsx carries the history.)
-    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
-    expect(loadingCopy.match(/Beautiful Brilliant Cheap &gt; Autopilot/g)).toHaveLength(1);
+    // G, 2026-09-04 20:50, typed word for word, FOURTH revision and the current
+    // one: "Beautiful Brilliant Cheap Autopilot" - four words, no operators.
+    // (TaglineText.tsx carries the history of the three before it.)
+    expect(loadingCopy).toContain("Beautiful Brilliant Cheap Autopilot");
+    expect(loadingCopy.match(/Beautiful Brilliant Cheap Autopilot/g)).toHaveLength(1);
     expect(loadingCopy).toContain('data-stage-tagline-ink="1"');
     // A second 10% squeeze on G's word, 2026-09-04: 0.9 -> 0.81, horizontal
     // only. The type size is deliberately unchanged.

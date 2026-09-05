@@ -42,7 +42,7 @@ describe("smoke-stage presentation contract", () => {
   it("restores the prior tagline-era brand geometry with the exact new copy", () => {
     const loadingCopy = source("src/components/TaglineText.tsx");
     const lockup = source("src/components/StageBrandLockup.tsx");
-    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
+    expect(loadingCopy).toContain("Beautiful Brilliant Cheap Autopilot");
     expect(loadingCopy).toContain('className="text-[1.167em]"');
     expect(loadingCopy).toContain('<Initial>L</Initial><LoadingRest>OADING<span data-six-loading-phone-dots="1">...</span></LoadingRest>');
     expect(lockup).toContain("<TaglineText />");
