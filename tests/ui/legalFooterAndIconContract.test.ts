@@ -50,9 +50,20 @@ describe("single-6 icon and consolidated legal contracts", () => {
     expect(layout).toContain('apple: [{ url: "/apple-icon.png"');
   });
 
-  it("stays a normal website with no installable web-app manifest", () => {
+  it("ships an installable web-app manifest that holds the app portrait", () => {
+    // G, 2026-09-05: "I need aiASAP locked on mobile and on iPad, locked in
+    // portrait mode." A tab cannot refuse rotation; an INSTALLED app can. The
+    // old contract here ("stays a normal website with no installable web-app
+    // manifest") carried no reason and G reversed it the same day: "add the
+    // manifest." Next serves app/manifest.ts at /manifest.webmanifest and
+    // links it on its own - layout.tsx must not add a second link.
     const layout = source("app/layout.tsx");
-    expect(existsSync(join(process.cwd(), "app/manifest.ts"))).toBe(false);
+    const manifest = source("app/manifest.ts");
+    expect(existsSync(join(process.cwd(), "app/manifest.ts"))).toBe(true);
+    expect(manifest).toContain('orientation: "portrait"');
+    expect(manifest).toContain('display: "standalone"');
+    expect(manifest).toContain('start_url: "/"');
+    expect(manifest).toContain('{ src: "/icon.png", sizes: "512x512", type: "image/png" }');
     expect(layout).not.toMatch(/\bmanifest\s*:/);
     expect(layout).not.toContain("/manifest.webmanifest");
     expect(layout).toContain('shortcut: "/favicon.ico"');

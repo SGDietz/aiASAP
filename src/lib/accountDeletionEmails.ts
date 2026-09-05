@@ -42,7 +42,7 @@ function shell(title: string, h1: string, bodyHtml: string, buttonsHtml: string)
     <div class="card">
       <div class="inner">
         <div class="wordmark">aiASAP</div>
-        <div class="tag">Cheap. Fast. Gorgeous. Brilliant.</div>
+        <div class="tag">Gorgeous Brilliant Fast Cheap</div>
         <span class="sixwrap"><img src="https://wqszxsqzkaatghyrqviv.supabase.co/storage/v1/object/public/email-assets/six_face.png" alt="6, your a-i-buddy" class="six"></span>
         <h1>${h1}</h1>
         ${bodyHtml}

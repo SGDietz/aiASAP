@@ -354,7 +354,9 @@ describe("polished two-email: founder subject and body", () => {
     expect(p.ownerMediaLinks?.[0]?.href).toMatch(/^https:\/\/signed\./);
     expect(p.ownerMediaLinks?.[0]?.expiresAt).toBeTruthy();
     const src = source("src/lib/leadFollowUpNotify.ts");
-    expect(src).toMatch(/Uploads \(links only\)/);
+    // 2026-09-05 (G): links render as gold buttons ("Open file N"), never raw URLs in a row.
+    expect(src).toContain('facts.push(["Uploads", ');
+    expect(src).toContain("mediaButtons.push({ label: `Open file ${n}`, href: link.href });");
     expect(src).not.toMatch(/attachment|inline\s*preview/i);
   });
 

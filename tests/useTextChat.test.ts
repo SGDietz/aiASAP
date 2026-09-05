@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("react", () => ({
   useCallback: <T extends (...args: any[]) => any>(callback: T) => callback,
+  useRef: <T,>(value: T) => ({ current: value }),
 }));
 
 vi.mock("../src/liveavatar/context", () => ({
@@ -149,7 +150,7 @@ describe("useTextChat assistant-turn correlation", () => {
     );
 
     expect(source).toContain(
-      "return sessionSendMessage(text, undefined, utteranceId);",
+      "return sessionSendMessage(text, imageAnalysisRef.current, utteranceId);",
     );
     expect(
       source.match(
@@ -159,5 +160,59 @@ describe("useTextChat assistant-turn correlation", () => {
     expect(source).toContain("recordAssistantTurn({");
     expect(source).toContain("utteranceId: context.utteranceId,");
     expect(source).toContain("logTurn: voiceLogTurn,");
+  });
+});
+
+describe("useTextChat supersedes an in-flight brain request when a newer turn arrives", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.sessionRepeat.mockResolvedValue(undefined);
+  });
+
+  it("aborts the older request and speaks only the newest reply (ride c25f52ab: 29 requests, 22 spoken)", async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    const pending = new Map<string, (value: { json: () => Promise<{ response: string }> }) => void>();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      // logAppEvent also calls fetch (telemetry rows); only the brain calls matter here.
+      if (!String(url).includes("openai-chat-complete")) {
+        return Promise.resolve({ ok: true, json: async () => ({}) });
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as { message?: string };
+      signals.push(init?.signal ?? undefined);
+      return new Promise<{ json: () => Promise<{ response: string }> }>((resolve, reject) => {
+        pending.set(body.message ?? "", resolve);
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onAssistantText = vi.fn();
+    const newest = "utt-second";
+    const { sendMessage } = useTextChat("CUSTOM", onAssistantText, undefined, undefined, undefined, undefined, (id) => id === newest);
+
+    const first = sendMessage("first", null, "utt-first");
+    const second = sendMessage("second", null, "utt-second");
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+
+    pending.get("second")?.({ json: async () => ({ response: "second reply" }) });
+    await Promise.all([first, second]);
+
+    expect(onAssistantText).toHaveBeenCalledTimes(1);
+    expect(onAssistantText).toHaveBeenCalledWith("second reply", { utteranceId: "utt-second" });
+    expect(mocks.sessionRepeat).toHaveBeenCalledTimes(1);
+    expect(mocks.sessionRepeat).toHaveBeenCalledWith("second reply");
+  });
+
+  it("does not cancel anything when no newest-wins guard was supplied", async () => {
+    const signals: Array<AbortSignal | undefined> = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes("openai-chat-complete")) signals.push(init?.signal ?? undefined);
+      return Promise.resolve({ ok: true, json: async () => ({ response: "ok" }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { sendMessage } = useTextChat("CUSTOM", vi.fn());
+    await Promise.all([sendMessage("a", null, "utt-a"), sendMessage("b", null, "utt-b")]);
+    expect(signals.every((s) => s === undefined)).toBe(true);
   });
 });

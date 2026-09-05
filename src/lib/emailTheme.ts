@@ -186,6 +186,12 @@ export function emailShell(args: {
   bodyHtml: string;
   /** Show 6's framed photo under the wordmark. Defaults to true. */
   showSix?: boolean;
+  /**
+   * "small" = 150px face for notification mail G reads on his phone: his face
+   * is there (G 2026-09-04: "all emails should have the top of 6, his face at
+   * least") without pushing the facts off the first screen.
+   */
+  sixSize?: "full" | "small";
   /** Left-align the card contents. Notification mail reads better this way. */
   align?: "center" | "left";
 }): string {
@@ -193,7 +199,7 @@ export function emailShell(args: {
   const six =
     args.showSix === false
       ? ""
-      : `<div class="sixrow"><span class="sixwrap"><img src="${SIX_PHOTO_URL}" alt="6, your a-i-buddy" class="six"></span></div>`;
+      : `<div class="sixrow"><span class="sixwrap"><img src="${SIX_PHOTO_URL}" alt="6, your a-i-buddy" class="six${args.sixSize === "small" ? " small" : ""}"></span></div>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -214,6 +220,7 @@ export function emailShell(args: {
   .sixrow { text-align:center; }
   .sixwrap { display:inline-block; line-height:0; font-size:0; }
   .six { display:block; width:300px; max-width:78%; border-radius:34px; border:1px solid rgba(215,160,90,0.40); background:rgba(0,0,0,0.35); box-shadow:0 0 0 1px rgba(215,160,90,0.45), 0 30px 90px rgba(0,0,0,0.72); margin:0 auto; }
+  .six.small { width:150px; border-radius:22px; box-shadow:0 0 0 1px rgba(215,160,90,0.45), 0 18px 50px rgba(0,0,0,0.6); }
   h1 { font-size:26px; color:${THEME.heading}; margin:26px 0 12px; font-weight:800; }
   p { font-size:16px; line-height:1.6; margin:0 0 20px; color:${THEME.body}; }
   .btn { display:inline-block; margin:8px 6px 4px; padding:16px 46px; border-radius:14px; background:${THEME.buttonBg}; background-color:${THEME.buttonBgFallback}; color:${THEME.buttonInk} !important; font-weight:800; font-size:18px; text-decoration:none; box-shadow:0 10px 26px rgba(215,160,90,.4); }
@@ -221,8 +228,8 @@ export function emailShell(args: {
   .divider { height:1px; width:70%; margin:30px auto 0; background:${THEME.cardBorder}; }
   .fine { font-size:13px; line-height:1.55; margin-top:22px; color:${THEME.fine}; }
   .rows { width:100%; border-collapse:collapse; margin:0 0 18px; text-align:left; }
-  .rows .k { width:34%; padding:7px 12px 7px 0; color:${THEME.tagline}; font-size:14px; vertical-align:top; }
-  .rows .v { padding:7px 0; color:${THEME.body}; font-size:14px; font-weight:600; white-space:pre-wrap; }
+  .rows .k { width:34%; padding:9px 12px 9px 0; color:${THEME.tagline}; font-size:12px; font-weight:800; letter-spacing:1.2px; text-transform:uppercase; vertical-align:top; border-bottom:1px solid rgba(215,160,90,0.14); }
+  .rows .v { padding:9px 0; color:${THEME.body}; font-size:15px; font-weight:600; white-space:pre-wrap; border-bottom:1px solid rgba(215,160,90,0.14); }
   .quote { margin:0 0 22px; padding:14px 20px; border-left:3px solid ${THEME.tagline}; background:rgba(215,160,90,0.07); border-radius:0 12px 12px 0; font-size:17px; line-height:1.5; color:${THEME.heading}; font-style:italic; text-align:left; }
   .chat { margin:6px 0 18px; text-align:left; }
   .turn { margin:0 0 8px; padding:11px 15px; border-radius:12px; background:${THEME.pageBg}; border:1px solid ${THEME.cardBorder}; font-size:14px; line-height:1.55; color:${THEME.body}; }
@@ -239,8 +246,9 @@ export function emailShell(args: {
       <div class="inner">
         <div class="wordmark">aiASAP</div>
         <!-- G, 2026-09-04: "it is no longer take the leap, change that too."
-             This is the tagline the site itself shows under the wordmark. -->
-        <div class="tag">Cheap. Fast. Gorgeous. Brilliant.</div>
+             This is the tagline the site itself shows under the wordmark -
+             the four words G locked on 2026-09-04 22:14 ("take out the , and &"). -->
+        <div class="tag">Gorgeous Brilliant Fast Cheap</div>
         ${six}
         <h1>${escapeHtml(args.heading)}</h1>
         ${args.bodyHtml}

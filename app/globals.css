@@ -80,7 +80,7 @@ html[data-aiasap-capture-card="1"] [data-stage-control="gallery"] {
     position: fixed;
     inset: 0 0 auto 0;
     height: 100svh;
-    --aiasap-phone-legal-reserve: 55px;
+    --aiasap-phone-legal-reserve: 63px; /* G 2026-09-05 15:42 ride: bar 10% shorter (was 70) */
   }
 
   html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {
@@ -97,9 +97,9 @@ html[data-aiasap-capture-card="1"] [data-stage-control="gallery"] {
   }
 
   html:has([data-six-initial-idle="1"]) [data-phone-bottom-stack="1"][data-phone-flow="1"] {
-    height: 55px;
-    min-height: 55px;
-    flex: 0 0 55px;
+    height: 63px;
+    min-height: 63px;
+    flex: 0 0 63px;
     padding-bottom: 12px;
     background: linear-gradient(to bottom, transparent 0 25.29px, #241608 25.29px);
   }
@@ -520,7 +520,7 @@ html.aiasap-mobile-portrait-canvas [data-six-initial-idle="1"] .stage-legal-foot
     position: fixed;
     inset: 0 0 auto 0;
     height: 100svh;
-    --aiasap-phone-legal-reserve: 55px;
+    --aiasap-phone-legal-reserve: 63px; /* G 2026-09-05 15:42 ride: bar 10% shorter (was 70) */
   }
 
   html.aiasap-phone-start-lock [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {
@@ -547,9 +547,9 @@ html.aiasap-mobile-portrait-canvas [data-six-initial-idle="1"] .stage-legal-foot
      12px safe-area reserve still totals 55px, so the footer bottom remains
      anchored at the same coordinate. */
   [data-phone-bottom-stack="1"][data-phone-flow="1"] {
-    height: 55px;
-    min-height: 55px;
-    flex: 0 0 55px;
+    height: 63px;
+    min-height: 63px;
+    flex: 0 0 63px;
     padding-bottom: 12px;
     background: linear-gradient(to bottom, transparent 0 25.29px, #241608 25.29px);
   }
@@ -1807,8 +1807,14 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
   filter: brightness(1.08);
 }
 
+/* G 2026-09-05, on his phone, idle door: "start is nice, it's a nice
+   brightness ... make gallery quiet mute, the icons, the same brightness, the
+   same look and feel as the start button and the word start." START was the
+   only ENABLED button on the idle door; this rule dimmed the other three to
+   0.7 and that 30% was the whole difference he saw. A button that cannot act
+   yet keeps its cursor, but paints at full brightness like START. */
 [data-stage-controls-open="1"] [data-stage-control] > .stage-open-control:disabled {
-  opacity: 0.7;
+  opacity: 1;
   cursor: not-allowed;
 }
 
@@ -1821,16 +1827,26 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
 [data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg {
   width: var(--stage-open-icon-size) !important;
   height: var(--stage-open-icon-size) !important;
-  stroke: url(#aiasap-contact-gold-gradient) !important;
+  /* LIVE aiasap.ai PAINT. G, 2026-09-04 22:00, holding a crop of the live
+     site's four controls: "these are more realistic in size and color, and
+     they are what are live on aiASAP.ai right now." Read off the served
+     bundle (page-54eeaf96aa6b91a3.js + 0de7b9c898d1f821.css), not guessed:
+     the icon is a plain lucide stroke in the button's own color -
+     text-[#e0aa62], or #d77a2f for the off tone - default stroke-width 2,
+     and ONE shadow, drop-shadow(0 1px 1.5px rgba(58,33,8,.55)). No gradient,
+     no glow. The wordmark blend stays on the wordmark and the footer. */
+  stroke: currentColor !important;
   stroke-opacity: 1;
-  color: var(--aiasap-contact-gold-2);
   fill-opacity: inherit;
-  /* G, 2026-09-04 late: "Remove the glow." The two `0 0` shadows WERE the
-     glow - a white-hot core and an amber halo. Only the offset dark shadow
-     stays, which is not glow: it is what keeps a thin gold outline readable
-     against denim of the same value. */
-  filter: drop-shadow(0 1px 2px rgba(37, 18, 5, 0.7)) !important;
+  filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55)) !important;
   opacity: 1 !important;
+}
+
+/* currentColor has to be the BUTTON's color (live: #e0aa62, off #d77a2f), but
+   the icon span above sets its own `color: var(--aiasap-contact-gold-2)`,
+   which painted the stroke rgb(230,178,99) - measured. Let it inherit. */
+[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon {
+  color: inherit !important;
 }
 
 /* START's compass rose is a solid-diamond glyph — moderate its glow so its
@@ -1841,7 +1857,7 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
    still passes it. */
 [data-stage-controls-open="1"] [data-stage-control] [data-stage-control-glow="muted"] .stage-control-icon > svg,
 [data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-glow="muted"] .stage-control-icon > svg {
-  filter: drop-shadow(0 1px 2px rgba(37, 18, 5, 0.7)) !important;
+  filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55)) !important;
 }
 
 /* Labels sit directly below each icon on the open layout. */
@@ -2005,6 +2021,20 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
   [data-stage-tagline="1"] {
     letter-spacing: 0.1872em !important;
   }
+  /* 2026-09-05, G, on his phone: "a little bit of space between the letters on
+     the tagline ... they're really tight." MEASURED FIRST: the rule above never
+     reached a letter. The ink span inside the <p> (TaglineText.tsx) carries its
+     own tracking-[-0.005em], and letter-spacing on a child beats anything it
+     would inherit - so the line has been painting at -0.005em all along, and
+     the 0.1872em above (and the <p> classes) were inert. Raising them to 0.25em
+     changed nothing: tagline box 212.9px before and after. This rule lands on
+     the span the letters actually live in. -0.005 -> 0.05em; at the phone's
+     ~18.9px tagline size that is ~0.9px more per gap, 28 gaps, x0.81 squeeze,
+     so the line grows ~21px - open, not spread. Still shot at 412x758. */
+  [data-stage-tagline="1"] [data-stage-tagline-ink="1"] {
+    /* 13:55, G: "a little more space between the letters" -> 0.05 -> 0.09em. */
+    letter-spacing: 0.09em !important;
+  }
 
   /* The four chest controls are pinned to Six's body, not to the viewport, so
      they have to travel with him. 0.75 is exactly where G accepted them:
@@ -2091,7 +2121,22 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
      while a lucide glyph fills ~0.83 of its 24-unit box: 1.3 * 0.727 / 0.83 =
      1.14. Rounded up a touch to 1.35 because the open layout has no box around
      the mark to give it presence. */
-  --stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.35) !important;
+  /* LIVE SIZE. G, 2026-09-04 22:00, with the live crop: "more realistic in
+     size." On aiasap.ai the phone front door paints the icon at 36px over a
+     19.1664px label (--aiasap-idle-control-icon / -label in the served CSS),
+     so the box is 1.878x the label. Keyed to the label size so the same
+     proportion holds on tablet and desktop. */
+  --stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.878) !important;
+}
+
+/* LIVE PHONE LABEL SIZE. The served bundle's phone front door sets the label
+   to 19.1664px (var(--aiasap-idle-control-label)); the local clamp topped out
+   at 16.5px, which is the "smaller" G is pointing at. Below md only - the
+   live site switches to its desktop controls at 768px. */
+@media (max-width: 767px) {
+  [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+    --stage-control-label-size: 19.1664px;
+  }
 }
 
 /* The BOXED layout put the word UNDER the button, and this invisible twin
@@ -2204,19 +2249,52 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
   --aiasap-blend-small-2: #f6dcac;
   --aiasap-blend-small-3: #e6b877;
   --aiasap-blend-small-4: #b07a38;
+
+  /* 2026-09-05, G, holding the door on his phone: "the WildWorks.Live, phone
+     number, the legal, all need to be beautiful like aiASAP, like that word.
+     Do not change aiASAP. Do not drift."
+
+     The "light" four-stop ramp above (09-04) painted the three bottom lines
+     nearly flat - luminance 235 -> 116 with the darkness squeezed into the
+     last 15% - so next to the wordmark's visible bright-to-dark shading they
+     read as pale, not as "that word". These three stops are the wordmark's
+     OWN ramp, re-sliced for small leading-none text so its capitals sample
+     exactly what the wordmark's capitals sample (measured: #e4b97c -> #8a6333,
+     luminance 190 -> 105). Working: the wordmark's caps sit at 34%-75% of its
+     box; small caps sit at 15%-84% of theirs; solving the 0/50/100 stops of
+     #ffe9c2/#d7a05a/#3a2108 onto that span gives the mid stop at 42% and the
+     two ends below. Nothing about the wordmark itself changes. */
+  --aiasap-blend-word-1: #ebc48e;
+  --aiasap-blend-word-2: #d7a05a;
+  --aiasap-blend-word-3: #6b4021;
+  /* 15:45, G: "WildWorks.Live and the phone number, that whole line, one shade
+     towards brown - not the legal line." Same three stops x 0.92. */
+  --aiasap-blend-contact-1: #d8b483;
+  --aiasap-blend-contact-2: #c69353;
+  --aiasap-blend-contact-3: #633b1e;
+}
+
+[data-public-contact-ink="1"] {
+  background-image: linear-gradient(
+    180deg,
+    var(--aiasap-blend-contact-1) 0%,
+    var(--aiasap-blend-contact-2) 42%,
+    var(--aiasap-blend-contact-3) 100%
+  ) !important;
 }
 
 [data-public-contact-ink="1"],
 [data-stage-legal-line="1"] .aiasap-legal-ink,
 [data-stage-legal-line="1"] .aiasap-legal-separator,
-[data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] > span,
-[data-stage-controls="1"] [data-stage-control-inline-label="1"] {
+[data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] > span {
+  /* NOTE: [data-public-contact-ink] keeps clip/colour/shadow from this rule but
+     its background-image is overridden by the browner contact rule ABOVE via
+     the higher-specificity rule further down (see CONTACT ROW, end of file). */
   background-image: linear-gradient(
     180deg,
-    var(--aiasap-blend-small-1) 0%,
-    var(--aiasap-blend-small-2) 55%,
-    var(--aiasap-blend-small-3) 85%,
-    var(--aiasap-blend-small-4) 100%
+    var(--aiasap-blend-word-1) 0%,
+    var(--aiasap-blend-word-2) 42%,
+    var(--aiasap-blend-word-3) 100%
   ) !important;
   background-clip: text !important;
   -webkit-background-clip: text !important;
@@ -2232,34 +2310,33 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
   text-shadow: none !important;
 }
 
-/* WEIGHT IS WHY THE BUTTONS DID NOT LOOK LIKE THE WORDMARK. G, 2026-09-04:
-   "See how beautiful and light aiASAP is. That should be the way all the
-   buttons are." Measured on the rendered page, one row through the middle of
-   each:
-     wordmark  cap height 36px, stroke 9-10px  -> stroke is 26% of cap height
-     START     cap height 12px, stroke  2-3px  -> stroke is 21%
-     icons     glyph  18px,     stroke  2px    -> stroke is 13%
-   A 9px stroke is wide enough to show the WHOLE cream-to-gold ramp inside
-   every stroke, which is what reads as polished metal. A 2px stroke cannot -
-   the ramp just washes the word from top to bottom, so it reads as fading
-   type rather than a lit object. The fix at this size is ink area: the words
-   take the wordmark's own weight (700, it is `font-bold`), and the icon
-   strokes fatten to sit at the same ratio so the two do not disagree. */
+/* THE FOUR CHEST WORDS, PAINTED AS THEY ARE LIVE ON aiasap.ai.
+   G, 2026-09-04 22:00, holding a crop of the live site: "these are more
+   realistic in size and color, and they are what are live on aiASAP.ai right
+   now." Read off the served bundle, not guessed: the label is the page's
+   Lato at normal weight, uppercase, tracking 0.14em, SOLID #d7a05a (the CSS
+   pins it again as rgb(215,160,90) with -webkit-text-fill-color), and one
+   text-shadow, 0 1px 1.5px rgba(58,33,8,.55). No gradient, no Archivo Black,
+   no bloom. That earlier pass (wordmark blend + display face) is gone from
+   the controls; the wordmark and the footer keep their own blend above. */
 [data-stage-controls="1"] [data-stage-control-inline-label="1"] {
-  /* THE ACTUAL ANSWER, and it is not a color. Read off the live page:
-       wordmark  font-family "Archivo Black", "Arial Black", Impact  italic 44.8px
-       labels    font-family Lato, "Segoe UI", Arial                 700    16.5px
-     Two completely different typefaces. Archivo Black is an ultra-heavy
-     display face - that is where the wordmark's fat, jewel-like strokes come
-     from, and no weight or gradient applied to Lato can imitate it. So the
-     four chest words take the wordmark's own family. Upright, not italic:
-     the wordmark leans because it is a logo, these are controls.
-     Archivo Black is already loaded by the page, so this costs no new font.
-     Letter-spacing comes down from 0.075em because the face is much wider and
-     GALLERY, the longest label, has to stay inside its column. */
-  font-family: "Archivo Black", "Arial Black", Impact, sans-serif !important;
+  font-family: "Lato", "Segoe UI", Arial, sans-serif !important;
   font-weight: 400 !important;
-  letter-spacing: 0.028em !important;
+  letter-spacing: 0.14em !important;
+  background: none !important;
+  background-clip: border-box !important;
+  /* G 2026-09-05 15:20: "start gallery mute quiet ... too bright of yellowish
+     gold. Make them a little bit more brownish, just one shade darker towards
+     brown." #d7a05a x 0.92 = #c69353: same hue, 8% less light. The icon stroke
+     (StageControls text colour) took the same step, #e0aa62 -> #ce9c5a. */
+  /* 15:45, second step: "take them all just a shade more towards brown" ->
+     x0.92 again: #c69353 -> #b6874c (icons #ce9c5a -> #be8f53). */
+  /* 16:05, third step ("just the four buttons a little bit more towards
+     brown"): x0.92 again -> #a77c46 (icons #af844c). */
+  color: #a77c46 !important;
+  -webkit-text-fill-color: #a77c46 !important;
+  text-shadow: 0 1px 1.5px rgba(58, 33, 8, 0.55) !important;
+  filter: none !important;
 }
 
 /* LEVEL, MEASURED ON THE ICON INK. G: "the words start and gallery need to be
@@ -2296,22 +2373,314 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
 }
 
 [data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg {
-  /* MATCHED TO THE LETTERS, measured, not picked. With the words on Archivo
-     Black their strokes paint 3-4px on an 11px cap. The icon svg renders at
-     22.27px from a 24-unit viewBox, so a unit is 0.928px: 3.4 units paints
-     3.16px and the icons stop looking spindly next to the type. */
-  stroke-width: 3.4 !important;
+  /* Live stroke: the served bundle sets no stroke-width, so lucide's own 2
+     paints. The 3.4 that stood here was matched to Archivo Black labels,
+     which are gone (see the label block above). */
+  stroke-width: 2 !important;
   stroke-linecap: round !important;
   stroke-linejoin: round !important;
 }
 
-/* The four chest icons are stroked with the same ramp through the SVG
-   gradient, so they take the same soft bloom rather than the hard shadow. */
+/* One shadow on every chest icon, the live site's. */
 [data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg,
 [data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-glow="muted"] .stage-control-icon > svg {
-  filter: drop-shadow(0 1px 6px rgba(25, 15, 5, 0.4)) !important;
+  filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55)) !important;
 }
 
 [data-stage-controls="1"] .stage-control-icon {
   filter: none !important;
+}
+
+/* FRONT DOOR AIR (G 2026-09-05, phone screenshots 08:32-09:46): "the legal
+   line is touching the bottom", "Beautiful Brilliant Cheap on Autopilot ...
+   touching", "needs to be cleaned up up top. Needs to be made gorgeous",
+   "the legal line ... they need to come up off the bottom."
+   READ OFF HIS SCREENSHOTS (412 CSS px wide, ~758 CSS px of visible viewport
+   with Chrome's bar up; 2.18 device px per CSS px):
+     aiasap.ai   wordmark caps 23-56, tagline 68-82, hair top 101 -> 19px air
+     this build  wordmark caps 19-44, tagline 50-66, hair top 101 -> 35px air,
+                 and the tagline hard against the wordmark
+     legal line  top-pinned at 100svh - 18px: its 24px nav ends 2.8px BELOW
+                 the viewport edge (clipped, "touching the bottom")
+     WildWorks   top-pinned at 100svh - 63px: ink 705-728, 4px from the legal ink
+   So: the lockup comes DOWN 10px and the tagline a further 6px (tagline ends
+   at 82 like aiasap.ai, 19px over his hair); the legal line rises 10px; the
+   WildWorks row rises 12px so the two rows breathe; the brown bar under his
+   hands grows 64 -> 72px so it still starts above the WildWorks ink (his
+   knuckles end ~672px, the bar now starts at 686). Every winner here is the
+   same specificity + !important as the rule it replaces, later in the file.
+   Measured after with still.mjs at gphone-412x758. */
+@media (max-width: 767px) {
+  [data-six-initial-idle="1"] .aiasap-brand-lockup,
+  [data-six-active-stage="1"] .aiasap-brand-lockup {
+    transform: translateY(-8px) !important; /* was -18px */
+  }
+  .aiasap-brand-lockup [data-stage-tagline="1"] {
+    margin-top: -6px !important; /* was -12px */
+  }
+  :root,
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+  .aiasap-tablet-idle-stage {
+    --six-bar-h: 65px; /* was 72; G 2026-09-05 15:42 from inside a ride: "the bottom brown bar 10% shorter" */
+  }
+  [data-public-contact-links="1"] {
+    top: calc(100svh - 71px) !important; /* was 75; G 15:42: "wildworks.live and the phone number can come down just a smidge" - 4px, keeps 8px to the legal ink on the 444 phone */
+  }
+  .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+  [data-six-initial-idle="1"] .stage-legal-footer,
+  [data-six-active-stage="1"] .stage-legal-footer,
+  .stage-legal-footer {
+    top: calc(100svh - 28px) !important; /* was 18px: legal ink now ends ~12px above the edge */
+  }
+  html [data-phone-bottom-stack="1"][data-phone-flow="1"] {
+    /* One flat brown from the top of the (63px) stack; the ::after bar above
+       carries the visible edge, so no second gradient seam shows through. */
+    background: #241608 !important;
+  }
+}
+
+/* STOP square and QUIET speaker ten percent smaller (G 2026-09-05: "the two
+   icons that are a little big ... make the square above stop ten percent
+   smaller, and make the speaker above quiet, just the two icons, ten percent
+   smaller also"). Labels untouched. Lucide stamps the glyph name on the svg,
+   so each glyph can be sized on its own: 1.066 * 0.9 = 0.959; 1.198 * 0.9 =
+   1.078. transform-origin is centre (rule above), so the row centres -
+   measured level, delta 0.0 at 412x915 - do not move.
+   Later the same day, G on the idle door: "of the triangle on start, make the
+   triangle ten percent smaller." So the Play triangle takes the same 0.959.
+
+   THEN, 13:40, G eyeballing his phone: "start and gallery and the mute and
+   quiet ... they are not the same latitude. They're not the same height. Is
+   that my imagination?" Not imagination. Measured off the still (gold pixels,
+   not boxes): icon CENTRES were level to 0.00px in both rows, words too - but
+   the two glyphs he had just shrunk 10% are 28.4px of ink beside 31.2px, so
+   their TOP edges start 1.4px lower than GALLERY's and MUTE's, and the eye
+   reads a row by its top edges. The translate lifts each shrunk glyph 1.4px so
+   START's top = GALLERY's top and QUIET's top = MUTE's top. translate comes
+   BEFORE scale so it is in unscaled px. The Square shares the Play rule: both
+   lucide glyphs fill the same 3->21 slice of the 24 box, so one lift fits both.
+   The icon-to-word gap opens to 13.3 vs 10.5 - the eye does not read that. */
+[data-stage-controls-open="1"] [data-stage-control="start"] .stage-control-icon > svg.lucide-play {
+  /* 1.4px was measured at a 34.5px icon box (-0.0406 of the box). Keyed to
+     the box so the phone shrink below keeps the tops level. */
+  transform: translateY(calc(var(--stage-open-icon-size, 34.5px) * -0.0406)) scale(0.959);
+}
+/* 14:50, G on a live ride: "make the stop box ten percent smaller. Just the
+   box. And make it lower, a little closer to the [word] STOP." 0.959 * 0.9 =
+   0.863; the lift is gone and it drops 8% of its box instead (~2px at 27px),
+   which is what closes the gap to the word. GALLERY beside it is untouched. */
+[data-stage-controls-open="1"] [data-stage-control="start"] .stage-control-icon > svg.lucide-square {
+  transform: translateY(calc(var(--stage-open-icon-size, 34.5px) * 0.08)) scale(0.863);
+}
+
+/* LEFT COLUMN A LITTLE RIGHT. G 2026-09-05, on the idle door: "Move the start
+   button and the mute button. That means the word start and the triangle as
+   well as the mute and the microphone just a little to the right. Keep gallery
+   and quiet where they are." The whole cell (icon + word) slides 6px; the
+   grid, the cluster box and the right column do not move, so the capture box
+   (which tracks the cluster width) is unaffected. Measured with still.mjs. */
+[data-stage-controls-open="1"] [data-stage-control="start"],
+[data-stage-controls-open="1"] [data-stage-control="mute"] {
+  /* 13:55, G: "start and mute buttons a little more towards the right" -> 6 -> 10px. */
+  transform: translateX(10px);
+}
+[data-stage-controls-open="1"] [data-stage-control="quiet"] .stage-control-icon > svg.lucide-volume-2,
+[data-stage-controls-open="1"] [data-stage-control="quiet"] .stage-control-icon > svg.lucide-volume-x {
+  transform: translateY(calc(var(--stage-open-icon-size, 34.5px) * -0.0406)) scale(1.078); /* lifted, see the START note above */
+}
+
+/* ========================================================================
+   PHONE CHEST BUTTONS, SMALLER — G, 2026-09-05 13:50, holding his phone with
+   a blue box drawn around where the buttons should sit. MUST STAY LAST.
+   ------------------------------------------------------------------------
+   G: "The desktop looks great, and do not touch iPad either ... on mobile ...
+   the words are too big on my phone. This is just phone. Make all the buttons
+   fit into approximately the box, more of the look of the desktop and iPad,
+   just smaller, and make them look good. Use your eye."
+
+   HOW THE NUMBERS WERE CHOSEN (measured, not guessed):
+   - iPad (820x1180, approved): label 22.44px on a 624px frame = 3.6% of the
+     frame width. The phone frame is 412px wide: 3.6% = 15px. Same proportion,
+     "just smaller" - that is the iPad look he is pointing at. Was 19.1664px.
+   - Icon box stays 1.878x the label (the live-site ratio) -> 28.2px.
+   - Columns hug the words instead of 45% of a 259.7px cluster: GALLERY at 15px
+     is 79px of ink; 88px columns + 8px gap = 184px, 44.7% of the frame (his box
+     read ~158px; iPad's proportion would be 206px; this sits between).
+   - Row gap 14.8 -> 11px so the four read as one small group.
+   - Bottom edge 0.75 -> 0.77 of the frame: his box's bottom sat ~19px below
+     the old cluster bottom, ~32px above 6's hands. Card anchor follows.
+   Desktop and iPad never see this block (max-width 767). The sideways phone
+   shell (html.aiasap-phone-portrait-canvas, physical viewport 915 wide) gets
+   the same sizes so it stops overflowing its small upright frame.
+   ======================================================================== */
+@media (max-width: 767px) {
+  [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+    --stage-control-label-size: 15px;
+    /* 14:00, G: "start and mute, and gallery and quiet, a little bit further
+       apart. Not too much." column-gap 8 -> 16; cluster 184 -> 192. */
+    width: 192px !important;
+    grid-template-columns: repeat(2, 88px) !important;
+    column-gap: 16px !important;
+    row-gap: 11px !important;
+    bottom: calc(100svh - (var(--six-frame-h) * 0.77 - var(--six-lift))) !important;
+  }
+  /* The capture box tracks the button row (G, ride 48c99dfa: "as wide as like
+     the quiet and mute"); card_probe.py asserts |card - cluster| <= 3 and that
+     the box covers the top row. Bottom row = 28.2 icon + 3 gap + 15 word =
+     46.2, plus the 11px row gap: the box's bottom edge belongs in that gap. */
+  [data-contact-card-anchor="1"] {
+    bottom: calc(100svh - (var(--six-frame-h) * 0.77 - var(--six-lift)) + 51px) !important;
+  }
+  [data-contact-card-anchor="1"] > div {
+    max-width: 192px !important;
+  }
+}
+/* SIDEWAYS PHONE. The upright shell is only 232px wide and 6's frame inside
+   it 138px, so the portrait sizes (192px group, 15px words) overhung the frame
+   onto brown on both sides (still.mjs gphone-land-915x412, 2026-09-05 14:55).
+   Same proportion as everywhere else - 3.6% of THIS frame's width - is 5px,
+   unreadable; 12px is the floor a thumb and an eye can use. 2 x 66 + 8 = 140px
+   sits on the frame edge to edge. Nothing here reaches a portrait phone. */
+html.aiasap-phone-portrait-canvas [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+  --stage-control-label-size: 12px;
+  width: 140px !important;
+  grid-template-columns: repeat(2, 66px) !important;
+  column-gap: 8px !important;
+  row-gap: 8px !important;
+}
+html.aiasap-phone-portrait-canvas [data-contact-card-anchor="1"] > div {
+  max-width: 140px !important;
+}
+
+/* DESKTOP TAGLINE LETTERS WIDER — G, 2026-09-05 14:00: "gorgeous brilliant fast
+   cheap is perfect on mobile. Don't do anything with that. Only desktop. Make
+   them wider." Same lever as the phone rule (the ink span owns letter-spacing;
+   the <p> and its classes never reach a letter). G's desktop AND laptop are the
+   xl band (1280+), so this starts at 1280, not at 2xl. Tablet untouched. */
+@media (min-width: 1280px) {
+  [data-stage-tagline="1"] [data-stage-tagline-ink="1"] {
+    letter-spacing: 0.09em !important;
+  }
+}
+
+/* ========================================================================
+   6 IN MOTION IS ZOOMED - G, 2026-09-05 14:30, phone screenshot of a live
+   ride: "the avatar is zoomed in. His fingers are cut off at the bottom. His
+   hands need to be on the screen ... I want more space above his hairline."
+   MUST STAY LAST (it sits on top of the phone frame rule above).
+   ------------------------------------------------------------------------
+   The idle still (startscreen-noband.png, 385x690) and the provider's live
+   video are two different pictures of the same set. Both are shown in the
+   same 385:690 frame box, but the video is framed tighter at the source:
+   measured off G's screenshot at 412x758, his hair top sits at y=94 (still:
+   101) and his fingertips run under the 688px bar (still: 662). The head is
+   ~4% taller, the hair-to-fingers span ~7% longer - a source-side zoom no
+   object-fit can undo. So the VIDEO ONLY is scaled 0.93 about a point 40.6%
+   down its box: solving hair 94 -> ~107 and fingers ~714 -> ~668 puts him
+   where the still has him, with the top of the video 8px below the screen
+   edge (brand brown, behind the wordmark) and ~14px of brown at each side -
+   the "super minimal dark brown sidebars" G authorised on 09-04. translate
+   comes first so the centring stays; the scale rides on transform-origin.
+   The idle still is untouched: it already sits right. Previewed with G's own
+   frame as the video (scratchpad frame_fix_*.png) before this was written.
+
+   14:50, G, two more screenshots. (1) The START page AFTER a stop showed the
+   same cut hands and wall-above-the-board: after STOP the <video> keeps its
+   frozen last frame - the tight picture - and the first cut of this rule was
+   keyed to data-six-active-stage, which the stopped stage does not carry. The
+   rule now follows the video wherever it is. (2) On the running frame: "I
+   don't mind the bars on the sides ... but no bar at the top. The top of the
+   avatar should fit perfectly at the top of the screen." So the scale hangs
+   from the TOP edge at y=0 (top 0 replaces the -14px lift; origin 50% 0):
+   video 0 -> 686, fingers ~664, bar at 688, hair ~100 against the tagline's
+   82, brown only at the sides (~14px each). */
+@media (max-width: 767px) {
+  /* 15:55, G, two screenshots side by side: "The start screen is absolute
+     perfection... when he's in motion it's not exactly the same. Make it
+     exactly the same. Lock in the start screen where it is." So the video takes
+     the still's box, byte for byte: the same contained height above the bar,
+     top flush, the same 14px side bars - no scale of its own any more (the
+     0.93 made the box narrower than the still's, which is the difference he
+     saw). What remains is inside the provider's video: it frames 6 about 5%
+     tighter than the PNG, so in motion his hair sits ~7px higher and his hands
+     ~20px lower than on the start screen. That is the source, not the box. */
+  [data-six-stage-media="1"] > video.six-primary-scene:not(.object-contain) {
+    height: var(--six-idle-frame-h) !important;
+    top: 0 !important;
+    transform: translateX(-50%) !important;
+    transform-origin: 50% 0 !important;
+  }
+}
+
+/* ========================================================================
+   THE IDLE STILL FITS WHOLE BETWEEN THE TOP OF THE SCREEN AND THE BAR.
+   G, 2026-09-05 15:01 and 15:17, START page on his phone: "6's hands are still
+   off the screen" / "still zoomed in too far. there's no bar above the wood
+   behind six's head and his fingers are cut off." MUST STAY LAST.
+   ------------------------------------------------------------------------
+   HIS PHONE IS 444 x 818 CSS (2.43 device px per CSS px, measured off his own
+   1080x2404 screenshot: 72px bar = 175 px, 157px word row = 381 px). A 385:690
+   frame that fills 444 is 796 tall. Template-matching the still against his
+   15:17 screenshot (corr 0.956) proved it was drawn 444x795 from y=-16.5, so
+   his fingertips (95.2% of the still, lowest skin row) ended at 742 with the
+   bar at 746 - four pixels "in", and he still called them cut, because there
+   was no shirt and no floor under the hands and no wall above the board. The
+   ask is AIR around 6, not clearance. Width-driven sizing cannot give it on a
+   phone whose screen is shorter than 690/385 of its width.
+
+   SO THE WHOLE STILL IS CONTAINED IN THE SPACE ABOVE THE BAR, top flush - the
+   same shape as the running video rule above (0.93 from the top), which he
+   approved: "he's nicely in there ... I don't mind the bars on the sides."
+     height = min(width-bound, 100svh - bar)      top = 0
+   His 444x818: 746 tall, 416 wide -> 14px brown each side, hair 116 under a
+   ~88 tagline, hands end 710 with 36px of shirt/floor over the 746 bar.
+   Pixel 412x758: 686 tall, 383 wide -> 14px sides, hair 107 under 82, hands
+   653 over 686. Idle <img> only (initial START and returned STOP share it);
+   the chest cluster and the capture box keep their --six-frame-h anchor. */
+@media (max-width: 767px) {
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"] {
+    --six-idle-frame-h: min(calc(100svw * 690 / 385), calc(100svh - var(--six-bar-h)));
+  }
+  [data-six-initial-idle="1"] > .aiasap-tablet-idle-media > img.six-primary-scene {
+    height: var(--six-idle-frame-h) !important;
+    top: 0 !important;
+  }
+}
+
+/* CONTACT ROW, ONE SHADE BROWNER (G 2026-09-05 15:45) - MUST STAY LAST. The
+   shared footer rule above paints WildWorks.Live, the phone and the legal line
+   with one ramp. G wants only the top row darker, so this higher-specificity
+   rule repaints the contact ink alone; the legal line keeps its ramp. */
+nav[data-public-contact-links="1"] [data-public-contact-ink="1"] {
+  background-image: linear-gradient(
+    180deg,
+    var(--aiasap-blend-contact-1) 0%,
+    var(--aiasap-blend-contact-2) 42%,
+    var(--aiasap-blend-contact-3) 100%
+  ) !important;
+}
+
+/* FOUR BUTTONS A LITTLE HIGHER ON MOBILE - G, 2026-09-05 16:05: "On mobile,
+   make the four buttons just a little bit higher." MUST STAY LAST.
+   The cluster and the capture box were still hung off --six-frame-h, the OLD
+   width-driven frame (796 tall on G's phone) even though the picture drawn
+   today is the contained one (746 tall, top 0) in both states - idle still and
+   0.93-scaled video. Keying them to that height puts them at the same place on
+   6's chest whether he is still or moving, and 0.78 of it is the "little bit
+   higher": 444x818 -> cluster bottom 582 (was 599); 412x758 -> 535 (was 554).
+   The capture box keeps its measured +51px over the cluster bottom. */
+@media (max-width: 767px) {
+  /* On :root too: the contact-card fixture (/contact-card-fixture, card_probe.py)
+     has no stage root, and an undefined var there made the cluster and the box
+     both compute to y=0 - a "pass" that measured nothing. */
+  :root,
+  .aiasap-tablet-idle-stage {
+    --six-idle-frame-h: min(calc(100svw * 690 / 385), calc(100svh - var(--six-bar-h)));
+  }
+  [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+    bottom: calc(100svh - var(--six-idle-frame-h) * 0.78) !important;
+  }
+  [data-contact-card-anchor="1"] {
+    bottom: calc(100svh - var(--six-idle-frame-h) * 0.78 + 51px) !important;
+  }
 }

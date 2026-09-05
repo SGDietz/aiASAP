@@ -316,6 +316,12 @@ describe("custom voice reply supersession", () => {
     const second = makeMockSession();
     const secondRescue = vi.fn();
     speakViaProviderVoice(second.session, "new reply", "new", secondRescue);
+    // The first line never started, so the dispatch floor (ride f225a5c7,
+    // 2026-09-05) holds the second for the rest of the 2 s slot before its
+    // repeat() goes out; its own silent watchdog runs from that moment.
+    expect(second.session.repeat).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1600);
+    expect(second.session.repeat).toHaveBeenCalledWith("new reply");
     await vi.advanceTimersByTimeAsync(5500);
     expect(firstRescue).not.toHaveBeenCalled();
     expect(secondRescue).toHaveBeenCalledWith("repeat_silent");

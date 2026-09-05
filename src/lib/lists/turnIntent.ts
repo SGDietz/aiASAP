@@ -35,6 +35,22 @@ function tidy(value: string): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
+// RIDE 755f063f, 2026-09-05 08:35:44. "Let me tell you what I'm trying to do.
+// Okay, I'm gonna put a picture." became a list: "to do" inside "trying to do"
+// read as the to-do noun, "put a picture" read as an add, and 6 said "Added
+// Picture." while the visitor was opening the gallery. An infinitive "to do"
+// (trying / going / want / need / have ... to do) is never a list name unless
+// the word "list" follows it, and a picture, photo or video is never a list
+// item - it is the gallery.
+const INFINITIVE_TO_DO_RE =
+  /\b(?:trying|try|going|want|wants|wanted|need|needs|needed|have|has|had|got|gotta|supposed|able|like|what|things?|something|anything|nothing|lots?|much|stuff|else|how|way|job|work|hard|easy|best|first|next|ought|plan|planning|hope|hoping|willing|ready|time|enough|left)\s+to\s+do\b(?!\s*(?:-\s*)?list)/gi;
+const MEDIA_OBJECT_RE =
+  /\b(?:put|add|upload|send|show|share|take|post|attach|drop)\s+(?:up\s+|in\s+|on\s+)?(?:a|an|the|my|this|that|another|some|you)?\s*(?:picture|pictures|photo|photos|image|images|pic|pics|video|videos|screenshot|screenshots|selfie|selfies)\b(?!\s+frames?\b)/i;
+
+function withoutInfinitiveToDo(text: string): string {
+  return text.replace(INFINITIVE_TO_DO_RE, (m) => m.replace(/\bto\s+do\b/i, "to-perform"));
+}
+
 const NEGATED_DIRECT_MUTATION_RE =
   /\b(?:do\s+not|don'?t|did\s+not|didn'?t|never|not)\b[^.!?]{0,40}\b(?:add|put|grab|buy|pick\s+up|throw|remove|delete|take\s+off|cross\s+off|clear|rename|change|reorder|move)\b/i;
 
@@ -110,7 +126,7 @@ export function isDestinationListDictation(text: string): boolean {
 }
 
 export function shouldAllowDetectedListIntent(text: string): boolean {
-  const value = tidy(text);
+  const value = withoutInfinitiveToDo(tidy(text));
   if (!value || !LIST_NOUN_RE.test(value)) return false;
 
   if (NEGATED_LIST_ACTION_RE.test(value)) return false;
@@ -136,6 +152,7 @@ export function shouldTreatAsListMutation(
 ): boolean {
   const value = tidy(text);
   if (!value || ACKNOWLEDGMENT_RE.test(value)) return false;
+  if (MEDIA_OBJECT_RE.test(value)) return false;
   if (isSpokenListQuestion(value)) return false;
   if (hasActionableDirectMutation(value)) return true;
   if (NEGATED_DIRECT_MUTATION_RE.test(value)) return false;

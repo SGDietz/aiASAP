@@ -10,6 +10,21 @@ import {
 } from "../../src/lib/lists/turnIntent";
 
 describe("list turn intent", () => {
+  // RIDE 755f063f, 2026-09-05 08:35:44: "trying to do" + "put a picture" made a
+  // "Trying To Do List" with one item, "Picture", while G opened the gallery.
+  it("does not hear a to-do list inside 'what I'm trying to do'", () => {
+    const line = "Let me tell you what I'm trying to do. Okay, I'm gonna put a picture.";
+    expect(shouldAllowDetectedListIntent(line)).toBe(false);
+    expect(shouldTreatAsListMutation(line, { hasActiveList: true })).toBe(false);
+    expect(shouldTreatAsListMutation("put a picture", { hasActiveList: true })).toBe(false);
+    expect(shouldTreatAsListMutation("add a photo", { hasActiveList: true })).toBe(false);
+    expect(shouldTreatAsListMutation("I'm gonna upload a video", { hasActiveList: true })).toBe(false);
+    // Real lists still open, and a picture FRAME is still an item.
+    expect(shouldAllowDetectedListIntent("make me a to do list")).toBe(true);
+    expect(shouldAllowDetectedListIntent("put picture frames on my Walmart list")).toBe(true);
+    expect(shouldTreatAsListMutation("add picture frames", { hasActiveList: true })).toBe(true);
+  });
+
   it("rejects every false list opening from the latest ride", () => {
     for (const text of [
       "It's very hard my whole life to do this.",

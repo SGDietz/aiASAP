@@ -32,11 +32,10 @@ describe("START/RUNNING literal visual reuse and universal Loading", () => {
     expect(lockup).toContain("aiasap-tablet-idle-tagline");
     expect(lockup).toContain("text-[calc(var(--stage-width)*0.10)]");
     expect(lockup).toContain("drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]");
-    // G, 2026-09-04, SEVENTH revision and the current one, typed word for
-    // word: "Beautiful Brilliant Cheap > Autopilot". The arrow is back in the
-    // connector's slot. (TaglineText.tsx carries the history of the six
-    // before it.)
-    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
+    // G, 2026-09-05, by voice with a screenshot of the door: "Gorgeous Brilliant
+    // Cheap Fast." Four words, a plain space each, nothing else. Replaces the
+    // 2026-09-04 "on Autopilot" line. (TaglineText.tsx carries the history.)
+    expect(loadingCopy).toContain("Gorgeous Brilliant Fast Cheap");
     expect(loadingCopy).toContain("export function LoadingText");
     expect(css).toContain("font-size: calc(var(--stage-width) * 0.1045)");
     expect(css).toContain("transform: skewX(-8deg) scaleX(0.94);");

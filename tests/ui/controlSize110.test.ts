@@ -27,7 +27,7 @@ describe("accepted Six control sizing", () => {
     expect(controls).not.toMatch(/h-\[18px\] w-\[18px\]/);
     expect(controls).not.toContain("scale={");
     expect(controls).toContain('const ICON = "stage-open-glyph"');
-    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.35) !important");
+    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.878) !important");
   });
 
   it("keeps explicit cluster gaps, anchors, opacity, and shared state owners", () => {

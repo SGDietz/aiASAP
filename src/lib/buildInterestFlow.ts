@@ -250,7 +250,11 @@ const PRODUCT_REVIEW_BUILD_RE =
 export function hasExplicitPersonalConnectionRequest(text: string): boolean {
   return (
     !PRODUCT_REVIEW_BUILD_RE.test(text) &&
-    /\b(?:i want|i'?d like|i would like|can you|could you|please|let'?s|i'?m ready to)\b[\s\S]{0,70}\b(?:talk|speak|connect|meet|work)\b[\s\S]{0,45}\b(?:with\s+)?(?:g|scott|g\s+personally|scott\s+personally|g'?s\s+help)\b/i.test(text)
+    // RIDE c25f52ab 2026-09-05 14:25:58: "I'd love for you to talk to Scott" matched
+    // nothing here - no "i want / can you" opener in that shape - so the flow
+    // stayed in exploring and the BRAIN role-played the gate lines instead.
+    // "I'd love", "for you to", "talk TO Scott" and "reach out" are hand raises now.
+    /\b(?:i want|i'?d like|i would like|i'?d love|i love|can you|could you|would you|please|let'?s|i'?m ready to|for you to|you to)\b[\s\S]{0,70}\b(?:talk|speak|connect|meet|work|reach out|call)\b[\s\S]{0,45}\b(?:with\s+|to\s+)?(?:g|scott|g\s+personally|scott\s+personally|g'?s\s+help)\b/i.test(text)
   );
 }
 

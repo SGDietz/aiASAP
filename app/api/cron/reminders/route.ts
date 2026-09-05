@@ -106,7 +106,7 @@ function reminderEmailHtml(
     <div class="card">
       <div class="inner">
         <div class="wordmark">aiASAP</div>
-        <div class="tag">Cheap. Fast. Gorgeous. Brilliant.</div>
+        <div class="tag">Gorgeous Brilliant Fast Cheap</div>
         <span class="sixwrap"><img src="https://wqszxsqzkaatghyrqviv.supabase.co/storage/v1/object/public/email-assets/six_face.png" alt="6, your a-i-buddy" class="six"></span>
         <p class="lead">6 here &mdash; you asked me not to let you forget:</p>
         <h1>${safeTitle}</h1>

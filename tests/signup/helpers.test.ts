@@ -453,3 +453,19 @@ describe("buildAccountMemoryOffer — rotating value line, always ends with the 
     expect(out.endsWith("You ready?")).toBe(true);
   });
 });
+
+describe("extractDeviceNameCandidate — ride c25f52ab 2026-09-05: words after \"I'm\" are not names", () => {
+  it("does not turn ordinary I'm-sentences into a name", () => {
+    expect(extractDeviceNameCandidate("I'm a musician too.", false)).toBeNull();
+    expect(extractDeviceNameCandidate("It's fine. I, I'm thinking, you know, I build, um,", false)).toBeNull();
+    expect(extractDeviceNameCandidate("I'm just starting out", false)).toBeNull();
+    expect(extractDeviceNameCandidate("I'm not sure yet", false)).toBeNull();
+    expect(extractDeviceNameCandidate("I'm gonna build a website", false)).toBeNull();
+  });
+  it("still hears a real introduction", () => {
+    expect(extractDeviceNameCandidate("I'm Scott", false)).toBe("Scott");
+    expect(extractDeviceNameCandidate("my name's Scott", false)).toBe("Scott");
+    expect(extractDeviceNameCandidate("Uh, my name's Scott.", false)).toBe("Scott");
+    expect(extractDeviceNameCandidate("call me G", false)).toBe("G");
+  });
+});

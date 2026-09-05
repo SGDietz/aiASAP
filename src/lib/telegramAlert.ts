@@ -28,7 +28,7 @@
  */
 
 /** One alert per key per this long. An error storm must not become a phone storm. */
-const ALERT_MIN_GAP_MS = 10 * 60 * 1000;
+const ALERT_MIN_GAP_MS = 60 * 60 * 1000;
 
 /** Bound the map so a high-cardinality key can never grow it without limit. */
 const MAX_TRACKED_KEYS = 500;
@@ -98,16 +98,20 @@ export async function sendTelegramAlert(
         text: text.length > 3900 ? `${text.slice(0, 3900)}\n…(truncated)` : text,
         disable_web_page_preview: true,
       }),
+      signal: AbortSignal.timeout(6000),
     });
-    if (!res.ok) {
+    const receipt = await res.json();
+    if (!res.ok || receipt.ok !== true || !Number.isInteger(receipt.result?.message_id)) {
+      lastAlertAt.delete(key);
       // Deliberately console.error and not captureServerError: routing a failed
       // alert back through the logger that triggers alerts is a loop.
       console.error(`[telegram-alert] send failed HTTP ${res.status}`);
       return { sent: false, reason: "failed" };
     }
     return { sent: true };
-  } catch (e) {
-    console.error("[telegram-alert] send threw", e);
+  } catch {
+    lastAlertAt.delete(key);
+    console.error("[telegram-alert] send failed");
     return { sent: false, reason: "failed" };
   }
 }

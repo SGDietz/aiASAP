@@ -124,7 +124,8 @@ describe("createResendFollowUpTransport legacy payload tolerance", () => {
     expect(call.html ?? "").not.toContain("storage/private/abc.jpg");
     // Exactly ONE upload entry rendered — the one valid link.
     expect(call.text).toContain("https://signed.example/ok");
-    expect(call.text).toContain("1 file — signed link below");
+    expect(call.text).toContain("1 file — button below, links good for 7 days");
+    expect(call.text).toContain("Open file 1: https://signed.example/ok");
   });
 
   it("drains a legacy queued outbox row end-to-end without crashes or undefined", async () => {
@@ -214,7 +215,8 @@ describe("createResendFollowUpTransport legacy payload tolerance", () => {
     expect(call.text).not.toContain("storage/private/leak.jpg");
     expect(call.html ?? "").not.toContain("storage/private/leak.jpg");
     expect(call.text).toContain("https://signed.example/ok");
-    expect(call.text).toContain("1 file — signed link below");
+    expect(call.text).toContain("1 file — button below, links good for 7 days");
+    expect(call.text).toContain("Open file 1: https://signed.example/ok");
   });
 
   it("degrades to a safe review reference when signing failed and no links remain", async () => {

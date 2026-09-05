@@ -37,7 +37,7 @@ export function buildDataDownloadEmailHtml(downloadLink: string): string {
     <div class="card">
       <div class="inner">
         <div class="wordmark">aiASAP</div>
-        <div class="tag">Cheap. Fast. Gorgeous. Brilliant.</div>
+        <div class="tag">Gorgeous Brilliant Fast Cheap</div>
         <span class="sixwrap"><img src="https://wqszxsqzkaatghyrqviv.supabase.co/storage/v1/object/public/email-assets/six_face.png" alt="6, your a-i-buddy" class="six"></span>
         <h1>6 Here &mdash; Your Data Copy &#128229;</h1>
         <p>Here's your secure link to download everything I've got saved for you. It works for the next 24 hours.</p>

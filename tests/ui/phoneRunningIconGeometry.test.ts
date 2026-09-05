@@ -55,11 +55,13 @@ describe("open-control glyph baseline (G's second screenshot)", () => {
 
   it("sizes every glyph from one CSS box keyed to the label", () => {
     expect(css).toContain(
-      "--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.35) !important",
+      "--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.878) !important",
     );
     expect(css).toContain("width: var(--stage-open-icon-size) !important;");
     expect(css).toContain("height: var(--stage-open-icon-size) !important;");
-    expect(css).toContain("stroke: url(#aiasap-contact-gold-gradient) !important;");
+    // LIVE PAINT (G, 2026-09-04 22:00, holding a crop of aiasap.ai): a plain
+    // stroke in the button's own color, as the served bundle does it.
+    expect(css).toContain("stroke: currentColor !important;");
   });
 
   it("restores the roomy spacing of the second screenshot", () => {

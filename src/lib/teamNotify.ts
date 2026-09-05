@@ -50,7 +50,7 @@ const HEADLINES: Record<TeamNotifyKind, string> = {
   // The watcher found something. Deliberately NOT in ALSO_TELEGRAM: the
   // health cron already rings the phone itself, and two messages for one
   // problem is how an alert channel loses its meaning.
-  system_trouble: "something needs looking at",
+  system_trouble: "flagged something that needs looking at",
   // The one that is worth money. 6 cannot take a card or see Stripe, so the
   // ONLY way a "yes" becomes real work is somebody being told it happened.
   // Without this the sale sits in a transcript nobody reads.
@@ -149,11 +149,12 @@ export function buildTeamNotifyText(input: TeamNotifyInput): string {
  * alternative on the same message, so a watch or a text-only client still
  * shows something readable, and deliverability does not suffer.
  *
- * Design choice: left-aligned rows and no photo of 6. This is G reading it on
- * a phone to find out who did what and what he has to do - the facts are the
- * point, and a 300px portrait above them would push the useful part off the
- * first screen. Same palette, same card, same wordmark as every other aiASAP
- * email.
+ * Design choice: left-aligned rows and 6's face at 150px (not the 300px
+ * portrait). G 2026-09-04: "all emails should have the top of 6, his face at
+ * least" - and 2026-09-05, seeing the old mail again: "make beautiful ... get
+ * this done." This is G reading it on a phone to find out who did what and
+ * what he has to do, so the facts stay on the first screen under a small
+ * face. Same palette, same card, same wordmark as every other aiASAP email.
  */
 export function buildTeamNotifyHtml(input: TeamNotifyInput): string {
   const when = new Date().toLocaleString("en-US", {
@@ -185,6 +186,7 @@ export function buildTeamNotifyHtml(input: TeamNotifyInput): string {
     title: "aiASAP: " + esc(input.who) + " " + HEADLINES[input.kind],
     heading: esc(input.who) + " " + HEADLINES[input.kind] + ".",
     align: "left",
+    sixSize: "small",
     bodyHtml: [
       emailRows(rows),
       secureLinks,

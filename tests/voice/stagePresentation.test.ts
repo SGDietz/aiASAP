@@ -44,7 +44,7 @@ describe("smoke-stage presentation contract", () => {
   it("restores the prior tagline-era brand geometry with the exact new copy", () => {
     const loadingCopy = source("src/components/TaglineText.tsx");
     const lockup = source("src/components/StageBrandLockup.tsx");
-    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
+    expect(loadingCopy).toContain("Gorgeous Brilliant Fast Cheap");
     expect(loadingCopy).toContain('className="text-[1.167em]"');
     expect(loadingCopy).toContain('<Initial>L</Initial><LoadingRest>OADING<span data-six-loading-phone-dots="1">...</span></LoadingRest>');
     expect(lockup).toContain("<TaglineText />");
@@ -233,8 +233,10 @@ describe("smoke-stage presentation contract", () => {
   it("uses brand gold/orange for every normal and off control", () => {
     const controls = source("src/components/StageControls.tsx");
     expect(controls).not.toContain('tone === "white"');
-    expect(controls).toContain('"text-[#d77a2f]"');
-    expect(controls).toContain('"text-[#e0aa62]"');
+    // G 2026-09-05: the off tone is brand (#b07a38), never the raw orange #d77a2f.
+    expect(controls).toContain('"text-[#b07a38]"');
+    expect(controls).not.toContain("d77a2f");
+    expect(controls).toContain('"text-[#af844c]"'); // three shades browner, G 2026-09-05 15:20 / 15:45 / 16:05
     expect(controls).not.toContain("text-red-400");
     expect(controls).toContain('tone={micOff ? "off" : "brand"}');
     expect(controls).toContain('tone={quiet ? "off" : "brand"}');

@@ -10,6 +10,7 @@ import {
   parseCookie,
 } from "../../../../src/lib/accountPersistence";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
+import { notifyLateMedia } from "../../../../src/lib/lateMediaNotify";
 import { normalizeTesterLabel } from "../../../../src/lib/testerAttribution";
 
 const BUCKET = process.env.AIASAP_MEDIA_BUCKET || "aiasap-media";
@@ -194,6 +195,19 @@ export async function POST(request: Request) {
   if (!metadataRes.ok) {
     const body = await metadataRes.text().catch(() => "");
     console.error("media/capture metadata upload failed", metadataRes.status, body);
+  }
+
+  // LATE MEDIA -> G (2026-09-05). If this conversation's lead email already
+  // went out, tell G about the new file now (one mail, then a ten-minute quiet
+  // window; the end-of-session sync sends the last one). Awaited so a
+  // serverless instance cannot drop it, but never allowed to fail the upload.
+  if (sessionId) {
+    try {
+      const late = await notifyLateMedia({ url, serviceRoleKey, sessionId, final: false });
+      console.log(`[media/capture] late-media ${late.sent ? "SENT" : "skip"} (${late.reason}) files=${late.count}`);
+    } catch (e) {
+      console.warn("[media/capture] late-media threw", e instanceof Error ? e.message : String(e));
+    }
   }
 
   const insertRes = await fetch(`${url}/rest/v1/media_events`, {

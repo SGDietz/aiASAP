@@ -28,12 +28,15 @@ describe("cross-device avatar control paint", () => {
     expect(coreRules).not.toMatch(/animation:|backdrop-filter|blur\(/);
   });
 
-  it("uses outline glyphs stroked with the shared gold gradient", () => {
-    // G, 2026-09-04 late: back to the plain outline icons of his second
-    // screenshot. Paint is a gradient STROKE on the lucide svg, not a fill.
+  it("uses outline glyphs stroked in the button's own live color", () => {
+    // G, 2026-09-04 22:00, holding a crop of the LIVE aiasap.ai controls:
+    // "these are more realistic in size and color." Paint is a plain
+    // currentColor STROKE on the lucide svg (#e0aa62 / off #d77a2f), one
+    // shadow, no gradient - read off the served bundle.
     expect(controls).toContain('from "lucide-react"');
     expect(controls).toContain('const ICON = "stage-open-glyph"');
-    expect(css).toContain("stroke: url(#aiasap-contact-gold-gradient) !important;");
+    expect(css).toContain("stroke: currentColor !important;");
+    expect(css).toContain("filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55)) !important;");
     expect(css).not.toContain("stroke: none !important;");
     expect(controls).toContain('id="aiasap-contact-gold-gradient"');
     expect(rules).toContain('[data-stage-control-label="1"]');
@@ -81,7 +84,7 @@ describe("cross-device avatar control paint", () => {
 
   it("keeps the avatar reserve fixed while shortening and centering legal", () => {
     const footer = source("src/components/StageLegalFooter.tsx");
-    expect(css).toContain("--aiasap-phone-legal-reserve: 55px;");
+    expect(css).toContain("--aiasap-phone-legal-reserve: 63px;");
     expect(css).toContain("transparent 0 20.35px");
     expect(css).toContain("#241608 20.35px");
     expect(css).toContain("@media (max-width: 599px)");
@@ -91,7 +94,7 @@ describe("cross-device avatar control paint", () => {
     expect(css).toContain("height: 17.71px;");
     expect(css).toContain("bottom: 8.47px;");
     expect(css).toContain("margin-top: 0;");
-    expect(css).toContain("flex: 0 0 55px;");
+    expect(css).toContain("flex: 0 0 63px;");
     expect(css).toContain("padding-bottom: 12px;");
     expect(css).toContain('[data-stage-legal-line="1"] {');
     expect(css).toContain("opacity: 1;");
@@ -118,7 +121,9 @@ describe("cross-device avatar control paint", () => {
     expect(loading).toContain('aria-label="Loading"');
     expect(loading).toContain('href="/aiasap-app-icon.png"');
     expect(loading).not.toContain(">\n        Loading\n");
-    expect(session).toContain("isPhoneLifecycleViewport && !hasRenderableAvatarFrame");
+    // Frame proof gates the surface on EVERY device since 2026-09-05 (G: "loading
+    // six stays until six has loaded"), phones included.
+    expect(session).toContain("const frameProofReady = hasRenderableAvatarFrame || frameProofWaived;");
     expect(session).toContain('window.matchMedia("(max-width: 599px)")');
     expect(session).toContain("onLoadedData={(event) => attemptAvatarVideoPlayback(event.currentTarget)}");
     expect(session).toContain("onCanPlay={(event) => attemptAvatarVideoPlayback(event.currentTarget)}");

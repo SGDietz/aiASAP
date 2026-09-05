@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const health = readFileSync(join(process.cwd(), "app/api/cron/health/route.ts"), "utf8");
+const route = readFileSync(join(process.cwd(), "app/api/cron/health/route.ts"), "utf8");
+const monitor = readFileSync(join(process.cwd(), "src/lib/healthMonitor.ts"), "utf8");
 
 /**
  * WildWorks went down for real visitors on 2026-09-04 because production was
@@ -10,43 +11,51 @@ const health = readFileSync(join(process.cwd(), "app/api/cron/health/route.ts"),
  * "Context not found" on every attempt. Nothing watched for it, so a stale env
  * value sat for 35 days and surfaced as a dead site instead of an alert.
  *
- * aiASAP's cloud watcher now asks the provider whether the ids it mints with
- * still exist.
+ * Chief rewrote the cloud watcher on 2026-09-05 (errors-only, G's order: the
+ * 15-minute mail "was not productive, just something I ignored"). These lock
+ * the parts of that design that protect against the WildWorks outage repeating.
  */
 describe("the watcher checks that the ids we mint with still exist", () => {
   it("asks the provider about the avatar and the voice", () => {
-    expect(health).toContain("providerIdState");
-    expect(health).toContain('["avatar", "avatars", AVATAR_ID]');
-    expect(health).toContain('["voice", "voices", VOICE_ID]');
+    expect(route).toContain('ids: [["avatars", AVATAR_ID], ["voices", VOICE_ID]]');
+    expect(monitor).toContain("for (const [collection, id] of settings.provider.ids)");
   });
 
   it("reads only - it must never mint or spend a credit", () => {
-    const fn = health.slice(health.indexOf("async function providerIdState"));
-    const body = fn.slice(0, fn.indexOf("\n}"));
-    expect(body).toContain("/v1/${collection}/${id}");
-    // A GET has no method override and no body.
-    expect(body).not.toMatch(/method:\s*"POST"/);
-    expect(body).not.toContain("start-custom-session");
-    expect(body).not.toContain("start-session");
+    expect(monitor).toContain("/v1/${collection}/${encodeURIComponent(id.trim())}");
+    // A GET has no method override on the provider call, and no session route.
+    expect(monitor).not.toContain("start-custom-session");
+    expect(monitor).not.toContain("start-session");
+    expect(monitor).toContain("Cloud checks never create avatar sessions");
   });
 
   it("separates 'deleted' from 'cannot reach the provider'", () => {
-    const fn = health.slice(health.indexOf("async function providerIdState"));
-    expect(fn).toContain('res.status === 404) return "missing"');
-    // Anything else, including a network throw, is unknown - never an alarm.
-    expect(fn).toContain('return "unknown"');
-    expect(health).toContain("crying wolf here would train G to ignore this alarm");
+    expect(monitor).toContain('if (r.status === 404) add(`provider_missing:${collection}`');
+    // Anything else - HTTP error, timeout, no network - is "unverified", a
+    // different code, so a flaky provider never reads as a deleted id.
+    expect(monitor).toContain("provider_unverified:${collection}");
+    expect(monitor).toContain("lookup timed out or could not connect");
   });
 
   it("deliberately does NOT check the context id", () => {
     // aiASAP sends no context_id, and the value left in .env points at a
-    // deleted context. Checking it would alarm every 15 minutes about nothing.
-    expect(health).toContain("NOT checked here: LIVEAVATAR_CONTEXT_ID");
-    expect(health).not.toContain('"contexts", CONTEXT_ID');
+    // deleted context. Checking it would alarm about nothing.
+    expect(route).not.toContain("contexts");
+    expect(route).not.toContain("CONTEXT_ID");
   });
 
-  it("says the quiet part out loud: the billing message is a lie", () => {
-    expect(health).toContain("Add credits");
-    expect(health).toMatch(/NOT\s*\` \+\s*\`a billing problem|NOT ` \+\s*`a billing problem|not a billing problem/i);
+  it("fires only on findings, deduped for a day, and re-arms on recovery", () => {
+    const notice = readFileSync(join(process.cwd(), "src/lib/healthNotice.ts"), "utf8");
+    expect(notice).toContain("if (!findings.length) return false;");
+    expect(notice).toContain("now - Date.parse(previous.at) >= 24 * 60 * 60_000");
+    expect(notice).toContain("if (!args.findings.length) previous = null; // Silent recovery re-arms recurrence.");
+  });
+
+  it("every app event now says which deployment wrote it, so a monitor CAN tell dev rides from production", () => {
+    // One Supabase project serves :3001 and production. The log route stamps
+    // payload.env (Claude, 2026-09-05); filtering on it is the monitor owner's
+    // (Codex) call - recommended in the 2026-09-05 review packet.
+    const log = readFileSync(join(process.cwd(), "app/api/app-events/log/route.ts"), "utf8");
+    expect(log).toContain('env: process.env.VERCEL_ENV ?? "development"');
   });
 });

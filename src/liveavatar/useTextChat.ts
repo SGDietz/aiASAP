@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useLiveAvatarContext } from "./context";
 import {
   registerSixSpokenLine,
@@ -34,6 +34,15 @@ export const useTextChat = (
   shouldDeliverAssistantTurn?: (utteranceId: string) => boolean,
 ) => {
   const { sessionRef, reportActivity } = useLiveAvatarContext();
+  // RIDE c25f52ab 2026-09-05: 29 brain requests, 22 spoken. The other seven
+  // were answers to a turn the visitor had already talked past; the newest turn
+  // owns the speech pipe (shouldDeliverAssistantTurn), so those replies were
+  // fetched, written to the transcript, and thrown away. When a newer turn
+  // arrives while an older brain request is still in flight, the older request
+  // is CANCELLED instead: no wasted call, no ghost row, and the newest answer
+  // is not queued behind a dead one. Only when the caller supplied the guard -
+  // without it there is no "newest wins" rule to honour.
+  const inflightBrainRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
     async (
@@ -76,6 +85,21 @@ export const useTextChat = (
         return sessionRef.current.message(message);
       } else if (mode === "CUSTOM") {
         const brainStartedAt = Date.now();
+        let controller: AbortController | null = null;
+        if (shouldDeliverAssistantTurn && typeof AbortController !== "undefined") {
+          const older = inflightBrainRef.current;
+          if (older) {
+            older.abort();
+            logAppEvent(
+              "voice_brain_request_superseded",
+              { stage: "brain_request", mode },
+              "low",
+              { utteranceId: utteranceId ?? undefined, provider: "openai", outcome: "superseded" },
+            );
+          }
+          controller = new AbortController();
+          inflightBrainRef.current = controller;
+        }
         if (utteranceId) {
           logAppEvent(
             "voice_brain_request_started",
@@ -89,19 +113,35 @@ export const useTextChat = (
             },
           );
         }
-        const response = await fetch("/api/openai-chat-complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message,
-            image_analysis: imageAnalysis || undefined,
-            history: getHistory?.() ?? [],
-            userName: getUserName?.() ?? null,
-            signedInEmail: getSignedInEmail?.() ?? null,
-            buildGateSatisfied: getBuildGateSatisfied?.() ?? false,
-          }),
-        });
-        const { response: chatResponseText } = await response.json();
+        // Same shape as the old destructuring from response.json(): untyped JSON.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let chatResponseText: any;
+        try {
+          const response = await fetch("/api/openai-chat-complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message,
+              image_analysis: imageAnalysis || undefined,
+              history: getHistory?.() ?? [],
+              userName: getUserName?.() ?? null,
+              signedInEmail: getSignedInEmail?.() ?? null,
+              buildGateSatisfied: getBuildGateSatisfied?.() ?? false,
+            }),
+            ...(controller ? { signal: controller.signal } : {}),
+          });
+          ({ response: chatResponseText } = await response.json());
+        } catch (error) {
+          // A superseded request ends here on purpose: the newer turn owns the
+          // floor and its own request is already running.
+          if (controller?.signal.aborted) return;
+          throw error;
+        } finally {
+          if (controller && inflightBrainRef.current === controller) {
+            inflightBrainRef.current = null;
+          }
+        }
+        if (controller?.signal.aborted) return;
         if (
           utteranceId &&
           shouldDeliverAssistantTurn &&

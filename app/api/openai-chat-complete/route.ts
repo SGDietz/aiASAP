@@ -28,6 +28,11 @@ import {
   NAME_ASK_WHISPER,
 } from "../../../src/lib/nameAskWhisper";
 import { buildConversationMessages } from "../../../src/lib/brain/conversationMessages";
+import {
+  antiRepeatNudge,
+  findReusedRun,
+  recentAssistantLines,
+} from "../../../src/lib/brain/antiRepeat";
 
 // THE INTERVIEW LEDGER (wired 2026-08-21). It records what somebody has
 // already told us across the nine parts of the $5,000 build interview, and
@@ -50,6 +55,47 @@ import {
 const SYSTEM_PROMPT = SIX_SYSTEM_PROMPT;
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+// ANTI-REPEAT, IN CODE (ride 755f063f, 2026-09-05: "Take your time" x3,
+// "whenever you're ready" x4 in four minutes, with the prose rule already in
+// the brain). When the draft leans on a run of words 6 used in his last three
+// lines, ask ONCE for a fresh phrasing. The retry is used only when it is
+// itself clean; otherwise the draft goes out. Never a third call, never a
+// blocked or slower-than-one-retry reply. See src/lib/brain/antiRepeat.ts.
+async function freshenIfRepeated(
+  draft: string,
+  messages: Array<{ role: string; content: string }>,
+  recentSixLines: readonly string[],
+): Promise<string> {
+  const reused = findReusedRun(draft, recentSixLines);
+  if (!reused) return draft;
+  console.log(`[chat-complete] anti-repeat retry, reused run: "${reused}"`);
+  try {
+    const retryRes = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        messages: [...messages, { role: "system", content: antiRepeatNudge(reused) }],
+      }),
+    });
+    if (!retryRes.ok) return draft;
+    const retryData = await retryRes.json();
+    const retryText = retryData?.choices?.[0]?.message?.content;
+    if (typeof retryText !== "string" || !retryText.trim()) return draft;
+    if (findReusedRun(retryText, recentSixLines)) {
+      console.log("[chat-complete] anti-repeat retry still reused a run; sending the draft");
+      return draft;
+    }
+    return retryText;
+  } catch (e) {
+    console.warn("[chat-complete] anti-repeat retry failed", e);
+    return draft;
+  }
+}
 
 export async function POST(request: Request) {
   const originErr = assertAllowedOrigin(request);
@@ -343,7 +389,11 @@ export async function POST(request: Request) {
     }
 
     const data = await res.json();
-    const response = data.choices[0].message.content;
+    const draftResponse = data.choices[0].message.content;
+    const response =
+      typeof draftResponse === "string"
+        ? await freshenIfRepeated(draftResponse, messages, recentAssistantLines(history))
+        : draftResponse;
 
     // M1.2 — Memory writer pass. Extract durable facts from this turn
     // and persist them. Fire-and-forget — never block the reply on

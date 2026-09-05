@@ -17,6 +17,7 @@ import {
   storeFacts,
 } from "../../../../../src/lib/memory";
 import { normalizeUtterance } from "../../../../../src/lib/speech/dedupe";
+import { notifyLateMedia } from "../../../../../src/lib/lateMediaNotify";
 import { isPostgrestMissingColumnError } from "../../../../../src/lib/appEventEnvelope";
 import {
   FRAGMENT_SOURCE,
@@ -584,6 +585,9 @@ export async function POST(request: Request) {
     const { liveAvatarSessionId: rawSessionId, startTimestamp } = body;
     const testerLabel = normalizeTesterLabel(body.testerLabel);
     const clientManagedSignup = body.clientManagedSignup === true;
+    // The client's last sync of a conversation (see the end-session fetch in
+    // LiveAvatarSession). The one place the FINAL "sent photos" mail can go.
+    const endOfSession = body.endOfSession === true;
 
     if (!isSafeTranscriptionSessionId(rawSessionId)) {
       return new Response(JSON.stringify({ error: "Invalid liveAvatarSessionId" }), {
@@ -952,6 +956,22 @@ export async function POST(request: Request) {
             `[memory:writer sync DIAG] user=${userId} turns=${turns.length} factsStored=${stored}`,
           );
         })();
+      }
+    }
+
+    if (endOfSession) {
+      // LATE MEDIA -> G (2026-09-05): files uploaded after the lead email went
+      // out, that no mail has carried yet, go out once here. Best-effort.
+      try {
+        const late = await notifyLateMedia({
+          url,
+          serviceRoleKey,
+          sessionId: liveAvatarSessionId,
+          final: true,
+        });
+        console.log(`[transcript-sync] late-media final ${late.sent ? "SENT" : "skip"} (${late.reason}) files=${late.count}`);
+      } catch (e) {
+        console.warn("[transcript-sync] late-media threw", e instanceof Error ? e.message : String(e));
       }
     }
 

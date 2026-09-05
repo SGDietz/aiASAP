@@ -185,6 +185,8 @@ import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import {
   bindSessionListener,
   flushPendingSpeechFragment,
+  INCOMPLETE_FRAGMENT_HOLD_MS,
+  shardDropReason,
   isLikelyIncompleteSpeechFragment,
   isSameUtteranceHeardTwice,
   resolveSemanticTurn,
@@ -441,6 +443,14 @@ const BRAND_BUILDER_PILOT_MODE = true;
 // comeback, voiceMode/intents.ts) stays in the repo, dormant behind this flag
 // -- flip to false to bring full-page back. [[feedback_dont_change_working_things]]
 const FULL_PAGE_LISTS_DORMANT = true;
+
+// LISTS_DORMANT (G 2026-09-05, phone screenshot of a "Trying To Do List" card
+// over 6's chest mid smoke test): "this pop up does not belong ... that's code
+// that needs to be made dormant that may come back in the future." With this
+// TRUE no spoken turn can open, create, or mutate a chest list, the list index
+// card never opens, and the reminders card stays down. Every list module stays
+// in the repo behind this flag - flip to false to bring lists back.
+const LISTS_DORMANT = true;
 
 function keepExploreAiASAPLow(prompts: string[]): string[] {
   const explore = prompts.find((prompt) => /^explore\s+aiasap$/i.test(prompt));
@@ -2339,6 +2349,13 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceCurrentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   // Durable correlation id for the accepted user turn currently being handled.
   const currentUtteranceIdRef = useRef<string | null>(null);
+  // RIDE 755f063f, 2026-09-05 08:36-08:38. The gallery photo was analysed
+  // (storage sidecar: "a promotional banner for aiASAP above him") and then
+  // parked in React state that nothing read. The CUSTOM brain call passed
+  // `undefined` for the analysis, so 6 said "the company name isn't in the
+  // picture" twice with the answer sitting in memory. Ref-mirrored so the
+  // send wrapper, declared earlier than the state, reads it at call time.
+  const imageAnalysisRef = useRef<string | null>(null);
   // Set only when a brain reply is about to enter HeyGen's speech path. The
   // AVATAR_SPEAK_STARTED event consumes it so unrelated scripted speech cannot
   // be attributed to a stale user turn.
@@ -2750,6 +2767,7 @@ const LiveAvatarSessionComponent: React.FC<{
             body: JSON.stringify({
               message: text,
               listMode: true,
+              image_analysis: imageAnalysisRef.current || undefined,
               history: getBrainHistory(),
               userName: deviceProfileRef.current?.name ?? null,
               signedInEmail: accountEmailRef.current,
@@ -2775,7 +2793,7 @@ const LiveAvatarSessionComponent: React.FC<{
         }
         return;
       }
-      return sessionSendMessage(text, undefined, utteranceId);
+      return sessionSendMessage(text, imageAnalysisRef.current, utteranceId);
     },
     [sessionSendMessage, voiceSay, getBrainHistory],
   );
@@ -3453,6 +3471,10 @@ const LiveAvatarSessionComponent: React.FC<{
   // video element. Keep phone lifecycle UI behind the loading badge until the
   // media element itself proves that it has renderable current data.
   const [hasRenderableAvatarFrame, setHasRenderableAvatarFrame] = useState(false);
+  // See STARTUP SETTLES ONCE below: proof of a presented frame, or a waiver
+  // after the wait when the browser cannot give one.
+  const FRAME_PROOF_WAIT_MS = 4000;
+  const [frameProofWaived, setFrameProofWaived] = useState(false);
   const avatarFrameProvenRef = useRef(false);
   const avatarFrameRequestRef = useRef<{
     video: HTMLVideoElement;
@@ -3469,6 +3491,9 @@ const LiveAvatarSessionComponent: React.FC<{
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [imageAnalysis, setImageAnalysis] = useState<string | null>(null);
+  useEffect(() => {
+    imageAnalysisRef.current = imageAnalysis;
+  }, [imageAnalysis]);
   const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const [isAnalyzingVideo, setIsAnalyzingVideo] = useState(false);
@@ -3921,6 +3946,29 @@ const LiveAvatarSessionComponent: React.FC<{
   // and then jumps in." While this is true, the barge-in watcher will not cut
   // him off - it is the one line in the session that has to land whole.
   const openerInFlightRef = useRef(false);
+  // THE OPENING ALWAYS FINISHES (G 2026-09-03). Ride 755f063f, 2026-09-05
+  // 08:34:05: "Wow." fourteen seconds in, and the reply to it replaced the
+  // opener mid-sentence - G: "Are you saying finish what you were". A user
+  // turn that lands while the opener is in flight is kept here and released
+  // the moment the opener ends (both release points call
+  // releaseOpenerHeldTurn). The barge-in poll already refuses to cut the
+  // opener; this stops the REPLY from cutting it.
+  const openerHeldTurnRef = useRef<string | null>(null);
+  const handleUserTranscriptionRef = useRef<
+    ((event: { text: string; flushHeld?: boolean }) => unknown) | null
+  >(null);
+  const releaseOpenerHeldTurn = useCallback(() => {
+    const held = openerHeldTurnRef.current;
+    if (!held) return;
+    openerHeldTurnRef.current = null;
+    logAppEvent(
+      "user_turn_flushed",
+      { where: "avatar", length: held.length, reason: "opener_finished" },
+      "low",
+      { outcome: "accepted" },
+    );
+    void handleUserTranscriptionRef.current?.({ text: held });
+  }, []);
   // Audio is muted until the user unlocks it (gesture). Greetings MUST wait for
   // this or 6 mouths them silently during the muted-load window. (G 2026-06-03)
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -6557,6 +6605,7 @@ const LiveAvatarSessionComponent: React.FC<{
   // through the EXISTING list-card UI as a "Reminders" card.
   const refreshRemindersCard = useCallback(
     async (speak: boolean): Promise<boolean> => {
+      if (LISTS_DORMANT) return false; // the reminders card is a chest list too
       try {
         const sid = dbSessionIdRef.current;
         const res = await fetch(
@@ -7251,6 +7300,9 @@ const LiveAvatarSessionComponent: React.FC<{
             ...(cursor != null ? { startTimestamp: cursor } : {}),
             testerLabel: testerLabelRef.current,
             clientManagedSignup: mode === "CUSTOM",
+            // The conversation is over: the server may send G the final
+            // "sent photos" mail for files no earlier mail carried.
+            endOfSession: true,
           }),
           keepalive: true,
         }).catch(() => {});
@@ -7858,10 +7910,26 @@ const LiveAvatarSessionComponent: React.FC<{
 
   /** Ensure remote avatar audio can play (mobile autoplay policies). Call from explicit button taps only. */
   const ensureAudioOutputReady = useCallback(async (): Promise<boolean> => {
-    if (!videoRef.current || !isStreamReady) {
+    if (!videoRef.current) {
       return false;
     }
     const video = videoRef.current;
+    // RIDE c25f52ab 2026-09-05 (and every phone ride before it): the first
+    // call lands ~300ms after the session connects, before the provider's
+    // stream is attached, so this returned false, a retry was scheduled and the
+    // start took one extra round trip ("start retry: 1" on every report). The
+    // stream is seconds away, not missing: wait for it here, bounded, instead
+    // of failing the whole start over a race we can see coming.
+    if (!isStreamReady || !video.srcObject) {
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+        if (videoRef.current?.srcObject) break;
+      }
+      if (!videoRef.current?.srcObject) {
+        return false;
+      }
+    }
     const presentationPrime = avatarAudioPresentationProbeRef.current?.prime();
     try {
       // 2026-08-21: the speaker-mute button owns the final say — a gesture
@@ -8200,9 +8268,10 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      const listIntent = shouldAllowDetectedListIntent(prompt)
-        ? detectListIntent(prompt)
-        : null;
+      const listIntent =
+        !LISTS_DORMANT && shouldAllowDetectedListIntent(prompt)
+          ? detectListIntent(prompt)
+          : null;
       if (listIntent) {
         ensureAssistantList(listIntent, { preferFresh: shouldStartFreshList(prompt) });
       }
@@ -8770,6 +8839,7 @@ const LiveAvatarSessionComponent: React.FC<{
         openerInFlightRef.current = true;
         window.setTimeout(() => {
           openerInFlightRef.current = false;
+          releaseOpenerHeldTurn();
         }, openerMs);
         resumeListeningAfterAvatarSpeech(9000);
         // F5 2026-08-21: explicit null — a scripted greeting answers no user
@@ -8784,6 +8854,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // repeat() resolved, so the line is out. Hand the floor back at once
         // rather than waiting out the estimate.
         openerInFlightRef.current = false;
+        releaseOpenerHeldTurn();
       }
       window.setTimeout(() => {
         startListening();
@@ -8874,6 +8945,37 @@ const LiveAvatarSessionComponent: React.FC<{
     accountAuthChecked &&
     !voiceStartAwaitingReady;
 
+  // STARTUP SETTLES ONCE (G, 2026-09-05 15:08, on his desktop): "I hit start.
+  // Loading six, the number six in the rectangle, comes in. That stays until
+  // six has loaded and things flow smoothly." Ride 228a745a (Windows) recorded
+  // the old gate going loading -> avatar -> loading -> avatar inside 1.2
+  // seconds: on desktop the surface followed voiceIsLoading alone, which is
+  // false between "connected" and the voice start, and false again in the
+  // 250ms audio-retry gap, so 6 was painted with no frame yet - twice.
+  //
+  // Now every device holds the surface until the session is connected, the
+  // stream is ready, auth is checked, voice startup is not in flight AND a
+  // real frame has been presented. Once that has happened it never raises
+  // again for a later voice reload; only a real disconnect resets it.
+  //
+  // Frame proof needs requestVideoFrameCallback. A browser without it (Firefox)
+  // can never prove a frame, so after FRAME_PROOF_WAIT_MS with everything else
+  // ready the proof is waived and logged - a visitor is never parked on a
+  // loading screen that nothing will take down.
+  const startupSettledRef = useRef(false);
+  const frameProofReady = hasRenderableAvatarFrame || frameProofWaived;
+  if (sessionState !== SessionState.CONNECTED) {
+    startupSettledRef.current = false;
+  } else if (
+    isStreamReady &&
+    accountAuthChecked &&
+    frameProofReady &&
+    !voiceStartRetryPendingRef.current &&
+    !voiceIsLoading
+  ) {
+    startupSettledRef.current = true;
+  }
+  const startupSettled = startupSettledRef.current;
   const shouldShowLoadingSurface =
     !sessionStartError &&
     visionMode !== "streaming" &&
@@ -8882,8 +8984,7 @@ const LiveAvatarSessionComponent: React.FC<{
     (sessionState !== SessionState.CONNECTED ||
       !isStreamReady ||
       !accountAuthChecked ||
-      (!isPhoneLifecycleViewport && voiceIsLoading) ||
-      (isPhoneLifecycleViewport && !hasRenderableAvatarFrame));
+      !startupSettled);
 
   // THE FLICKER, MEASURED INSTEAD OF GUESSED (G, 2026-09-04, describing his
   // restart): "loading six ... came up, and then it flashed on. Then six, the
@@ -8955,6 +9056,24 @@ const LiveAvatarSessionComponent: React.FC<{
       setHasRenderableAvatarFrame(false);
     }
   }, [isStreamReady, sessionState]);
+
+  useEffect(() => {
+    if (sessionState !== SessionState.CONNECTED) {
+      setFrameProofWaived(false);
+      return;
+    }
+    if (!isStreamReady || !accountAuthChecked || hasRenderableAvatarFrame || frameProofWaived) return;
+    const timer = window.setTimeout(() => {
+      logAppEvent(
+        "loading_surface_toggled",
+        { to: "avatar", reason: "frame_proof_waived", waitMs: FRAME_PROOF_WAIT_MS },
+        "medium",
+        { outcome: "waived" },
+      );
+      setFrameProofWaived(true);
+    }, FRAME_PROOF_WAIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [sessionState, isStreamReady, accountAuthChecked, hasRenderableAvatarFrame, frameProofWaived]);
 
   const requestRenderableAvatarFrame = useCallback(
     (video: HTMLVideoElement) => {
@@ -9865,6 +9984,20 @@ const LiveAvatarSessionComponent: React.FC<{
       if (isInternalSignal(rawUserText)) {
         return;
       }
+      handleUserTranscriptionRef.current = handleUserTranscription;
+      // Opener in flight: keep the turn, answer it when the opener has landed.
+      // A stop command still stops. See openerHeldTurnRef.
+      if (openerInFlightRef.current && !STOP_NOW_RE.test(rawUserText)) {
+        const held = openerHeldTurnRef.current;
+        openerHeldTurnRef.current = held ? `${held} ${rawUserText}` : rawUserText;
+        logAppEvent(
+          "user_turn_held",
+          { where: "avatar", length: rawUserText.length, reason: "opener_in_flight" },
+          "low",
+          { outcome: "held" },
+        );
+        return;
+      }
       const intakeNow = Date.now();
       const intake = event.flushHeld
         ? {
@@ -9890,12 +10023,31 @@ const LiveAvatarSessionComponent: React.FC<{
           window.clearTimeout(pendingSpeechFlushTimerRef.current);
         }
         const heldAt = intake.pending.at;
+        // A dangling fragment waits longer for the rest of the thought
+        // (ride f225a5c7: 1.4 s flushed "So the bottom line is" straight to
+        // the brain while G was still mid-sentence).
+        const holdMs = isLikelyIncompleteSpeechFragment(intake.pending.text)
+          ? INCOMPLETE_FRAGMENT_HOLD_MS
+          : 1_400;
         pendingSpeechFlushTimerRef.current = window.setTimeout(() => {
           pendingSpeechFlushTimerRef.current = null;
           const pending = pendingSpeechFragmentRef.current;
           if (!pending || pending.at !== heldAt) return;
-          const text = flushPendingSpeechFragment(pending, Date.now());
-          if (!text) return;
+          const text = flushPendingSpeechFragment(pending, Date.now(), holdMs);
+          if (!text) {
+            // Filler-only shard ("Um,", "So, um,") or a fragment still
+            // dangling after the long hold ("We get", "So the bottom line
+            // is") - see turnIntake. Cleared so it cannot be stitched onto
+            // the next real sentence, recorded so a ride can count them.
+            pendingSpeechFragmentRef.current = null;
+            logAppEvent(
+              "user_turn_dropped",
+              { where: "avatar", reason: shardDropReason(pending.text), length: pending.text.length },
+              "low",
+              { outcome: "dropped" },
+            );
+            return;
+          }
           pendingSpeechFragmentRef.current = null;
           logAppEvent(
             "user_turn_flushed",
@@ -9904,7 +10056,7 @@ const LiveAvatarSessionComponent: React.FC<{
             { outcome: "accepted" },
           );
           void handleUserTranscription({ text, flushHeld: true });
-        }, 1_400);
+        }, holdMs);
         return;
       }
       if (pendingSpeechFlushTimerRef.current !== null) {
@@ -10072,10 +10224,20 @@ const LiveAvatarSessionComponent: React.FC<{
         userText,
         isAnsweringNamePrompt,
       );
+      // RIDE c25f52ab 2026-09-05: "I'm a musician too" and "I'm thinking, you
+      // know" both re-captured the name mid-ride (the stop list in helpers.ts
+      // now rejects those words), and Scott's real name was overwritten, so a
+      // later "Scott?" read as a stranger and 6 greeted him again. An "I'm X"
+      // heard in passing may FILL an empty name, never REPLACE a known one;
+      // only "my name is / call me" or an answer to the name question can.
+      const explicitNameIntro = /\b(?:my name(?:'s| is)|call me)\b/i.test(userText);
+      const passingNameIntro = /\b(?:i am|i'm|im)\b/i.test(userText);
+      const knownName = (deviceProfileRef.current.name ?? "").trim();
       if (
         deviceNameCandidate &&
         (isAnsweringNamePrompt ||
-          /\b(?:my name is|call me|i am|i'm|im)\b/i.test(userText))
+          explicitNameIntro ||
+          (passingNameIntro && !knownName))
       ) {
         setDeviceProfile((current) => ({
           ...current,
@@ -10096,10 +10258,9 @@ const LiveAvatarSessionComponent: React.FC<{
         // in error_logs that the spoken name landed in the ref (G's sessions
         // keep hitting "you already asked my name" — this proves/disproves the
         // capture side without needing his browser console).
-        void captureClientWarn(
-          new Error("signup-tracer: name captured"),
-          { where: "name-catch", name: deviceNameCandidate },
-        );
+        // Was a captureClientWarn - a WARN row in error_logs on every ride
+        // for a thing that is not an error. Same breadcrumb, right table.
+        logAppEvent("t6", { p: "name_captured", where: "name-catch" });
       }
 
       // YIELD THE FLOOR INSTANTLY: cut 6 off on ANY user speech while he's
@@ -10276,9 +10437,10 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      const listIntent = shouldAllowDetectedListIntent(userText)
-        ? detectListIntent(userText)
-        : null;
+      const listIntent =
+        !LISTS_DORMANT && shouldAllowDetectedListIntent(userText)
+          ? detectListIntent(userText)
+          : null;
 
       if (SHOPPING_MODE_CLOSE_RE.test(userText)) {
         clearAccountEmailEntry();
@@ -10538,7 +10700,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // lookup results). Runs BEFORE the singular "show me the list" opener
       // (LIST_INDEX_RE is plural-only so it never steals that) and BEFORE the
       // online lookup, so the brain can never fake a menu again.
-      if (LIST_INDEX_RE.test(userText) && !activeListId && !isShoppingMode) {
+      if (!LISTS_DORMANT && LIST_INDEX_RE.test(userText) && !activeListId && !isShoppingMode) {
         const entries: ListIndexEntry[] = assistantLists.map((l) => ({
           id: l.id,
           title: l.title,
@@ -10780,11 +10942,14 @@ const LiveAvatarSessionComponent: React.FC<{
         LIST_START_WITH_REFERENCED_ITEMS_RE.test(userText)
           ? extractReferencedAssistantListItems(rawLastAssistantText)
           : [];
-      const inferredListIntentRaw =
-        listIntent ??
-        (referencedAssistantItems.length > 0
-          ? { title: "Shopping List", kind: "shopping" as const }
-          : null);
+      // LISTS_DORMANT: never even CREATE a list object here - ensureAssistantList
+      // below would paint the chest card before the enter gate could refuse it.
+      const inferredListIntentRaw = LISTS_DORMANT
+        ? null
+        : listIntent ??
+          (referencedAssistantItems.length > 0
+            ? { title: "Shopping List", kind: "shopping" as const }
+            : null);
       // r19 (G live 21:06: "It's still a BLANK list" spawned a new list named
       // "Blank List"): while a list is already up, junk titles are commentary
       // about THIS list, never an order for a fresh one.
@@ -10837,7 +11002,7 @@ const LiveAvatarSessionComponent: React.FC<{
       const enteringShoppingMode =
         !FULL_PAGE_LISTS_DORMANT && SHOPPING_MODE_OPEN_RE.test(userText);
 
-      if (targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
+      if (!LISTS_DORMANT && targetListId && (LIST_TRIGGER_RE.test(userText) || activeListId)) {
         logAppEvent("t6", { p: "ht_list_enter", pres: voicePresenceRef.current, shop: isShoppingMode });
         // ITEM 5: opening/creating a list any other way dismisses the index card.
         if (listIndexPickRef.current) {
@@ -10926,10 +11091,11 @@ const LiveAvatarSessionComponent: React.FC<{
         const _removeSource = _clauses.find((c) => _LIST_REMOVE_VERB_RE.test(c)) ?? "";
         const _destinationAddSource = stripDestinationListContext(userText);
         const _mutationAllowed =
-          referencedAssistantItems.length > 0 ||
-          shouldTreatAsListMutation(userText, {
-            hasActiveList: Boolean(targetListId),
-          });
+          !LISTS_DORMANT &&
+          (referencedAssistantItems.length > 0 ||
+            shouldTreatAsListMutation(userText, {
+              hasActiveList: Boolean(targetListId),
+            }));
         // r33 (G copilot 2026-06-14 03:14: a 5-item batch add spoken in ONE
         // breath with unrelated commentary -- "it says nothing here yet... that's
         // not in a brand color. Walmart list, let's add toothbrush, toothpaste..."
@@ -12813,11 +12979,18 @@ const LiveAvatarSessionComponent: React.FC<{
         </div>
       )}
 
-      {/* Analyzing popup overlay - only show for snapshot mode, not streaming mode */}
+      {/* Analyzing popup overlay - only show for snapshot mode, not streaming mode.
+          G 2026-09-05 (phone screenshot, 08:36): "while it's analyzing photo ...
+          there's two bars at the bottom of two different colors. I can't see
+          it." Cause: this was raw black at 70% with a grey card, at z-50 -
+          BELOW the z-[62] footer stack, so the brown band stayed lit while the
+          rest of the page went dark: two bars, two colours. Now brand brown at
+          45% so 6 stays visible, a gold-on-brown card (no raw black or grey -
+          branding rule), and z-[70] so the whole screen dims as one. */}
       {(isAnalyzingImage || isAnalyzingVideo) && visionMode !== "streaming" && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70">
-          <div className="bg-gray-800/90 text-white px-8 py-6 rounded-lg shadow-2xl">
-            <p className="text-inset text-xl font-semibold text-center">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[rgba(25,15,5,0.45)]">
+          <div className="rounded-2xl border border-[#d7a05a]/60 bg-gradient-to-b from-[#3a2108]/95 to-[#241608]/95 px-8 py-6 shadow-[0_18px_60px_rgba(0,0,0,0.55)]">
+            <p className="text-center text-xl font-semibold tracking-[0.04em] text-[#ffe9c2] drop-shadow-[0_1px_6px_rgba(25,15,5,0.6)]">
               {isAnalyzingImage ? "Analyzing Photo...." : "Analyzing Video...."}
             </p>
           </div>

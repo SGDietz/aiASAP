@@ -208,14 +208,21 @@ describe("shared visible loading treatment", () => {
   it("keeps the loading stack isolated until the video paints a real frame", () => {
     const demo = source("src/components/LiveAvatarDemo.tsx");
     const session = source("src/components/LiveAvatarSession.tsx");
-    const loadingStart = session.indexOf("const shouldShowLoadingSurface =");
+    // The gate begins at the settle block (2026-09-05), not at the const.
+    const loadingStart = session.indexOf("const startupSettledRef = useRef(false);");
     const loadingEnd = session.indexOf("useEffect(() =>", loadingStart);
     const readinessGate = session.slice(loadingStart, loadingEnd);
     expect(readinessGate).toContain("sessionState !== SessionState.CONNECTED");
     expect(readinessGate).toContain("!isStreamReady");
     expect(readinessGate).toContain("!accountAuthChecked");
-    expect(readinessGate).toContain("!isPhoneLifecycleViewport && voiceIsLoading");
-    expect(readinessGate).toContain("isPhoneLifecycleViewport && !hasRenderableAvatarFrame");
+    // G 2026-09-05: one gate for every device - "Loading six stays until six has
+    // loaded" - settled once by connected + stream + auth + frame proof + voice
+    // not loading, then never raised again until a real disconnect.
+    expect(readinessGate).toContain("!startupSettled");
+    expect(readinessGate).toContain("frameProofReady &&");
+    expect(readinessGate).toContain("!voiceIsLoading");
+    expect(readinessGate).toContain("startupSettledRef.current = false;");
+    expect(readinessGate).not.toContain("isPhoneLifecycleViewport && !hasRenderableAvatarFrame");
     expect(readinessGate).toContain("!sessionStartError &&");
     expect(readinessGate).not.toContain("!voiceIsActive");
     expect(readinessGate).not.toContain("!isAvatarTalking");

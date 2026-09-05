@@ -410,3 +410,14 @@ describe("read-back, permission, send", () => {
     });
   });
 });
+
+describe("ride c25f52ab 2026-09-05 - 'I'd love for you to talk to Scott' is a hand raise", () => {
+  it("hears the request in the shape G actually said it", () => {
+    expect(hasExplicitPersonalConnectionRequest("I'd love, I'd love for you to talk to Scott.")).toBe(true);
+    expect(hasExplicitPersonalConnectionRequest("I want to talk to G")).toBe(true);
+  });
+  it("still ignores coaching about the handoff", () => {
+    expect(hasExplicitPersonalConnectionRequest("Scott should talk to them first")).toBe(false);
+    expect(hasExplicitPersonalConnectionRequest("the team at aiASAP needs to connect better")).toBe(false);
+  });
+});

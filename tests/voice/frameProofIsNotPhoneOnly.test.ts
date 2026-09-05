@@ -37,8 +37,16 @@ describe("renderable-frame proof is not phone-only", () => {
     expect(body).toContain("metadata.presentedFrames > 0");
   });
 
-  it("keeps the opaque loading surface phone-only", () => {
-    // Desktop look must not change: only phones raise the surface on no-frame.
-    expect(source).toContain("(isPhoneLifecycleViewport && !hasRenderableAvatarFrame)");
+  it("holds the loading surface on every device until a frame is proven, then settles once", () => {
+    // Reversed 2026-09-05 by G, on his desktop: "Loading six comes in. That
+    // stays until six has loaded and things flow smoothly." Ride 228a745a
+    // showed desktop flipping loading/avatar twice on voiceIsLoading alone.
+    expect(source).not.toContain("(isPhoneLifecycleViewport && !hasRenderableAvatarFrame)");
+    expect(source).toContain("const startupSettledRef = useRef(false);");
+    expect(source).toContain("frameProofReady &&");
+    // Firefox has no requestVideoFrameCallback: the proof is waived after a
+    // bounded wait so nobody is parked on a loading screen forever.
+    expect(source).toContain("const FRAME_PROOF_WAIT_MS = 4000;");
+    expect(source).toContain('reason: "frame_proof_waived"');
   });
 });

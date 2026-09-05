@@ -63,6 +63,20 @@ describe("a half-word is not a turn", () => {
     }
   });
 
+  // RIDE 755f063f, 2026-09-05 08:34-08:38: every one of these was flushed as a
+  // turn and answered ("Take your time, Scott" x3, "whenever you're ready" x4).
+  it("drops a filler-only shard on flush instead of answering it", () => {
+    for (const shard of ["Um,", "So, um,", "But, um, I'm gonna", "that, uh, I'm", "you know", "I mean"]) {
+      expect(flushPendingSpeechFragment({ text: shard, at: NOW - 2_000 }, NOW), shard).toBeNull();
+    }
+  });
+
+  it("still delivers a held shard that carries one real word", () => {
+    for (const shard of ["What?", "Dropping.", "In the middle.", "insurance", "No, um", "Yes, so", "Okay, so", "I guess it could be."]) {
+      expect(flushPendingSpeechFragment({ text: shard, at: NOW - 2_000 }, NOW), shard).not.toBeNull();
+    }
+  });
+
   it("leaves ordinary sentences alone", () => {
     for (const sentence of [
       "that's not the intro line",
@@ -72,5 +86,43 @@ describe("a half-word is not a turn", () => {
     ]) {
       expect(intake(sentence).kind, sentence).toBe("dispatch");
     }
+  });
+});
+
+import {
+  DANGLING_DROP_MAX_WORDS,
+  INCOMPLETE_FRAGMENT_HOLD_MS,
+  isHardDanglingShard,
+  isLikelyIncompleteSpeechFragment as danglingCheck,
+  shardDropReason,
+} from "../../src/lib/voiceMode/turnIntake";
+
+describe("ride f225a5c7 2026-09-05 - 6 spoke into every breath G took", () => {
+  it("hears the half-thoughts from the ride as dangling (held 3.5s, not 1.4s)", () => {
+    for (const shard of ["So the bottom line is", "We get", "Help you", "This is, you know, we no one at aiASAP looks", "readouts. We get, um,"]) {
+      expect(danglingCheck(shard), shard).toBe(true);
+    }
+  });
+  it("still lets whole sentences, questions and real answers through", () => {
+    for (const line of ["I do stand-up comedy.", "Yes.", "Stop.", "How are you", "What do you mean by that?", "I'd love to build digital companies for people."]) {
+      expect(danglingCheck(line), line).toBe(false);
+    }
+  });
+  it("drops a short shard that is still dangling when the long hold expires, never answers it", () => {
+    const at = 1_000;
+    for (const shard of ["So the bottom line is", "We get", "Help you", "and then the"]) {
+      expect(isHardDanglingShard(shard), shard).toBe(true);
+      expect(flushPendingSpeechFragment({ text: shard, at }, at + INCOMPLETE_FRAGMENT_HOLD_MS, INCOMPLETE_FRAGMENT_HOLD_MS), shard).toBeNull();
+    }
+    expect(shardDropReason("So the bottom line is")).toBe("dangling_fragment");
+    expect(shardDropReason("um,")).toBe("filler_only_shard");
+  });
+  it("keeps every shard the cf79a533 contract protects, and any long thought", () => {
+    for (const shard of ["No, um", "Yes, so", "Okay, so", "I guess it could be.", "What?", "In the middle."]) {
+      expect(isHardDanglingShard(shard), shard).toBe(false);
+    }
+    const words = "I really want to build something big for my family and then we can".split(" ");
+    expect(words.length).toBeGreaterThan(DANGLING_DROP_MAX_WORDS);
+    expect(flushPendingSpeechFragment({ text: words.join(" "), at: 0 }, INCOMPLETE_FRAGMENT_HOLD_MS, INCOMPLETE_FRAGMENT_HOLD_MS)).toBe(words.join(" "));
   });
 });

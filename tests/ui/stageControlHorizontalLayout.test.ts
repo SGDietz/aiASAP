@@ -60,7 +60,7 @@ describe("open stage-control contents", () => {
     expect(css).toContain("var(--stage-height) * 0.203 + 5px");
     expect(controls).toContain('text-[12px] sm:text-[14px] leading-none');
     // the real label size is the CSS authority; the glyph box is keyed to it
-    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.35) !important");
+    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.878) !important");
     expect(controls).toContain("tracking-[0.1em]");
     expect(controls).not.toContain("whitespace-normal");
   });
@@ -124,21 +124,30 @@ describe("open stage-control contents", () => {
     expect(css).toContain("--aiasap-blend-small-2: #f6dcac;");
     expect(css).toContain("--aiasap-blend-small-3: #e6b877;");
     expect(css).toContain("--aiasap-blend-small-4: #b07a38;");
-    // THE TYPEFACE, which is what actually made the buttons look unlike the
-    // wordmark. Read off the live page: the wordmark is "Archivo Black"
-    // italic, the labels were Lato 700. No weight or gradient on Lato can
-    // imitate an ultra-heavy display face, so the four chest words take the
-    // wordmark's own family (upright - it leans because it is a logo). The
-    // icon stroke follows so it does not look spindly beside the type:
-    // measured, the letters paint 3-4px strokes and 3.4 units on the 24-unit
-    // viewBox paints 3.16px at the rendered 22.27px.
-    expect(css).toContain('font-family: "Archivo Black", "Arial Black", Impact, sans-serif !important;');
-    expect(css).toContain("stroke-width: 3.4 !important;");
-    // "Remove all the junk": the hard 1px shadow is replaced by the wordmark's
-    // own soft bloom, on the words and the icons alike.
-    expect(css).toContain("filter: drop-shadow(0 1px 6px rgba(25, 15, 5, 0.4)) !important;");
+    // THE FOUR CHEST WORDS AND ICONS ARE PAINTED AS THEY ARE LIVE ON aiasap.ai.
+    // G, 2026-09-04 22:00, holding a crop of the live controls: "these are
+    // more realistic in size and color, and they are what are live on
+    // aiASAP.ai right now." Read off the served bundle: Lato at normal
+    // weight, 0.14em tracking, SOLID #d7a05a with one 1.5px shadow; icons a
+    // plain currentColor stroke at lucide's own width 2 with the same shadow.
+    // The wordmark blend and Archivo Black are OFF the controls; the footer
+    // keeps the blend.
+    const labelPaint = css.slice(css.indexOf("THE FOUR CHEST WORDS, PAINTED AS THEY ARE LIVE"));
+    expect(labelPaint).toContain('font-family: "Lato", "Segoe UI", Arial, sans-serif !important;');
+    expect(labelPaint).toContain("font-weight: 400 !important;");
+    expect(labelPaint).toContain("letter-spacing: 0.14em !important;");
+    // G 2026-09-05: one shade browner than the live-site #d7a05a.
+    expect(labelPaint).toContain("color: #a77c46 !important;");
+    expect(labelPaint).toContain("-webkit-text-fill-color: #a77c46 !important;");
+    expect(labelPaint).toContain("text-shadow: 0 1px 1.5px rgba(58, 33, 8, 0.55) !important;");
+    expect(css).not.toContain('font-family: "Archivo Black", "Arial Black", Impact, sans-serif !important;');
+    expect(css).toContain("stroke-width: 2 !important;");
+    expect(css).not.toContain("stroke-width: 3.4 !important;");
+    expect(css).toContain("filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55)) !important;");
     const blend = css.slice(css.indexOf("THE BOTTOM THREE, IN THE WORDMARK'S OWN BLEND"));
-    expect(blend).toContain('[data-stage-controls="1"] [data-stage-control-inline-label="1"]');
+    // The blend selector list carries the footer only; the chest labels left it.
+    const blendSelectors = blend.slice(0, blend.indexOf("background-image: linear-gradient("));
+    expect(blendSelectors).not.toContain('[data-stage-control-inline-label="1"]');
     expect(blend).toContain('[data-public-contact-ink="1"]');
     expect(blend).toContain('[data-stage-legal-line="1"] .aiasap-legal-ink');
   });

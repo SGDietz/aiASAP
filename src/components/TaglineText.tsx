@@ -1,19 +1,17 @@
 /**
- * BEAUTIFUL BRILLIANT CHEAP > AUTOPILOT — G's exact aiASAP tagline, typed by
- * him word for word. It moved seven times on 2026-09-04 evening: "+" between
- * each word, a period-separated form, an arrow before Autopilot, four bare
- * words, ampersands, "remove ampersands" leaving a lowercase "on", and then
- * back to the arrow — THIS. Three words, then the arrow, then Autopilot.
- *
- * Taglines are sacred (CLAUDE.md): never reword or re-punctuate this without
- * G saying so.
+ * GORGEOUS BRILLIANT FAST CHEAP — G's exact aiASAP tagline, 2026-09-05, by
+ * voice, holding a screenshot of the front door (13:10 "Gorgeous Brilliant
+ * Cheap Fast"; 13:50 "reverse the words ... make it fast cheap"). Four words,
+ * a plain space between each, nothing else. No comma, no
+ * ampersand, no arrow, no plus, no "on". It replaces the 2026-09-04 line
+ * "Beautiful Brilliant Cheap on Autopilot" (typed 22:05, de-punctuated 22:14,
+ * moved eight times that evening; the operator span below is kept for the
+ * history and for the next time an operator comes back).
  *
  * Taglines are sacred (CLAUDE.md): never reword, re-punctuate or "tidy" this
  * without G saying so. The visible and screen-reader owners carry identical
  * copy; every capital in the source spelling renders at the shared Initial
  * size, and the rest sits at the body size so the words still lead.
- *
- * The words are separated by real spaces now that every operator is gone.
  */
 const Small = ({ children }: { children: React.ReactNode }) => (
   <span className="text-[0.8em]">{children}</span>
@@ -57,13 +55,12 @@ export function TaglineText() {
       data-stage-tagline-ink="1"
       className="inline-block origin-center scale-x-[0.9] tracking-[-0.005em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[1.6632em] text-transparent md:text-[1.32em]"
     >
-      <span className="sr-only">Beautiful Brilliant Cheap &gt; Autopilot</span>
+      <span className="sr-only">Gorgeous Brilliant Fast Cheap</span>
       <span aria-hidden>
-        <Initial>B</Initial><Small>eautiful</Small>{" "}
+        <Initial>G</Initial><Small>orgeous</Small>{" "}
         <Initial>B</Initial><Small>rilliant</Small>{" "}
+        <Initial>F</Initial><Small>ast</Small>{" "}
         <Initial>C</Initial><Small>heap</Small>
-        <Op>&gt;</Op>
-        <Initial>A</Initial><Small>utopilot</Small>
       </span>
     </span>
   );

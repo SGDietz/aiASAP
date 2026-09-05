@@ -218,6 +218,20 @@ export function confirmsEndSession(text: string): boolean {
 }
 
 export const DEVICE_NAME_STOP_WORDS = new Set([
+  // RIDE c25f52ab 2026-09-05: "I'm a musician too" stored the name "A Musician
+  // Too" and "I, I'm thinking, you know, I build" stored "Thinking". Scott then
+  // said "Scott?" and 6 greeted him like a stranger. Words that follow "I'm"
+  // in ordinary speech are never a name; "my name is X" bypasses this list.
+  // Kept conservative on purpose: "So Young" and "My Anh" are real names that
+  // answer the name question, so short ordinary words that CAN be names stay out.
+  "a", "an", "the", "not", "gonna", "going", "thinking", "trying", "here", "still", "also",
+  "really", "very", "too", "kinda", "sorta", "from", "about", "with",
+  "like", "doing", "looking", "working", "building", "starting", "saying", "telling", "asking", "talking",
+  "wondering", "curious", "interested", "excited", "tired", "busy", "fine", "sorry", "sure",
+  "glad", "ready", "done", "back", "actually", "already", "only", "now",
+  "someone", "somebody", "nobody", "basically", "literally",
+  "honestly", "afraid", "hoping", "planning", "learning", "getting", "having", "making", "selling",
+  "broke", "retired", "unemployed",
   "yes",
   "no",
   "hi",

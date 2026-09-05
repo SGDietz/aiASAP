@@ -94,6 +94,12 @@ const avatarAudioPresentationProbes = new WeakMap<
   AvatarAudioPresentationProbe
 >();
 const activeAvatarSpeechCancels = new Map<() => void, LiveAvatarSession>();
+/** Floor between two audio pushes to the avatar; see speakThroughAvatar. */
+export const MIN_AVATAR_DISPATCH_GAP_MS = 2_000;
+let lastCustomAudioDispatchAt = 0;
+let lastProviderDispatchAt = 0;
+/** True once the avatar has started speaking the last dispatched line. */
+let lastProviderDispatchStarted = true;
 
 export type AvatarSpeechPresentationEvent = {
   stage:
@@ -106,7 +112,10 @@ export type AvatarSpeechPresentationEvent = {
     | "intentionally_silent"
     // Audio recovery: our own TTS speaking a reply the provider swallowed.
     | "audio_recovery_started"
-    | "audio_recovery_finished";
+    | "audio_recovery_finished"
+    // The tab was hidden (gallery file picker) when the probe ran; the line
+    // is spoken once the tab is visible again, not written off as silence.
+    | "deferred_page_hidden";
   reason?: string;
   durationMs: number;
   evidence?: AvatarAudioPresentationEvidence;
@@ -1056,6 +1065,26 @@ export function speakThroughAvatar(
     // before giving the turn to the provider voice.
     const audio = (primed ? await primed : null) ?? (await fetchRecoveryAudio(text));
     if (audio) {
+      // DISPATCH FLOOR (ride f225a5c7, 2026-09-05 15:42). Replies were pushed to
+      // the avatar 1.4 s apart - seven pushes in twenty seconds - and it went
+      // silent three times (repeat_silent -> fallback voice, which G heard as a
+      // voice change). The avatar needs a beat to start a pushed line before
+      // the next one lands on it. So: at most one push per
+      // MIN_AVATAR_DISPATCH_GAP_MS, and only the NEWEST reply waits for its
+      // slot - a reply that is superseded while waiting is dropped, not queued.
+      const sinceLast = Date.now() - lastCustomAudioDispatchAt;
+      if (sinceLast < MIN_AVATAR_DISPATCH_GAP_MS) {
+        let superseded = false;
+        const cancelWait = () => { superseded = true; };
+        activeAvatarSpeechCancels.set(cancelWait, session);
+        await new Promise((r) => setTimeout(r, MIN_AVATAR_DISPATCH_GAP_MS - sinceLast));
+        activeAvatarSpeechCancels.delete(cancelWait);
+        if (superseded) {
+          reportCustomVoiceDiag(`[custom-voice] ${where} superseded during dispatch-floor wait`);
+          return;
+        }
+      }
+      lastCustomAudioDispatchAt = Date.now();
       reportCustomVoiceDiag(
         `[custom-voice] ${where} elevenlabs-only b64len=${audio.length}${primed ? " (primed)" : ""}`,
       );
@@ -1092,6 +1121,7 @@ export function speakViaProviderVoice(
   where: string,
   onRescue?: (reason: string) => void,
   onPresentation?: (event: AvatarSpeechPresentationEvent) => void,
+  deferredFromHidden = false,
 ): unknown {
   if (!text || !text.trim()) return;
 
@@ -1160,6 +1190,9 @@ export function speakViaProviderVoice(
   activeAvatarSpeechCancels.set(cancel, session);
 
   const rescue = (reason: string) => {
+    // A line that failed (threw, rejected, stayed silent) is no longer pending
+    // on the avatar: the dispatch floor must not hold the next reply for it.
+    lastProviderDispatchStarted = true;
     if (settled) return;
     if (replyEpoch !== myReplyEpoch) {
       finish();
@@ -1173,6 +1206,38 @@ export function speakViaProviderVoice(
       reportCustomVoiceDiag(
         `[custom-voice] ${where} silent (${reason}) but interrupted since — no rescue`,
       );
+      return;
+    }
+    // RIDE 755f063f, 2026-09-05 08:35:47. The gallery's file picker put the
+    // tab in the background. A hidden page cannot present media, so the probe
+    // read "media_not_presented" and a healthy avatar was written off as
+    // silent (error_logs: "actions.repeat silent (media_not_presented)").
+    // Nothing was broken. While the page is hidden the line is DEFERRED - no
+    // failure signal, no alert row - and spoken once when the tab comes back,
+    // unless a newer reply or a barge-in has taken the floor since. One
+    // deferral per line: a second hidden probe takes the ordinary path.
+    if (
+      !deferredFromHidden &&
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden"
+    ) {
+      finish();
+      emitPresentation("deferred_page_hidden", reason);
+      reportCustomVoiceDiag(
+        `[custom-voice] ${where} silent (${reason}) while the page is hidden -> deferred until visible`,
+      );
+      let giveUp: number | null = null;
+      const onVisible = () => {
+        if (document.visibilityState !== "visible") return;
+        document.removeEventListener("visibilitychange", onVisible);
+        if (giveUp !== null) window.clearTimeout(giveUp);
+        if (replyEpoch !== myReplyEpoch || cutEpoch !== armedEpoch) return;
+        speakViaProviderVoice(session, text, where, onRescue, onPresentation, true);
+      };
+      giveUp = window.setTimeout(() => {
+        document.removeEventListener("visibilitychange", onVisible);
+      }, 90_000);
+      document.addEventListener("visibilitychange", onVisible);
       return;
     }
     finish();
@@ -1327,6 +1392,7 @@ export function speakViaProviderVoice(
     // a post-dispatch native start is authoritative even when its opaque id was
     // replaced by the provider.
     providerStarted = true;
+    lastProviderDispatchStarted = true;
     disarm();
     void verifyPresentation().catch(() => rescue("media_probe_failed"));
   };
@@ -1364,37 +1430,76 @@ export function speakViaProviderVoice(
     return bareResult;
   }
 
-  let result: unknown;
-  try {
-    result = session.repeat(text);
-    repeatDispatched = true;
-    if (queuedStartedEvent) handleStarted(queuedStartedEvent);
-  } catch (e) {
-    repeatDispatched = true;
-    reportCustomVoiceDiag(
-      `[custom-voice] ${where} repeat() threw: ${e instanceof Error ? e.message : String(e)}`,
-    );
-    rescue("repeat_threw");
-    return;
+  const dispatchNow = (): unknown => {
+    let result: unknown;
+    try {
+      result = session.repeat(text);
+      repeatDispatched = true;
+      if (queuedStartedEvent) handleStarted(queuedStartedEvent);
+    } catch (e) {
+      repeatDispatched = true;
+      reportCustomVoiceDiag(
+        `[custom-voice] ${where} repeat() threw: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      rescue("repeat_threw");
+      return;
+    }
+
+    // A rejected promise is the old caught case; keep handling it, just here now.
+    Promise.resolve(result).catch(() => rescue("repeat_rejected"));
+
+    if (!providerStarted) {
+      // One small sound at 1.4 s so a slow start does not read as 6 freezing.
+      // Cleared by disarm() the moment he actually speaks.
+      gapHintTimer = window.setTimeout(() => {
+        gapHintTimer = null;
+        if (!providerStarted && !settled) reportAvatarSpeechGap({ session, where });
+      }, SPEECH_GAP_HINT_MS);
+      repeatWatchdog = window.setTimeout(() => {
+        repeatWatchdog = null;
+        // Accepted, resolved, and still not a word out of him. This is the case
+        // that used to go unnoticed.
+        if (!providerStarted) rescue("repeat_silent");
+      }, REPEAT_WATCHDOG_MS);
+    }
+
+    return result;
+  };
+
+  // DISPATCH FLOOR (ride f225a5c7, 2026-09-05 15:42). Replies reached this
+  // point 1.4 s apart - seven repeat() calls in twenty seconds - and the
+  // avatar went silent three times (repeat_silent -> recovery -> the fallback
+  // voice G heard as "reverted to the ElevenLabs voice"). Each new call also
+  // cancels the previous probe, so a line that had not started yet was simply
+  // abandoned. The avatar needs a beat to begin a line before the next one
+  // lands on it: at most one repeat() per MIN_AVATAR_DISPATCH_GAP_MS. Only the
+  // NEWEST reply waits for its slot; if a newer reply or a barge-in arrives
+  // during the wait, this one is dropped, never queued. The caller never
+  // awaited this dispatch (see useTextChat), so returning early is safe.
+  // Only a line the avatar has NOT begun to speak needs protecting. Once he
+  // has started, the next reply may replace it at once (the barge-in
+  // contract the recovery tests encode).
+  const sinceLast = Date.now() - lastProviderDispatchAt;
+  if (lastProviderDispatchStarted || sinceLast >= MIN_AVATAR_DISPATCH_GAP_MS) {
+    lastProviderDispatchAt = Date.now();
+    lastProviderDispatchStarted = false;
+    return dispatchNow();
   }
-
-  // A rejected promise is the old caught case; keep handling it, just here now.
-  Promise.resolve(result).catch(() => rescue("repeat_rejected"));
-
-  if (!providerStarted) {
-    // One small sound at 1.4 s so a slow start does not read as 6 freezing.
-    // Cleared by disarm() the moment he actually speaks.
-    gapHintTimer = window.setTimeout(() => {
-      gapHintTimer = null;
-      if (!providerStarted && !settled) reportAvatarSpeechGap({ session, where });
-    }, SPEECH_GAP_HINT_MS);
-    repeatWatchdog = window.setTimeout(() => {
-      repeatWatchdog = null;
-      // Accepted, resolved, and still not a word out of him. This is the case
-      // that used to go unnoticed.
-      if (!providerStarted) rescue("repeat_silent");
-    }, REPEAT_WATCHDOG_MS);
-  }
-
-  return result;
+  let superseded = false;
+  const cancelWait = () => {
+    superseded = true;
+  };
+  activeAvatarSpeechCancels.set(cancelWait, session);
+  window.setTimeout(() => {
+    activeAvatarSpeechCancels.delete(cancelWait);
+    if (superseded || settled || cutEpoch !== armedEpoch || replyEpoch !== myReplyEpoch) {
+      reportCustomVoiceDiag(`[custom-voice] ${where} superseded during dispatch-floor wait`);
+      finish();
+      return;
+    }
+    lastProviderDispatchAt = Date.now();
+    lastProviderDispatchStarted = false;
+    dispatchNow();
+  }, MIN_AVATAR_DISPATCH_GAP_MS - sinceLast);
+  return undefined;
 }

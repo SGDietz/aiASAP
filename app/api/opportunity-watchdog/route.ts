@@ -33,6 +33,7 @@ import {
 import {
   buildOwnerMediaManifest,
   buildVisitorMediaSummary,
+  readMediaCaption,
   createHttpSignedUrlSigner,
   loadSessionMediaEvents,
 } from "../../../src/lib/emails/leadMediaManifest";
@@ -357,6 +358,9 @@ export async function POST(request: NextRequest) {
             rows: mediaRows,
             signer: createHttpSignedUrlSigner(url, serviceRoleKey),
             reviewRef: `/admin/sessions/${encodeURIComponent(evidenceSessionId)}`,
+            // G 2026-09-05: "so when I reach out to the people, I know everything"
+            // - the lead email carries what 6 saw in each file, not just a link.
+            captionFor: (row) => readMediaCaption(url, serviceRoleKey, row),
           });
           ownerMediaLinks = manifest.links;
           mediaSigningFailed = manifest.signingFailed;

@@ -492,11 +492,22 @@ export function createResendFollowUpTransport(): FollowUpTransport {
         typeof payload.transcriptEvidenceRef === "string" && payload.transcriptEvidenceRef
           ? payload.transcriptEvidenceRef
           : sessionReviewRef;
+      // G 2026-09-05: the file links are gold BUTTONS under the facts, not raw
+      // URLs in a row; each file's row says what it is, how long the link lives,
+      // and what 6 saw in it.
+      const mediaButtons: Array<{ label: string; href: string }> = [];
       if (links.length) {
-        facts.push(["Uploads (links only)", `${links.length} file${links.length === 1 ? "" : "s"} — signed link${links.length === 1 ? "" : "s"} below`]);
-        for (const link of links) {
-          facts.push([link.label, `${link.href} (expires ${link.expiresAt})`]);
-        }
+        facts.push(["Uploads", `${links.length} file${links.length === 1 ? "" : "s"} — button${links.length === 1 ? "" : "s"} below, links good for 7 days`]);
+        links.forEach((link, index) => {
+          const n = index + 1;
+          const until = new Date(link.expiresAt);
+          const untilText = Number.isNaN(until.getTime()) ? "" : ` · link good until ${until.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" })}`;
+          facts.push([`File ${n}`, `${link.label}${untilText}`]);
+          if (typeof link.caption === "string" && link.caption.trim()) {
+            facts.push([`File ${n} - what 6 saw`, link.caption.trim().slice(0, 500)]);
+          }
+          mediaButtons.push({ label: `Open file ${n}`, href: link.href });
+        });
       } else if (payload.mediaSigningFailed) {
         facts.push([
           "Uploads",
@@ -513,6 +524,7 @@ export function createResendFollowUpTransport(): FollowUpTransport {
         phone: null,
         facts,
         secureLinks: [
+          ...mediaButtons,
           { label: "Open full lead", href: absoluteInternal(leadRef ? `/admin/opportunities/${encodeURIComponent(leadRef)}` : "") },
           { label: "Open full conversation", href: absoluteInternal(transcriptEvidenceRef) },
         ],

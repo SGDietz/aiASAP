@@ -377,7 +377,7 @@ describe("cumulative provider finals become one semantic turn", () => {
 
   it("wires a lone held final back through the serialized avatar dispatcher", () => {
     const session = source("src/components/LiveAvatarSession.tsx");
-    expect(session).toContain("flushPendingSpeechFragment(pending, Date.now())");
+    expect(session).toContain("flushPendingSpeechFragment(pending, Date.now(), holdMs)"); // holdMs: 3.5s for a dangling shard (ride f225a5c7)
     expect(session).toContain('void handleUserTranscription({ text, flushHeld: true })');
     expect(session).toContain('"user_turn_flushed"');
     expect(session).toContain("pending.at !== heldAt");

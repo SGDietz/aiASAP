@@ -120,7 +120,9 @@ export async function POST(request: NextRequest) {
           ? body.route.slice(0, MAX_ROUTE)
           : null,
       status_code: envelope.status_code,
-      payload: { ...payload, user_agent: userAgent },
+      // Which deployment wrote this row (production / preview / development).
+      // The cloud watcher filters on it so G's dev rides never read as trouble.
+      payload: { ...payload, user_agent: userAgent, env: process.env.VERCEL_ENV ?? "development" },
     };
     const enrichedRow = { ...baseRow, ...envelope };
     const endpoint = envelope.event_id

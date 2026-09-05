@@ -927,29 +927,13 @@ export const LiveAvatarDemo = () => {
             alt="6, your a-i-buddy"
             className="six-primary-scene h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
-          {/* Session-ended message + Restart, overlaid where the tap button sits
-              on the start screen. Branded brown scrim (no raw black) for legibility. */}
-          {/* G 2026-08-21: "raise up the little box that says Session Ended to
-              more above his hands." Was bottom-[11svh] / md:bottom-[14%], which
-              sat the card ON his folded hands. Lifted so the card clears them. */}
-          <div className="absolute left-1/2 -translate-x-1/2 bottom-[26svh] md:bottom-[30%] z-20 w-max max-w-[calc(100%-2rem)] flex flex-col items-center gap-2.5 rounded-2xl border border-[#d7a05a]/35 bg-[#190f05]/60 px-8 py-5 backdrop-blur-sm shadow-[0_0_0_1px_rgba(215,160,90,0.3),0_18px_50px_rgba(0,0,0,0.6)]">
-            <div className="text-2xl font-black bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">Session Ended</div>
-            <div className="text-center text-base bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-              Thank you for using <span style={{ display: 'inline-block', transform: 'skewX(-10deg)', background: 'linear-gradient(to bottom, #ffe9c2, #d7a05a, #3a2108)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>aiASAP</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                explicitExitRef.current = false;
-                setIsExited(false);
-                sessionBootstrapRef.current = true;
-                void startSession();
-              }}
-              className="btn-inset rounded-lg px-7 py-2.5 text-base font-black"
-            >
-              Restart
-            </button>
-          </div>
+          {/* G 2026-09-05 15:10, desktop, after a session ended: "for a restart,
+              it should just go back to the start screen." The "Session Ended /
+              Thank you for using aiASAP / Restart" card that used to float here
+              is gone; this screen IS the start screen again - same still, same
+              four chest buttons, START begins a new session (see onStopStart
+              below). No auto-restart: a new session still needs the tap
+              (G 2026-06-01, credits). */}
         </div>
         <StageControls
           running={false}

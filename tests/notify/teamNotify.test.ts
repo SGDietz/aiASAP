@@ -89,9 +89,13 @@ describe("telegram alerts", () => {
     process.env.TELEGRAM_ALERTS_ENABLED = "true";
     process.env.TELEGRAM_ALERT_BOT_TOKEN = "tok";
     process.env.TELEGRAM_ALLOWED_USER_IDS = "123,456";
+    // The 2026-09-05 alerter believes a send only when Telegram returns a real
+    // receipt (ok + message_id) and READS the body - so the mock must hand out a
+    // fresh Response per call; one shared Response is consumed by the first send
+    // and the third read as "failed".
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("{}", { status: 200 }));
+      .mockImplementation(async () => new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), { status: 200 }));
 
     expect(await sendTelegramAlert("route-a", "one")).toEqual({ sent: true });
     // An error storm must not become a phone storm.

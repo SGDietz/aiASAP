@@ -107,7 +107,13 @@ function Btn({
         disabled={disabled}
         onClick={onClick}
         className={`stage-open-control flex ${mobileStartControls ? "h-full w-full" : "h-full w-full"} flex-col items-center justify-center gap-[3px] bg-transparent px-1 py-0 ${
-          tone === "off" ? "text-[#d77a2f]" : "text-[#e0aa62]"
+          // G 2026-09-05 15:10, muted mic on desktop: "That orange microphone
+          // should be brand colors." The old off tone was a raw orange from
+          // outside the gold ramp. It is now the ramp's own foot (#b07a38, the
+          // --aiasap-blend-small-4 stop): still clearly darker than the live
+          // #e0aa62, so muted reads as muted, but the same family.
+          // 15:20: live tone one shade browner too (#e0aa62 x 0.92 = #ce9c5a).
+          tone === "off" ? "text-[#b07a38]" : "text-[#af844c]"
         }`}
       >
         <span className="stage-control-icon inline-flex opacity-100">{children}</span>

@@ -199,7 +199,7 @@ export function ContactStatusCard({ state }: Props) {
           desktop, where the button row is 320px and this box was 288. Widths
           are MEASURED against the real cluster (controls_probe.py): phone
           288.6, iPad and desktop 320. card_probe.py fails if they drift. */}
-      <div className="w-full max-w-[259.7px] md:max-w-[288px] md:min-h-[94px] md:flex md:flex-col md:justify-center rounded-2xl border border-[#d7a05a]/70 bg-[#2b1608]/95 px-4 pb-3 pt-[0.52rem] text-center shadow-[0_12px_38px_rgba(43,22,8,0.55)] backdrop-blur-sm">
+      <div className="w-full max-w-[259.7px] md:max-w-[288px] min-h-[93.4px] md:min-h-[94px] flex flex-col justify-center rounded-2xl border border-[#d7a05a]/70 bg-[#2b1608]/95 px-4 pb-3 pt-[0.52rem] text-center shadow-[0_12px_38px_rgba(43,22,8,0.55)] backdrop-blur-sm">
         {sent ? (
           // G asked for this nine times on the other site before it appeared:
           // the words AND a check mark, on the ordinary success path.

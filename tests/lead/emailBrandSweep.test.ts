@@ -19,7 +19,12 @@ import { SIX_PHOTO_URL } from "../../src/lib/emailTheme";
 // ---------------------------------------------------------------------------
 
 const ROOT = process.cwd();
-const RETIRED_TAGLINE = "Take the Leap";
+// Every tagline the site has retired. 2026-09-05: G opened a mail still saying
+// old words and asked why the update "never gets done" - so every email must
+// carry the line the door shows. Later that day he replaced the door line too:
+// "Gorgeous Brilliant Fast Cheap" is the only one allowed now.
+const RETIRED_TAGLINES = ["Take the Leap", "Cheap. Fast. Gorgeous. Brilliant.", "Beautiful Brilliant Cheap on Autopilot", "Gorgeous Brilliant Cheap Fast"];
+const CURRENT_TAGLINE = "Gorgeous Brilliant Fast Cheap";
 const FULL_BODY_ASSET = "startscreen_trim.png";
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
@@ -40,9 +45,22 @@ describe("every aiASAP email carries the current brand", () => {
     expect(files.length).toBeGreaterThan(50);
   });
 
-  it("no file still says the retired tagline", () => {
-    const offenders = files.filter((f) => readFileSync(f, "utf8").includes(RETIRED_TAGLINE));
+  it("no file still says a retired tagline", () => {
+    const offenders = files.filter((f) => {
+      const lines = readFileSync(f, "utf8").split("\n");
+      return RETIRED_TAGLINES.some((tag) =>
+        lines.some((line) => line.includes(tag) && !line.trim().startsWith("//") && !line.trim().startsWith("*") && !line.includes("RETIRED_TAGLINES")),
+      );
+    });
     expect(offenders.map((f) => f.replace(ROOT, ""))).toEqual([]);
+  });
+
+  it("every email says the tagline the site shows today", () => {
+    const withTag = files.filter((f) => /class="tag"|letter-spacing:2px;text-transform:uppercase/.test(readFileSync(f, "utf8")));
+    expect(withTag.length).toBeGreaterThanOrEqual(6);
+    for (const f of withTag) {
+      expect(readFileSync(f, "utf8"), f).toContain(CURRENT_TAGLINE);
+    }
   });
 
   it("no email still points at the full-body portrait", () => {

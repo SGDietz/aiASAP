@@ -150,7 +150,7 @@ describe("phone start-screen avatar lock", () => {
       'html.aiasap-phone-start-lock [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {',
     );
     expect(block).toContain("flex: 0 0 auto;");
-    expect(block).toContain("--aiasap-phone-legal-reserve: 55px;");
+    expect(block).toContain("--aiasap-phone-legal-reserve: 63px;");
     expect(block).toContain("height: calc(100svh - var(--aiasap-phone-legal-reserve));");
     // The rejected repair. dvh tracks the chrome live, so it resizes the very
     // box whose object-cover crop has to stay still.
@@ -160,7 +160,7 @@ describe("phone start-screen avatar lock", () => {
 
   it("makes the bottom-fixed brown paint exactly 70% of its rendered height", () => {
     const css = source("app/globals.css");
-    expect(css).toContain("--aiasap-phone-legal-reserve: 55px;");
+    expect(css).toContain("--aiasap-phone-legal-reserve: 63px;");
     expect(css).toContain("height: calc(100svh - 34.65px);");
     expect(34.65).toBe(49.5 * 0.7);
     // 2026-09-04 evening: the little brown bar under his hands IS an ::after
@@ -185,7 +185,7 @@ describe("phone start-screen avatar lock", () => {
     // One rendered box height for every chrome state: same dimensions, same
     // origin, therefore the same object-cover crop of the same still.
     expect(new Set(rendered).size).toBe(1);
-    expect(rendered[0]).toBe(SMALL_VIEWPORT - 55);
+    expect(rendered[0]).toBe(SMALL_VIEWPORT - 63); // reserve 70 -> 63, G 2026-09-05 15:42 (bar 10% shorter)
 
     // The base authority still fills the locked stage exactly; the <=599px
     // paint overlap is a later, independently tested seam winner.
@@ -262,8 +262,12 @@ describe("phone start-screen avatar lock", () => {
       evaluatePx(reserve![1], viewport, {}),
     );
     expect(new Set(stackReserve).size).toBe(1);
-    expect(stackReserve[0]).toBe(55);
+    // 2026-09-05 (G): two footer rows (WildWorks.Live + legal) never fit in 55;
+    // the reserve went to 70, then 63 the same afternoon ("the bottom brown bar
+    // 10% shorter", said from inside ride f225a5c7).
+    expect(stackReserve[0]).toBe(63);
     expect(20.35 + barHeight).toBe(55);
+    expect(source("app/globals.css")).toContain("--six-bar-h: 65px;");
     expect(barHeight).toBeCloseTo(oldVisibleHeight * 0.7, 10);
     expect(block).toContain("bottom: 8.47px;");
 

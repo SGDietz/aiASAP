@@ -1,5 +1,21 @@
 export const DEFAULT_SPEECH_FRAGMENT_TTL_MS = 8_000;
 
+// RIDE f225a5c7, 2026-09-05 15:40-15:42 ("now you're talking over me"). G
+// thinks out loud in 1-3 second pieces: "So the bottom line is" / "This is,
+// you know, we- no one at aiASAP looks" / "word for word at what you say." /
+// "We get" / "um," / "readouts. We get, um," ... The provider finalizes at
+// every pause. Twelve pieces were held, eight were flushed after 1.4 s and
+// ANSWERED - "Scott, the bottom line is this: ...", "We get your vision..." -
+// so 6 spoke into every breath he took. 31 replies written, 19 spoken.
+//
+// Two rules follow. A fragment that still dangles (ends on a word that needs
+// what comes next) waits longer for its continuation, and if nothing comes it
+// is DROPPED, never answered: there is no good reply to "We get". A finished
+// sentence keeps the short hold it always had.
+export const INCOMPLETE_FRAGMENT_HOLD_MS = 3_500;
+/** A dangling fragment this short is noise on its own once the hold expires. */
+export const DANGLING_DROP_MAX_WORDS = 6;
+
 export type PendingSpeechFragment = {
   text: string;
   at: number;
@@ -46,8 +62,90 @@ export function flushPendingSpeechFragment(
   }
   // A held fragment with no words in it at all - "?", "...", a stray click -
   // is not speech. Deliver anything real, drop that.
-  if (wordsForComparison(pending.text).length === 0) return null;
+  const words = wordsForComparison(pending.text);
+  if (words.length === 0) return null;
+  // RIDE 755f063f, 2026-09-05 08:34-08:38. G thinks out loud: "Um,", "So,
+  // um,", "But, um, I'm gonna", "that, uh, I'm". Each was held, nothing
+  // followed inside the hold window, and this flush handed the shard to the
+  // brain as a turn. 6 answered every one ("Take your time, Scott" three
+  // times, "whenever you're ready" four) and each answer cut off the one
+  // before it - 29 replies written, 23 spoken. A shard made only of fillers
+  // and function words carries nothing to answer, so it is dropped here, not
+  // delivered; the next real sentence is the turn. One content word
+  // ("insurance", "what", "dropping") still goes through - holding must never
+  // swallow speech. Bounded to four words: "I guess it could be" is made of
+  // the same small words and is a real, if vague, answer.
+  if (words.length <= FILLER_SHARD_MAX_WORDS && !hasContentWord(words)) return null;
+  // Still dangling after the long hold and short: "So the bottom line is",
+  // "We get", "Help you". Nothing followed, and there is nothing to answer.
+  // Narrow on purpose: "No, um", "Yes, so", "I guess it could be." carry an
+  // answer and must still be delivered (the 09-03 cf79a533 contract).
+  if (isHardDanglingShard(pending.text)) return null;
   return normalizeSpeech(pending.text) || null;
+}
+
+/** Words a thought cannot end on: what follows them IS the thought. */
+const HARD_DANGLE_ENDINGS = new Set([
+  "um", "uh", "er", "so", "and", "but", "or", "the", "a", "an", "to", "of", "for", "with",
+  "about", "from", "into", "onto", "is", "are", "was", "were", "get", "gets", "got", "help",
+  "helps", "want", "wants", "need", "needs", "tell", "told", "say", "said", "see", "make",
+  "that", "which", "who", "whose", "where", "when", "if", "because", "we", "i", "you",
+]);
+const ANSWER_OR_QUESTION_WORD_RE =
+  /^(?:yes|yeah|yep|yup|no|nope|nah|okay|ok|sure|stop|wait|what|why|how|where|when|who|which)$/i;
+
+/**
+ * A short shard that ends on a word that needs what comes next, and carries
+ * no answer or question word of its own. Held and never continued, it is
+ * dropped: "So the bottom line is", "We get", "Help you". Anything with an
+ * answer in it ("No, um", "Yes, so") or longer than DANGLING_DROP_MAX_WORDS
+ * is delivered.
+ */
+export function isHardDanglingShard(text: string): boolean {
+  const words = wordsForComparison(text).map((w) => w.replace(/['\u2019]/g, ""));
+  if (words.length === 0 || words.length > DANGLING_DROP_MAX_WORDS) return false;
+  if (words.some((w) => ANSWER_OR_QUESTION_WORD_RE.test(w))) return false;
+  const last = words[words.length - 1];
+  if (HARD_DANGLE_ENDINGS.has(last)) return true;
+  // "Help you", "Tell me": two or three words ending on an object pronoun.
+  return words.length <= 3 && /^(?:you|me|us|them|him|her)$/.test(last);
+}
+
+/** Why a held shard was dropped at flush time - for the ride report. */
+export function shardDropReason(text: string): "filler_only_shard" | "dangling_fragment" | "no_words" {
+  const words = wordsForComparison(text);
+  if (words.length === 0) return "no_words";
+  if (words.length <= FILLER_SHARD_MAX_WORDS && !hasContentWord(words)) return "filler_only_shard";
+  return "dangling_fragment";
+}
+
+/**
+ * Words that carry no answerable meaning on their own: fillers, conjunctions,
+ * articles, pronouns and the auxiliaries a sentence STARTS with. Answer words
+ * ("yes", "no", "okay") and question words ("what", "why") are deliberately
+ * absent - a bare "No, um" or "What?" is a real turn.
+ */
+const FILLER_ONLY_WORDS = new Set([
+  "um", "uh", "er", "ah", "eh", "hmm", "hm", "mm", "mhm", "huh", "oh",
+  "so", "and", "but", "or", "like", "well", "anyway", "anyways",
+  "i", "im", "ill", "ive", "id", "you", "youre", "we", "were", "it", "its",
+  "this", "that", "thats", "these", "those",
+  "the", "a", "an", "to", "of", "in", "on", "at", "for", "with", "by", "from",
+  "is", "was", "are", "be", "am", "been", "being",
+  "do", "does", "did", "have", "has", "had", "can", "could", "will", "would",
+  "should", "gonna", "wanna",
+  "just", "kind", "sort", "know", "mean", "guess", "think",
+  "actually", "basically", "literally", "cause", "because", "then",
+  "there", "here", "now", "also", "really", "very", "still", "even", "maybe",
+  "if", "as", "up", "out", "about",
+]);
+
+/** A filler-only shard longer than this is treated as speech, not noise. */
+export const FILLER_SHARD_MAX_WORDS = 4;
+
+/** True when at least one word in `words` is not a filler or function word. */
+export function hasContentWord(words: readonly string[]): boolean {
+  return words.some((w) => !FILLER_ONLY_WORDS.has(w.replace(/['\u2019]/g, "")));
 }
 
 function normalizeSpeech(text: string): string {
@@ -150,7 +248,7 @@ export function isLikelyIncompleteSpeechFragment(text: string): boolean {
   // Function words, auxiliaries, and unfinished command verbs need a following
   // object/clause. These include the observed "And added a" and "take the".
   if (
-    /\b(?:and|but|so|because|if|when|while|although|though|that|which|who|whose|where|the|a|an|my|your|our|his|her|their|its|to|of|with|for|from|into|onto|about|as|is|are|was|were|be|been|being|am|do|does|did|have|has|had|can|could|will|would|shall|should|may|might|must|gonna|wanna|add|added|remove|removed|make|made|create|created|open|opened|close|closed|switch|switched|rename|renamed|move|moved|um|uh|er|don'?t|doesn'?t|didn'?t|can'?t|won'?t)\s*$/i.test(
+    /\b(?:and|but|so|because|if|when|while|although|though|that|which|who|whose|where|the|a|an|my|your|our|his|her|their|its|to|of|with|for|from|into|onto|about|as|is|are|was|were|be|been|being|am|do|does|did|have|has|had|can|could|will|would|shall|should|may|might|must|gonna|wanna|add|added|remove|removed|make|made|create|created|open|opened|close|closed|switch|switched|rename|renamed|move|moved|um|uh|er|don'?t|doesn'?t|didn'?t|can'?t|won'?t|get|gets|got|getting|help|helps|helping|want|wants|need|needs|see|say|says|said|tell|tells|told|take|takes|give|gives|put|keep|let|ask|asks|feel|feels|looks|sounds|seems)\s*$/i.test(
       clause,
     )
   ) {
@@ -161,6 +259,18 @@ export function isLikelyIncompleteSpeechFragment(text: string): boolean {
     ) {
       return false;
     }
+    return true;
+  }
+
+  // "Help you", "Tell me", "For you": two or three words ending on an object
+  // pronoun are the front half of a thought, never a whole one (unless they
+  // are a real answer or command, handled above).
+  if (
+    wordCount <= 3 &&
+    /\b(?:you|me|us|them|him|her)$/i.test(clause) &&
+    !/^(?:what|why|how|where|when|who|which|can|could|would|will|do|does|did|is|are|was|were|should|may)\b/i.test(clause) &&
+    !isStandaloneAnswer(wordsForComparison(clause))
+  ) {
     return true;
   }
 

@@ -32,19 +32,23 @@ describe("tagline horizontal-only compression", () => {
 
   it("keeps exact visual and accessibility copy on one line", () => {
     const tagline = source("src/components/TaglineText.tsx");
-    // G, 2026-09-04, SEVENTH revision and the current one, typed word for
-    // word: "Beautiful Brilliant Cheap > Autopilot". The arrow is back in the
-    // connector's slot. (TaglineText.tsx carries the history of the six
-    // before it.)
-    expect(tagline).toContain('<span className="sr-only">Beautiful Brilliant Cheap &gt; Autopilot</span>');
-    // Four initials render at the shared Initial size: B, B, C, A — one for
-    // every capital in the exact tagline spelling. It was five while the line
-    // read "... Cheap. On Autopilot."; G's equation drops the "On".
-    expect(tagline.match(/<Initial>[BCA]<\/Initial>/g)).toHaveLength(4);
-    // One operator: the arrow, in its own span. No plus, no ampersand.
-    expect(tagline.match(/<Op>&gt;<\/Op>/g)).toHaveLength(1);
+    // G, 2026-09-05, by voice with a screenshot of the door: "Gorgeous Brilliant
+    // Cheap Fast." Four words, a plain space each, nothing else. Replaces the
+    // 2026-09-04 "on Autopilot" line. (TaglineText.tsx carries the history.)
+    expect(tagline).toContain('<span className="sr-only">Gorgeous Brilliant Fast Cheap</span>');
+    // Four initials render at the shared Initial size: G, B, C, F — one for
+    // every capital in the exact tagline spelling.
+    expect(tagline.match(/<Initial>[GBCF]<\/Initial>/g)).toHaveLength(4);
+    // No connector at all: no plus, no arrow, no ampersand, no comma, no "on".
     expect(tagline).not.toContain("<Op>+</Op>");
+    expect(tagline).not.toContain("<Op>&gt;</Op>");
     expect(tagline).not.toContain("&amp;");
+    expect(tagline).not.toContain("<Amp>");
+    expect(tagline).toContain("<Small>orgeous</Small>{\" \"}");
+    expect(tagline).toContain("<Small>rilliant</Small>{\" \"}");
+    expect(tagline).toContain("<Small>ast</Small>{\" \"}");
+    expect(tagline).toContain("<Initial>C</Initial><Small>heap</Small>");
+    expect(tagline).not.toContain("<Small>on</Small>");
     // LOCKED, and rolled back to exactly this on 2026-09-04 after two changes
     // in one evening both made it worse: raising it (measurement said it sat a
     // pixel below the capitals' centre) read too high, and shifting it toward
