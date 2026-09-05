@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -24,6 +25,23 @@ const REPO_DIR = resolve(__dirname, "../../ops/scheduled");
 /** Line endings are not drift - git normalizes them on checkout. */
 const norm = (s: string) => s.replace(/\r\n/g, "\n").trimEnd();
 
+const isWindowsTaskDisabled = (taskName: string) => {
+  if (process.platform !== "win32") return false;
+  try {
+    return execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `(Get-ScheduledTask -TaskName '${taskName}' -ErrorAction Stop).State`,
+      ],
+      { encoding: "utf8" },
+    ).trim() === "Disabled";
+  } catch {
+    return false;
+  }
+};
+
 const scripts = readdirSync(REPO_DIR).filter(
   (f) => f.endsWith(".ps1") || f.endsWith(".vbs"),
 );
@@ -36,9 +54,14 @@ describe("ops/scheduled copies match what actually runs", () => {
   });
 
   const liveExists = existsSync(LIVE_DIR);
+  const localFailureWatcherDisabled = isWindowsTaskDisabled("aiASAP-Failure-Watch");
 
   for (const name of scripts) {
-    it.skipIf(!liveExists)(`${name} is identical to the live copy`, () => {
+    const isIntentionallyDormantWatcher =
+      name === "aiasap_failure_watch.ps1" && localFailureWatcherDisabled;
+    it.skipIf(!liveExists || isIntentionallyDormantWatcher)(
+      `${name} is identical to the live copy`,
+      () => {
       const livePath = join(LIVE_DIR, name);
 
       // A copy in the repo with no live counterpart means the task was
@@ -57,7 +80,8 @@ describe("ops/scheduled copies match what actually runs", () => {
         `${name} has DRIFTED. The live script and the versioned copy differ. ` +
           `Change one, change both - see ops/scheduled/README.md.`,
       ).toBe(live);
-    });
+      },
+    );
   }
 
   it.skipIf(!liveExists)(

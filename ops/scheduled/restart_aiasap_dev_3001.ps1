@@ -73,6 +73,33 @@ try {
 } catch {
   Say "FAIL: HTTP error $($_.Exception.Message)"; exit 4
 }
+
+# A 200 root is not sufficient: a dev listener can outlive a production build
+# and keep serving HTML whose generated JS/CSS files no longer exist. That
+# renders a raw, unhydrated page while every superficial root probe stays green.
+# Require the complete HTML-referenced Next asset graph before calling the
+# protected runtime healthy.
+$assetRefs = @([regex]::Matches(
+  [string]$r.Content,
+  '(?:src|href)="(?<url>/_next/static/[^"?#]+)'
+) | ForEach-Object { $_.Groups['url'].Value } | Sort-Object -Unique)
+if ($assetRefs.Count -eq 0) {
+  Say "FAIL: root HTML references no Next JS/CSS assets"; exit 5
+}
+$assetFailures = @()
+foreach ($assetRef in $assetRefs) {
+  try {
+    $asset = Invoke-WebRequest -Uri "http://127.0.0.1:$port$assetRef" -UseBasicParsing -TimeoutSec 60
+    if ($asset.StatusCode -ne 200) { $assetFailures += "$assetRef=$($asset.StatusCode)" }
+  } catch {
+    $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 'ERR' }
+    $assetFailures += "$assetRef=$status"
+  }
+}
+if ($assetFailures.Count -gt 0) {
+  Say "FAIL: referenced asset graph is incomplete: $($assetFailures -join ', ')"; exit 5
+}
+Say "asset graph $($assetRefs.Count)/$($assetRefs.Count) HTTP 200"
 $i = Get-ScheduledTaskInfo -TaskName $name
 Say "task state=$((Get-ScheduledTask -TaskName $name).State) lastRun=$($i.LastRunTime) result=$($i.LastTaskResult)"
 Say "OK"
