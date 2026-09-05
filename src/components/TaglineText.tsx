@@ -25,35 +25,27 @@ const Initial = ({ children }: { children: React.ReactNode }) => (
 );
 
 /**
- * THE ARROW. G, 2026-09-04: "get the > correct visually first try", then
- * "lower the > a little it is too high", then "move the > a little away from
- * cheap and toward autopilot".
+ * THE OPERATOR SPAN. These four values are LOCKED and are not to be "improved".
  *
- *   -top-[0.14em]  He asked for the operators "raised up to kind of the middle
- *                  of the capital words height middle." At the baseline they
- *                  sat at the capitals' FEET. 0.26em put them at the cap TOP
- *                  ("the boldness is perfect, but they're too high"). 0.14em
- *                  was accepted. I later MEASURED 0.14em as 1px low - the
- *                  arrow's painted ink centres on row 47.0, the capitals on
- *                  46.0 - and moved it to land dead centre. G looked at that
- *                  and said it was too high, so this is OPTICAL, not
- *                  geometric: a ">" wedge carries its mass low and wide, so
- *                  true centre reads high. His eye wins here. Do NOT
- *                  re-correct this with a ruler.
- *   font-black     "make them significantly more bold" -> weight 900, and it
- *                  is real, not synthesised: this line resolves to the system
- *                  sans, which carries heavy weights.
- *   text-[0.95em]  Slightly under the body size so a heavy glyph does not
- *                  out-weigh the words it sits between.
- *   ml / mr        MARGINS, not space characters, so each side tunes on its
- *                  own. They were symmetric at 0.11em until he asked for the
- *                  arrow moved off Cheap and toward Autopilot, so the left gap
- *                  opened and the right closed. The pair still sums to about
- *                  the old total, so the line keeps its width and only the
- *                  arrow moves inside it.
+ *   -top-[0.14em]  raised to the middle of the capitals. G asked for that
+ *                  ("raised up to kind of the middle of the capital words
+ *                  height middle") and rejected a bigger lift as too high.
+ *   font-black     "make them significantly more bold" -> weight 900.
+ *   text-[0.95em]  just under the body size so a heavy glyph does not
+ *                  out-weigh the words either side of it.
+ *   mx-[0.11em]    an equal margin each side, tuned after "a little bit too
+ *                  much space before and after."
+ *
+ * 2026-09-04, WHY THIS IS LOCKED. I moved it twice in one evening: up, because
+ * measuring said the arrow sat a pixel below the capitals' centre, and then
+ * sideways, on a request to shift it toward Autopilot. Both looked worse - the
+ * first read too high, the second crowded Autopilot - and the verdict was to
+ * roll the whole thing back to exactly this. The measurement was right and the
+ * result was still wrong, which is the point: this glyph is judged by eye, not
+ * by ruler. Leave it alone.
  */
 const Op = ({ children }: { children: React.ReactNode }) => (
-  <span className="relative -top-[0.14em] ml-[0.2em] mr-[0.04em] inline-block text-[0.95em] font-black">
+  <span className="relative -top-[0.14em] mx-[0.11em] inline-block text-[0.95em] font-black">
     {children}
   </span>
 );

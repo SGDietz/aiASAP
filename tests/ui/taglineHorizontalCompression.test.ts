@@ -45,21 +45,19 @@ describe("tagline horizontal-only compression", () => {
     expect(tagline.match(/<Op>&gt;<\/Op>/g)).toHaveLength(1);
     expect(tagline).not.toContain("<Op>+</Op>");
     expect(tagline).not.toContain("&amp;");
-    // OPTICAL, not geometric. 0.205em centres the arrow's painted ink exactly
-    // on the capitals' centre (measured, offset 0.00px) and G said "lower the
-    // > a little it is too high." A ">" wedge carries its mass low and wide,
-    // so geometric centre reads high. 0.14em is his value; do not re-correct
-    // it with a ruler.
+    // LOCKED, and rolled back to exactly this on 2026-09-04 after two changes
+    // in one evening both made it worse: raising it (measurement said it sat a
+    // pixel below the capitals' centre) read too high, and shifting it toward
+    // Autopilot crowded that word. G's verdict was to put it back. The
+    // measurement was right and the result was still wrong - this glyph is
+    // judged by eye. Do not "improve" these four values.
     expect(tagline).toContain("-top-[0.14em]");
     expect(tagline).toContain("font-black");
-    // G: "move the > a little away from cheap and toward autopilot." The
-    // margins were symmetric at 0.11em; the left opened and the right closed,
-    // and the pair still sums to about the old total so the line keeps its
-    // width. ONLY the arrow moved - the words, sizes, copy and colour of this
-    // line are untouched.
-    expect(tagline).toContain("ml-[0.2em] mr-[0.04em]");
-    expect(tagline).not.toContain("mx-[0.11em]");
-    // The line's own paint stays exactly where it was, inline on the span.
+    expect(tagline).toContain("mx-[0.11em]");
+    expect(tagline).toContain("text-[0.95em]");
+    expect(tagline).not.toContain("ml-[0.2em]");
+    expect(tagline).not.toContain("-top-[0.205em]");
+    // The line's own paint is untouched too - it stays inline on the span.
     expect(tagline).toContain("bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text");
     expect(tagline).not.toContain("<br");
   });
