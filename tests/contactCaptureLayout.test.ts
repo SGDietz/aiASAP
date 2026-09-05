@@ -22,7 +22,14 @@ describe("contact capture and four-control state matrix", () => {
     const css = source("app/globals.css");
     // anchored from the BOTTOM against the cluster's own expression
     expect(card).toContain("bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.225-4px+44px)]");
-    expect(card).toContain("md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.203+56px)]");
+    // The live anchor on every breakpoint is the CHEST ANCHOR block at the end
+    // of globals.css: the card rides the same hands-line expression as the
+    // cluster, plus the measured bottom-row offset (62px phone, 66px md).
+    expect(card).toContain('data-contact-card-anchor="1"');
+    const chest = css.slice(css.indexOf("GOLD GLYPHS + CHEST ANCHOR"));
+    expect(chest).toContain('[data-contact-card-anchor="1"]');
+    expect(chest).toContain("var(--six-chest-gap) + 62px) !important");
+    expect(chest).toContain("* 0.1696 + 16px + 66px) !important");
     expect(card).not.toMatch(/\stop-\[calc\(var\(--stage-top\)/);
     expect(card).toContain('data-aiasap-capture-card');
     // only the top two hide, and by visibility so the grid never reflows

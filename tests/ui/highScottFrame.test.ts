@@ -33,7 +33,12 @@ describe("full Six framing inside the locked 9:16 poster", () => {
     );
     expect(rule).toContain("height: var(--stage-height) !important");
     expect(rule).toContain("aspect-ratio: 9 / 16 !important");
-    expect(rule).toContain("object-position: top !important");
+    // G, 2026-09-04 on his phone: "his hands are cut off ... he needs to be
+    // centered, but no brown lines on the sides." MEASURED at a 450x709
+    // stage: the 385x690 still covers to 450x806 and the top anchor threw
+    // all 97px of overflow off the BOTTOM, taking his hands with it.
+    // Centring splits it; cover still means no side bars.
+    expect(rule).toContain("object-position: center 50% !important");
     expect(rule).toContain("box-sizing: border-box !important");
     expect(rule).toContain("padding-top: 0 !important");
     expect(rule).toContain("background-color: #241608 !important");

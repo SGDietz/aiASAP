@@ -10,7 +10,18 @@ describe("tagline horizontal-only compression", () => {
     const tagline = source("src/components/TaglineText.tsx");
     const lockup = source("src/components/StageBrandLockup.tsx");
     expect(tagline).toContain('data-stage-tagline-ink="1"');
+    // G, 2026-09-04: "squeeze that line in ten percent from left to right ...
+    // don't make the text smaller." A second 10% on top of the original
+    // 0.9, so 0.81 - horizontal only, the type size is untouched.
+        // G, 2026-09-04: he asked for the letters CLOSER, and scale-x made them
+    // THINNER instead - "harder to read, harder to see". The approved 0.9
+    // scale stays; the squeeze is letter-spacing plus operator margins,
+    // which close gaps without touching stroke weight. Measured: natural
+    // 315px natural. A flat 10% read as too condensed, so the letters sit
+    // almost natural and the squeeze lives in the operator gaps: 299px.
     expect(tagline).toContain("origin-center scale-x-[0.9]");
+    expect(tagline).toContain("tracking-[-0.005em]");
+    expect(tagline).toContain("mx-[0.11em]");
     expect(tagline).toContain("bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text");
     expect(tagline).toContain("text-transparent");
     expect(tagline).toContain("text-[1.6632em]");
@@ -22,8 +33,24 @@ describe("tagline horizontal-only compression", () => {
 
   it("keeps exact visual and accessibility copy on one line", () => {
     const tagline = source("src/components/TaglineText.tsx");
-    expect(tagline).toContain('<span className="sr-only">Cheap. Fast. Gorgeous. Brilliant.</span>');
-    expect(tagline.match(/<Initial>[GBFC]<\/Initial>/g)).toHaveLength(4);
+    // G, 2026-09-04 evening, THIRD revision and the current one: "Beautiful
+    // Brilliant Cheap > Autopilot" - no plus signs, no periods, one arrow.
+    // (The "+" equation and the period-separated form both came and went the
+    // same evening; TaglineText.tsx carries the history.)
+    expect(tagline).toContain('<span className="sr-only">Beautiful Brilliant Cheap &gt; Autopilot</span>');
+    // Four initials render at the shared Initial size: B, B, C, A — one for
+    // every capital in the exact tagline spelling. It was five while the line
+    // read "... Cheap. On Autopilot."; G's equation drops the "On".
+    expect(tagline.match(/<Initial>[BCA]<\/Initial>/g)).toHaveLength(4);
+    // Only the arrow survives as an operator; the plus signs went with the
+    // third revision. Matched as its own span so prose plus signs elsewhere in
+    // the file cannot satisfy it.
+    expect(tagline).not.toContain("<Op>+</Op>");
+    expect(tagline).toContain("<Op>&gt;</Op>");
+    // G wanted them at cap-height middle and much heavier, not sitting on the
+    // baseline at body weight.
+    expect(tagline).toContain("-top-[0.14em]");
+    expect(tagline).toContain("font-black");
     expect(tagline).not.toContain("<br");
   });
 });

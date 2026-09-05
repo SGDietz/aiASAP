@@ -28,14 +28,19 @@ describe("cross-device avatar control paint", () => {
     expect(coreRules).not.toMatch(/animation:|backdrop-filter|blur\(/);
   });
 
-  it("uses outlined warm icons and one solid bronze label authority", () => {
-    expect(rules).toContain("filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55));");
+  it("uses solid gold glyphs and one gradient label authority", () => {
+    // G, 2026-09-04, holding his sheet: solid gold marks with a warm halo, not
+    // thin outlines. The paint lives in the SVG (shared gradient + hairline
+    // bronze edge); CSS turns the old stroke forcing off for these glyphs.
+    expect(controls).toContain('const GOLD = "url(#aiasap-contact-gold-gradient)"');
+    expect(controls).toContain("fill={GOLD}");
+    expect(controls).toContain('data-stage-glyph="1"');
+    expect(css).toContain('svg[data-stage-glyph="1"]');
+    expect(css).toContain("stroke: none !important;");
     expect(rules).toContain('[data-stage-control-label="1"]');
-    expect(rules).toContain("color: rgb(215, 160, 90);");
-    expect(rules).toContain("-webkit-text-fill-color: rgb(215, 160, 90);");
     expect(controls).not.toContain("bg-gradient-to-b");
     expect(controls).not.toContain("bg-clip-text");
-    expect(controls).toContain('fill-none sm:h-[20px]');
+    expect(controls).not.toContain("fill-none");
   });
 
   it("keeps initial START enabled while preserving true dormant disabled states", () => {

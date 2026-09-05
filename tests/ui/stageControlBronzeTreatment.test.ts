@@ -33,9 +33,12 @@ describe("selected smoky-bronze four-control treatment", () => {
     }
   });
 
-  it("makes both label systems only modestly larger", () => {
-    expect(controls).toContain('text-[14px] sm:text-[15.4px]');
-    expect(controls).toContain('text-[15px] sm:text-[16.5px] leading-none');
+  it("keeps both label owners on the shared base and the CSS size authority", () => {
+    // The Tailwind base is the fallback only; --stage-control-label-size owns
+    // the painted size (16.5px phone, 22.44px tablet/desktop, measured).
+    expect(controls).toContain('"text-[12px] sm:text-[14px] leading-none uppercase tracking-[0.14em]');
+    expect(controls).toContain('"text-[12px] sm:text-[14px] leading-none uppercase tracking-[0.1em]');
+    expect(css).toContain("font-size: var(--stage-control-label-size);");
     expect(css).toContain("--aiasap-idle-control-label: 20.4px;");
   });
 });

@@ -46,7 +46,13 @@ describe("shared stage-control gold blend", () => {
     expect(lock).toContain("--stage-height: min(94svh, calc(100svw * 16 / 9))");
     expect(lock).toContain("--stage-width: calc(var(--stage-height) * 9 / 16)");
     expect(lock).not.toContain("@media");
-    expect(source).toContain("bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.203 - 4px)");
+    // G, 2026-09-04, ink on the screenshot: "move all four of the buttons
+    // up ... where the mute and quiet are, move them up to where the start
+    // and gallery is." One MEASURED button row: 38px phone / 54px tablet+,
+    // row-gap 10px, so G then judged that too high: the move is now HALF a row on
+    // tablet+ (+32) and a light nudge on phone (+16). Bottom-anchored, so
+    // the whole 2x2 moves and the gap to 6's hands grows by one row.
+    expect(source).toContain("bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.203 + 28px)");
   });
 
   it("keeps the poster's physical geometry stable when browser zoom rescales both viewport axes", () => {

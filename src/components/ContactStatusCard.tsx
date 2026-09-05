@@ -178,16 +178,28 @@ export function ContactStatusCard({ state }: Props) {
       // is 44px below 768px wide and 56px at md (card_probe.py measured it against
       // the real cluster, 2026-09-03,
       // phone 390x710 / iPad 768x1024 / desktop 1366x768).
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.225-4px+44px)] z-[61] flex justify-center px-4 md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.203+56px)]"
+      // Phone re-anchors this in globals.css: the frame there is pinned to
+      // Six's body rather than to --stage-height, so the cluster moved and the
+      // box has to travel with it. This hook is how that rule finds it.
+      data-contact-card-anchor="1"
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.225-4px+44px)] z-[61] flex justify-center px-4 md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.203+94px)]"
     >
       {/* G, ride 2026-09-03 19:42: "it's too wide left to right... it should
-          be more narrow." 22rem -> 18rem, the iScott gold width. */}
+          be more narrow." 22rem -> 18rem, the iScott gold width.
+
+          2026-09-04: G took 10% off the sides of the four chest buttons, and
+          this box has to follow them - his rule from ride 48c99dfa is "the box
+          should be, you know, basically as wide as like the quiet and mute."
+          So 18rem/20rem (288/320) became 259.7px/288px, which are the MEASURED
+          cluster widths after the trim, not a remembered pair of numbers.
+          card_probe.py asserts |card - cluster| <= 3 in every state at every
+          size; it caught this drift the moment the buttons narrowed. */}
       {/* G, ride 48c99dfa 2026-09-04: "the box is too small. The box should
           be, you know, basically as wide as like the quiet and mute." He rode
           desktop, where the button row is 320px and this box was 288. Widths
           are MEASURED against the real cluster (controls_probe.py): phone
           288.6, iPad and desktop 320. card_probe.py fails if they drift. */}
-      <div className="w-full max-w-[18rem] md:max-w-[20rem] rounded-2xl border border-[#d7a05a]/70 bg-[#2b1608]/95 px-4 pb-3 pt-[0.52rem] text-center shadow-[0_12px_38px_rgba(43,22,8,0.55)] backdrop-blur-sm">
+      <div className="w-full max-w-[259.7px] md:max-w-[288px] md:min-h-[94px] md:flex md:flex-col md:justify-center rounded-2xl border border-[#d7a05a]/70 bg-[#2b1608]/95 px-4 pb-3 pt-[0.52rem] text-center shadow-[0_12px_38px_rgba(43,22,8,0.55)] backdrop-blur-sm">
         {sent ? (
           // G asked for this nine times on the other site before it appeared:
           // the words AND a check mark, on the ordinary success path.

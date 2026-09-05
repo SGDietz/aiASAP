@@ -6,35 +6,27 @@ const controls = fs.readFileSync(
   path.join(process.cwd(), "src/components/StageControls.tsx"),
   "utf8",
 );
+const css = fs.readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
 
 describe("accepted Six control sizing", () => {
-  it("keeps the accepted widths while decisively slimming active faces", () => {
-    expect(48).toBeLessThan(61.6);
-    expect(54).toBeLessThan(70.4);
-    expect(controls).toContain(
-      'mobileStartControls ? "h-full w-full" : "h-[48px] w-[110px] sm:h-[54px] sm:w-[132px]"',
-    );
-    expect(controls).toContain('mobileStartControls ? "h-full w-full"');
+  it("lets the open controls fill their grid cell instead of fixed boxes", () => {
+    // G, 2026-09-04: no more rectangular boxes - the cell is the hit area and
+    // the cluster rules own its size.
+    expect(controls).toContain('mobileStartControls ? "h-full w-full" : "h-full w-full"');
+    expect(controls).not.toContain("h-[48px] w-[110px]");
     expect(controls).not.toContain("h-14 w-14 sm:h-16 sm:w-16");
   });
 
-  it("keeps spacing and label size while bringing icons back into proportion", () => {
-    expect(18).toBeLessThan(26.4);
-    expect(20).toBeLessThan(30.8);
-    expect(14).toBeGreaterThan(13.2);
-    expect(15.4).toBeGreaterThan(14.52);
+  it("keeps spacing and label size while CSS owns the glyph height", () => {
     expect(6.6).toBeCloseTo(6 * 1.1, 10);
-
-    expect(controls).toContain('const icon = mobileStartControls');
-    expect(controls).toContain('? "h-[20px] w-[20px]"');
-    expect(controls).toContain(': "h-[18px] w-[18px] sm:h-[20px] sm:w-[20px]"');
-    expect(controls).toContain(
-      '"text-[14px] sm:text-[15.4px] leading-none',
-    );
+    expect(controls).toContain('"text-[12px] sm:text-[14px] leading-none');
     expect(controls).toContain("gap-[6.6px]");
-    expect(controls).toContain("flex-row items-center justify-center gap-[3px]");
-    expect(controls.match(/h-\[18px\] w-\[18px\]/g)?.length).toBeGreaterThanOrEqual(5);
-    expect(controls.match(/sm:h-\[20px\] sm:w-\[20px\]/g)?.length).toBeGreaterThanOrEqual(5);
+    expect(controls).toContain("flex-col items-center justify-center gap-[3px]");
+    // no per-icon pixel boxes and no per-icon scale nudges in the TSX - the
+    // shared height is the one thing that keeps the pairs level
+    expect(controls).not.toMatch(/h-\[18px\] w-\[18px\]/);
+    expect(controls).not.toContain("scale={");
+    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 2.06) !important");
   });
 
   it("keeps explicit cluster gaps, anchors, opacity, and shared state owners", () => {

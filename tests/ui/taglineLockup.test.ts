@@ -23,9 +23,15 @@ describe("shared aiASAP stage tagline", () => {
     expect(lockup).toContain("aiasap-tablet-idle-tagline");
     expect(lockup).toContain('data-stage-tagline="1"');
     expect(lockup).toContain("whitespace-nowrap opacity-100");
-    expect(loadingCopy).toContain("Cheap. Fast. Gorgeous. Brilliant.");
-    expect(loadingCopy.match(/Cheap\. Fast\. Gorgeous\. Brilliant\./g)).toHaveLength(1);
+    // G, 2026-09-04 evening, THIRD revision and the current one: "Beautiful
+    // Brilliant Cheap > Autopilot" - no plus signs, no periods, one arrow.
+    // (The "+" equation and the period-separated form both came and went the
+    // same evening; TaglineText.tsx carries the history.)
+    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
+    expect(loadingCopy.match(/Beautiful Brilliant Cheap &gt; Autopilot/g)).toHaveLength(1);
     expect(loadingCopy).toContain('data-stage-tagline-ink="1"');
+    // A second 10% squeeze on G's word, 2026-09-04: 0.9 -> 0.81, horizontal
+    // only. The type size is deliberately unchanged.
     expect(loadingCopy).toContain("origin-center scale-x-[0.9]");
     expect(loadingCopy).toContain("text-[1.6632em]");
     expect(loadingCopy).toContain("md:text-[1.32em]");

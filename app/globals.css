@@ -1,28 +1,124 @@
-@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,700;0,800;1,700&family=Archivo+Black&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&family=Lora:ital,wght@0,700;0,800;1,700&family=Archivo+Black&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   THE CAPTURE BOX COVERS THE TOP TWO CHEST BUTTONS.
+   G, 2026-09-03 ride cb2dde76: "I think that your email box should cover the
+   top two boxes... stop start button and gallery so we just don't see them,
+   but we leave mute and quiet on the screen."
+   visibility, not display: the 2x2 grid keeps its shape so Mute and Quiet do
+   not move an inch while the box is up.
+--------------------------------------------------------------------------- */
+html[data-aiasap-capture-card="1"] [data-stage-control="start"],
+html[data-aiasap-capture-card="1"] [data-stage-control="gallery"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* Metallica-style locked-stage variables. The avatar video has aspect 9:16 and is
    centered. These vars expose the actual frame top/bottom/width/height so logo,
    tagline, and pillboxes can anchor to the frame instead of drifting with viewport. */
 :root {
-  /* Phone: video object-contain object-top → all letterbox at bottom (brown space
-     for Terms line); no top black bar. */
-  --stage-height: min(100vh, calc(100vw * 16 / 9));
-  --stage-width: min(100vw, calc(var(--stage-height) * 9 / 16));
+  --aiasap-contact-gold-1: #f8d69b;
+  --aiasap-contact-gold-2: #e6b263;
+  --aiasap-contact-gold-3: #c98234;
+  --aiasap-contact-gold-4: #8b4d1d;
+  /* Phone lifecycle lock: idle, loading, active, and stopped all use the same
+     dynamic viewport geometry. The full-bleed scene crops responsively instead
+     of shrinking the stage to 9:16 and creating a state-dependent brown band. */
+  --stage-height: 100dvh;
+  --stage-width: 100vw;
   --stage-top: 0px;
-  --stage-bottom: calc(100vh - var(--stage-height));
+  --stage-bottom: 0px;
+  /* One accepted idle-control geometry authority. Tablet RUNNING consumes
+     these exact tokens instead of maintaining an approximate second layout. */
+  --aiasap-idle-controls-width: 264px;
+  --aiasap-idle-controls-height: 120px;
+  --aiasap-idle-control-width: 132px;
+  --aiasap-idle-control-height: 60px;
+  --aiasap-idle-control-icon: 24px;
+  --aiasap-idle-control-label: 20.4px;
+  --aiasap-idle-control-gap: 2px;
+  --aiasap-idle-right-column-shift: 4px;
 }
 @media (min-width: 768px) {
   :root {
-    /* Desktop: video fills 94vh capped at 80rem — a hair of breathing room top+bottom
-       while still preserving 9:16 and reaching close to G's blue-line markup. */
+    /* Desktop accepted geometry: centered 94vh stage. Coarse tablets receive
+       their independent full-height correction below. */
     --stage-height: min(94vh, 80rem);
     --stage-width: calc(var(--stage-height) * 9 / 16);
     --stage-top: calc((100vh - var(--stage-height)) / 2);
     --stage-bottom: var(--stage-top);
+  }
+}
+
+/* Phone-only 2026-08-22 physical-device acceptance: exactly 5% below the
+   current 0.11 logo authority. The source class remains the untouched
+   iPad/desktop winner at 768px+. */
+@media (max-width: 767px) {
+  /* First-paint counterpart to the hydrated class below. Android Comet can draw
+     the server HTML before React's effect adds the class, which briefly leaves
+     the idle scene in the body's centred 100vh flow and visibly drops 6. */
+  html:has([data-six-initial-idle="1"]),
+  html:has([data-six-initial-idle="1"]) body {
+    height: 100svh;
+    min-height: 100svh;
+    max-height: 100svh;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  html:has([data-six-initial-idle="1"]) body {
+    justify-content: flex-start;
+  }
+
+  html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] {
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 100svh;
+    --aiasap-phone-legal-reserve: 55px;
+  }
+
+  html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {
+    flex: 0 0 auto;
+    height: calc(100svh - var(--aiasap-phone-legal-reserve));
+  }
+
+  html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > [data-phone-bottom-stack="1"] {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: var(--aiasap-phone-legal-reserve);
+  }
+
+  html:has([data-six-initial-idle="1"]) [data-phone-bottom-stack="1"][data-phone-flow="1"] {
+    height: 55px;
+    min-height: 55px;
+    flex: 0 0 55px;
+    padding-bottom: 12px;
+    background: linear-gradient(to bottom, transparent 0 25.29px, #241608 25.29px);
+  }
+
+  html:has([data-six-initial-idle="1"]) [data-phone-bottom-stack="1"][data-phone-flow="1"] .stage-legal-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12px;
+    height: 17.71px;
+    margin-top: 0;
+  }
+
+  .aiasap-brand-lockup {
+    transform: translateY(-14px);
+  }
+
+  .aiasap-logo-mark {
+    font-size: calc(var(--stage-width) * 0.1045);
   }
 }
 
@@ -118,6 +214,21 @@
   .btn-stage:hover:not(:disabled) {
     background: linear-gradient(180deg, rgba(88, 88, 88, 0.98), rgba(36, 36, 36, 1));
   }
+  .btn-stage:not(:disabled) {
+    opacity: 1;
+  }
+  /* G, 2026-08-22: every remaining stage icon must stay fully present,
+     including a visible-but-unavailable Gallery control. Keep the native
+     disabled attribute and make the circle—not its icon—carry that state. */
+  .btn-stage:disabled {
+    opacity: 1;
+    cursor: not-allowed;
+    background: linear-gradient(180deg, rgba(58, 58, 58, 0.78), rgba(25, 25, 25, 0.86));
+    border-color: rgba(140, 95, 48, 0.48);
+  }
+  .btn-stage .stage-control-icon {
+    opacity: 1;
+  }
 
   /* Inset text: warm amber lettering with carved/inset shadow (titles, status text) */
   .text-inset {
@@ -160,6 +271,172 @@
   }
 }
 
+/* Restore the accepted centered tablet stage that the phone-only media pull-back
+   accidentally displaced. Coarse pointer keeps this out of desktop; the 768px
+   floor keeps it out of every true-phone authority. Both iPad orientations use
+   one cohesive centered 9:16 composition rather than an accidental split. */
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) {
+  .aiasap-tablet-idle-stage {
+    --stage-height: min(94vh, 80rem) !important;
+    --stage-width: calc(var(--stage-height) * 9 / 16) !important;
+    --stage-top: calc((100vh - var(--stage-height)) / 2) !important;
+    --stage-bottom: var(--stage-top) !important;
+  }
+
+  .aiasap-tablet-idle-media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .aiasap-tablet-idle-media > img {
+    height: var(--stage-height) !important;
+  }
+
+  .aiasap-tablet-idle-tagline {
+    position: relative;
+    top: -0.25rem;
+  }
+
+  /* iPad portrait + landscape: anchor legal FROM the accepted avatar rim,
+     never from the browser/nav bottom. With a 94vh frame this produces an
+     exact 6px visual gap and keeps the line inside the remaining 3vh gutter. */
+  .stage-legal-footer {
+    top: calc(var(--stage-top) + var(--stage-height) + 6px) !important;
+    bottom: auto !important;
+  }
+
+  /* iPad only: move the legal ink north without changing its footer anchor or paint. */
+  [data-stage-legal-line="1"] {
+    transform: translateY(-2px);
+  }
+}
+
+/* G 2026-09-03 physical-device refinement: lift Legal exactly 3px on
+   non-phone tablet/desktop compositions. Phone portrait and the phone's
+   upright landscape shell retain their accepted y-position. Tablets already
+   carry a 2px optical lift, so their final -5px transform is the same +3px
+   northward delta. */
+@media (min-width: 768px) and (pointer: fine) {
+  html:not(.aiasap-phone-portrait-canvas) [data-stage-legal-line="1"] {
+    transform: translateY(-3px) !important;
+  }
+}
+
+@media (min-width: 768px) and (pointer: coarse) {
+  html:not(.aiasap-phone-portrait-canvas) [data-stage-legal-line="1"] {
+    transform: translateY(-5px) !important;
+  }
+}
+
+/* PHYSICAL LANDSCAPE CONTAINMENT (G 2026-09-03). The browser chrome may rotate,
+   but every app surface stays inside one upright portrait composition sized to
+   the live visual viewport. All fixed descendants resolve against this layout
+   container; cqw values therefore mean portrait-shell width, never landscape
+   device width. */
+html.aiasap-mobile-portrait-canvas [data-aiasap-portrait-shell="1"] {
+  --aiasap-portrait-shell-width: min(
+    var(--aiasap-visual-width, 100svw),
+    calc(var(--aiasap-visual-height, 100svh) * 9 / 16)
+  );
+  --aiasap-portrait-shell-height: min(
+    var(--aiasap-visual-height, 100svh),
+    calc(var(--aiasap-visual-width, 100svw) * 16 / 9)
+  );
+  left: calc(
+    var(--aiasap-visual-offset-left, 0px) +
+    (var(--aiasap-visual-width, 100svw) - var(--aiasap-portrait-shell-width)) / 2
+  );
+  top: calc(
+    var(--aiasap-visual-offset-top, 0px) +
+    (var(--aiasap-visual-height, 100svh) - var(--aiasap-portrait-shell-height)) / 2
+  );
+  container-name: aiasap-portrait-shell;
+  container-type: size;
+}
+
+html.aiasap-mobile-portrait-canvas [data-stage-controls="1"].stage-controls-cluster {
+  --stage-control-label-size: clamp(12px, 4.23cqw, 16.5px);
+  --stage-control-icon-size: var(--stage-control-label-size);
+  width: min(288.6px, calc(100cqw - 8px));
+  height: 86.8px;
+  grid-template-rows: repeat(2, 38.4px);
+  row-gap: 10px !important;
+  justify-content: center;
+}
+
+html.aiasap-mobile-portrait-canvas [data-stage-controls="1"] [data-stage-control],
+html.aiasap-mobile-portrait-canvas [data-stage-controls="1"] [data-stage-control] > .btn-stage {
+  height: 38.4px;
+}
+
+html.aiasap-mobile-portrait-canvas [data-public-contact-links="1"] {
+  --public-contact-width: calc(100cqw - 8px);
+  left: 50%;
+  width: var(--public-contact-width) !important;
+  max-width: calc(100cqw - 8px);
+}
+
+html.aiasap-mobile-portrait-canvas [data-public-contact-links="1"] > div {
+  grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
+  column-gap: 4px;
+}
+
+html.aiasap-mobile-portrait-canvas [data-public-contact-action="1"] {
+  min-width: 0;
+  padding-inline: 0;
+  font-size: clamp(10px, 5cqw, 23.1px) !important;
+}
+
+html.aiasap-mobile-portrait-canvas [data-stage-legal-line="1"] {
+  width: 100cqw;
+  max-width: 100cqw;
+  gap: clamp(1px, 0.8cqw, 6px);
+  font-size: clamp(8px, 2.3cqw, 16px) !important;
+  white-space: nowrap;
+}
+
+html.aiasap-mobile-portrait-canvas .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+html.aiasap-mobile-portrait-canvas [data-six-initial-idle="1"] .stage-legal-footer {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100cqw !important;
+  max-width: 100cqw !important;
+  top: calc(var(--stage-top) + var(--stage-height) + 56px) !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+@container aiasap-portrait-shell (min-width: 360px) {
+  [data-stage-controls="1"].stage-controls-cluster {
+    --stage-control-label-size: 22.44px;
+    --stage-control-icon-size: 22.44px;
+    width: 288px;
+    height: 118px;
+    grid-template-rows: repeat(2, 54px);
+  }
+
+  [data-stage-controls="1"] [data-stage-control],
+  [data-stage-controls="1"] [data-stage-control] > .btn-stage {
+    height: 54px;
+  }
+}
+
+/* Desktop-only acceptance: keep the contact row six pixels inside the framed
+   bottom rim and pull the tagline one subtle two-pixel step toward the wordmark.
+   Coarse tablets and all phone authorities remain independent below. */
+@media (min-width: 768px) and (pointer: fine) {
+  .aiasap-tablet-idle-tagline {
+    position: relative;
+    top: -0.625rem;
+  }
+
+  [data-public-contact-links="1"] {
+    --public-contact-bottom: calc(var(--stage-bottom) + 6px);
+  }
+}
+
 /* Brand-colored scrollbar for the list panels (G, 2026-06-14: the white sidebar
    scrollbar must be brand colors, not white). Gold-amber gradient thumb on a
    transparent track; thin on Firefox. Purely visual — no layout change. */
@@ -181,4 +458,1764 @@
 }
 .brand-scroll::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #fff1d6 0%, #e4b06a 55%, #4a2c0e 100%);
+}
+
+/* PHONE INITIAL START SCREEN — viewport lock (2026-08-23 physical-device repair).
+
+   The winning authority was never the start stage. It was the ROOT layout: the
+   <body> in app/layout.tsx carries `min-h-screen` (100vh = the LARGE viewport
+   height, i.e. chrome COLLAPSED) plus `justify-center`, while the start stage is
+   100svh (the SMALL viewport height, i.e. chrome EXPANDED). 100vh - 100svh is
+   exactly the browser-chrome band, so the document was always that much taller
+   than the visible area and the stage was centred inside a box the phone never
+   shows whole. That is the reported failure: the page pans vertically, and
+   expanding/collapsing the chrome changes which slice of that taller box is on
+   screen, so 6 visibly moves and his full-bleed object-cover frame reads as a
+   different crop.
+
+   Swapping the wrapper to 100dvh cannot fix this. dvh tracks the chrome live, so
+   the flex media box — and therefore the object-cover crop — would resize on
+   every toolbar animation, and the body would still be 100vh tall underneath.
+
+   The repair instead pins the document to the small viewport for as long as the
+   start screen is mounted, and gives the media box an absolute height instead of
+   whatever flex has left over. The class lives on <html> and is attached only by
+   the initial-idle branch of LiveAvatarDemo, and every rule below is inside this
+   max-width: 767px query, so tablet, desktop, and every later lifecycle stage
+   keep their existing winners untouched. */
+@media (max-width: 767px) {
+  html.aiasap-phone-start-lock,
+  html.aiasap-phone-start-lock body {
+    height: 100svh;
+    min-height: 100svh;
+    max-height: 100svh;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  /* The stage is the only child and it is exactly as tall as the locked body, so
+     centring is already a no-op; neutralising it means no future body content
+     can lift the start screen off its top anchor either. */
+  html.aiasap-phone-start-lock body {
+    justify-content: flex-start;
+  }
+
+  /* The winning authority, stated once and for all: the start stage leaves the
+     document flow and is pinned to the viewport itself. A normal-flow stage can
+     still be moved by whatever owns the flow above it — body flex/centring, a
+     margin, a safe-area inset, an iOS visual-viewport nudge — and that is the
+     movement G saw on the physical phone. A fixed stage has no flow to be moved
+     by, so its box is decided here and nowhere else. `md:relative
+     md:inset-auto` already sits on the element, so tablet/desktop are untouched
+     by construction as well as by this max-width query.
+
+     The idle legal reserve remains 55px. The physical Droid proved that the
+     earlier clipped pseudo-strip was not the visible winner, so the actual
+     media box now owns the requested 10% southward boundary move: 10% of the
+     current 55px idle reserve is exactly 5.5px. START and returned STOP share
+     this one box. RUNNING consumes the same explicit stage/media geometry via
+     its active-stage owner below; the document-level lock remains idle-only. */
+  html.aiasap-phone-start-lock [data-six-initial-idle="1"] {
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 100svh;
+    --aiasap-phone-legal-reserve: 55px;
+  }
+
+  html.aiasap-phone-start-lock [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {
+    flex: 0 0 auto;
+    height: calc(100svh - var(--aiasap-phone-legal-reserve));
+  }
+
+  /* Legal is anchored to the bottom of the pinned stage rather than laid out as
+     a fixed-height flow row. Absolute, with the reserve as a FLOOR: if the phone
+     reports a safe-area inset that flips with the chrome, the brown bar can only
+     grow upward over an already-invariant avatar box, and the legal line can
+     never be squashed out of an undersized row. */
+  html.aiasap-phone-start-lock [data-six-initial-idle="1"] > [data-phone-bottom-stack="1"] {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: var(--aiasap-phone-legal-reserve);
+  }
+
+  /* Phone/idle legal refinement. Preserve the accepted 55px legal reserve
+     while reducing the current 25.3px visible bar
+     to exactly 70%. A 25.29px transparent lead-in + 17.71px footer + the existing
+     12px safe-area reserve still totals 55px, so the footer bottom remains
+     anchored at the same coordinate. */
+  [data-phone-bottom-stack="1"][data-phone-flow="1"] {
+    height: 55px;
+    min-height: 55px;
+    flex: 0 0 55px;
+    padding-bottom: 12px;
+    background: linear-gradient(to bottom, transparent 0 25.29px, #241608 25.29px);
+  }
+
+  [data-phone-bottom-stack="1"][data-phone-flow="1"] .stage-legal-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 12px;
+    height: 17.71px;
+    margin-top: 0;
+  }
+
+  /* Initial-idle-only alignment; shared geometry and later stages stay frozen. */
+  [data-six-initial-idle="1"] .aiasap-brand-lockup,
+  [data-six-active-stage="1"] .aiasap-brand-lockup {
+    transform: translateY(-18px);
+  }
+
+  [data-six-initial-idle="1"] [data-stage-controls="1"].stage-controls-cluster,
+  [data-six-active-stage="1"] [data-stage-controls="1"].stage-controls-cluster {
+    transform: translateX(-50%);
+  }
+
+  [data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] {
+    transform: none;
+    opacity: 1;
+  }
+
+  /* The shared links keep their generous padding elsewhere. On this 17.71px bar,
+     5px block padding leaves reliable but non-overflowing centered targets. */
+  [data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] > a {
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  /* Phone/start legal ink retains the shared classic gold blend. */
+  [data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] > span {
+    background-image: linear-gradient(180deg, #f8d69b 0%, #e6b263 34%, #c98234 70%, #8b4d1d 100%);
+    background-clip: text;
+    color: transparent;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Physical Droid correction (2026-08-24): phone-only. The previous rule
+     reduced only the gradient tail, but the transparent lead exposed the
+     stage's own brown background. The actually visible band therefore stayed
+     49.5px tall (844 - the 794.5px media edge). Its final visible height is
+     exactly 70%: 34.65px. The bottom remains fixed at the stage bottom, and
+     the legal line is centered inside that final paint. */
+  @media (max-width: 599px) {
+    html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {
+      height: calc(100svh - 34.65px);
+    }
+
+    html:has([data-six-initial-idle="1"]) [data-phone-bottom-stack="1"][data-phone-flow="1"] {
+      background-color: transparent;
+      background: linear-gradient(to bottom, transparent 0 20.35px, #241608 20.35px);
+    }
+
+    html:has([data-six-initial-idle="1"]) [data-phone-bottom-stack="1"][data-phone-flow="1"] .stage-legal-footer {
+      background: transparent;
+      bottom: 8.47px;
+    }
+
+    html.aiasap-phone-start-lock [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {
+      height: calc(100svh - 34.65px);
+    }
+
+    [data-six-active-stage="1"] > [data-six-stage-media="1"] {
+      flex: 0 0 auto;
+      height: calc(100svh - 34.65px);
+    }
+
+    [data-phone-bottom-stack="1"][data-phone-flow="1"] {
+      background-color: transparent;
+      background: linear-gradient(
+        to bottom,
+        transparent 0 20.35px,
+        #241608 20.35px
+      );
+    }
+
+    [data-phone-bottom-stack="1"][data-phone-flow="1"] .stage-legal-footer {
+      background: transparent;
+      bottom: 8.47px;
+    }
+
+    /* RUNNING uses START's accepted footer as an overlay. The transparent lead
+       reveals live video, leaving the same bottom-fixed 34.65px brown paint. */
+    [data-six-active-stage="1"] > [data-phone-bottom-stack="1"][data-phone-flow="1"] {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
+  }
+
+  /* Loading, running, and returned-stopped share the external-label layout
+     proven in G's three Android captures. Keep their left column fixed and move
+     the complete right column exactly four pixels farther right. */
+  [data-stage-controls="1"]:not([data-mobile-start-controls="1"]) [data-stage-control="gallery"],
+  [data-stage-controls="1"]:not([data-mobile-start-controls="1"]) [data-stage-control="quiet"] {
+    transform: translateX(4px);
+  }
+
+  /* These states use an external label after a 61.6px hit cell. At the 390px
+     acceptance viewport, -20.390625px matches the required exact 2px gap. */
+  [data-stage-controls="1"]:not([data-mobile-start-controls="1"]) [data-stage-control-label="1"] {
+    transform: translateY(-20.390625px);
+  }
+}
+
+/* Every foreground loading wait paints the same final dark-warm field. The
+   parser bridge and React owners use this exact color, so an early START cannot
+   expose an intermediate Workshop frame or a differently colored flash. */
+[data-six-loading-only="1"],
+[data-six-early-start-loader],
+[data-six-loading-surface="1"] {
+  background: #1f1005;
+}
+
+/* G-approved fluid loading composition. The visible rim is 72vw capped at
+   35svh, with a 359.16:492 (0.73) aspect. One formula serves both sides of the
+   599/600 seam, keeps the centre axis fixed, and remains stable under phone
+   browser chrome. */
+[data-six-loading-indicator="1"] {
+  --six-loading-mark-size: min(102.64vw, 49.894svh);
+  flex-direction: column;
+  gap: 1.75svh;
+  transform: none;
+}
+
+[data-six-loading-label="1"] {
+  width: 146.25px;
+  overflow: visible;
+  text-transform: uppercase;
+  transform: scaleX(1.4);
+}
+
+/* G-selected C2 treatment, installed through the one shared live owner. The
+   LoadingText hierarchy makes L exactly 1.20x OADING; the outer fitter keeps
+   the complete uppercase word and dots on the badge's straight top segment. */
+[data-six-loading-ink="1"] {
+  font-family: "Archivo Black", "Arial Black", Impact, sans-serif;
+  font-size: 33.935px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  overflow: visible;
+}
+
+/* The word and complete badge now share one smooth, slightly quicker light
+   pass. The moving SVG band lights Six and the rounded field without changing
+   the approved C2 geometry. */
+[data-six-loading-ink="1"] {
+  background-image: linear-gradient(100deg, #bd7d35 15%, #ffe0a4 45%, #bd7d35 75%);
+  background-size: 220% 100%;
+  animation:
+    six-loading-light-chase 2.6s ease-in-out infinite alternate,
+    six-loading-focus-pulse 1.6s ease-in-out infinite;
+  will-change: background-position, filter, opacity;
+}
+
+@keyframes six-loading-light-chase {
+  0% { background-position: 110% 50%; }
+  100% { background-position: -110% 50%; }
+}
+
+@keyframes six-loading-focus-pulse {
+  0%, 100% {
+    opacity: 0.9;
+    filter:
+      drop-shadow(0 2px 12px rgba(0, 0, 0, 0.8))
+      drop-shadow(0 0 2px rgba(255, 224, 164, 0.12));
+  }
+  50% {
+    opacity: 1;
+    filter:
+      drop-shadow(0 2px 12px rgba(0, 0, 0, 0.8))
+      drop-shadow(0 0 5px rgba(255, 224, 164, 0.42));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-six-loading-ink="1"],
+  [data-six-loading-mark="1"],
+  [data-six-loading-rim="1"],
+  [data-six-loading-shimmer-band="1"] {
+    animation: none;
+    will-change: auto;
+  }
+
+  [data-six-loading-ink="1"] {
+    background-size: auto;
+    background-position: initial;
+    background-image: linear-gradient(to bottom, #ffe9c2, #d7a05a, #8c5f30);
+  }
+
+  [data-six-loading-shimmer-band="1"] {
+    opacity: 0;
+  }
+}
+
+/* Initial and returned START share one explicit marker. Keep the accepted face
+   entirely transparent: the word breathes and the play glyph makes a clear,
+   tasteful forward invitation without moving the button, hit area, or its
+   neighbors. */
+[data-stage-controls="1"][data-start-cta-attention="1"] [data-stage-control="start"] > .btn-stage .stage-control-icon {
+  animation: six-start-icon-invite 4s linear infinite;
+  filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55));
+  transform-origin: center;
+  will-change: transform, filter;
+}
+
+[data-stage-controls="1"][data-start-cta-attention="1"] [data-stage-control="start"] > .btn-stage [data-stage-control-inline-label="1"] {
+  animation: six-start-word-invite 4s linear infinite;
+  text-shadow: 0 1px 1.5px rgba(58, 33, 8, 0.55);
+  transform-origin: center;
+  will-change: transform, text-shadow;
+}
+
+@keyframes six-start-icon-invite {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55));
+  }
+  0% {
+    animation-timing-function: cubic-bezier(0.42, 0, 1, 1);
+  }
+  50% {
+    transform: translate3d(2px, -0.75px, 0) scale(1.14);
+    filter: drop-shadow(0 0 7px rgba(255, 224, 164, 0.72));
+    animation-timing-function: cubic-bezier(0, 0, 0.58, 1);
+  }
+}
+
+@keyframes six-start-word-invite {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    text-shadow: 0 1px 1.5px rgba(58, 33, 8, 0.55);
+  }
+  0% {
+    animation-timing-function: cubic-bezier(0.42, 0, 1, 1);
+  }
+  50% {
+    transform: translate3d(0, -1px, 0) scale(1.09);
+    text-shadow: 0 0 6px rgba(255, 224, 164, 0.68);
+    animation-timing-function: cubic-bezier(0, 0, 0.58, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-stage-controls="1"][data-start-cta-attention="1"] [data-stage-control="start"] > .btn-stage [data-stage-control-inline-label="1"],
+  [data-stage-controls="1"][data-start-cta-attention="1"] [data-stage-control="start"] > .btn-stage .stage-control-icon {
+    animation: none;
+    will-change: auto;
+  }
+}
+
+[data-six-loading-mark="1"] {
+  width: var(--six-loading-mark-size);
+  height: var(--six-loading-mark-size);
+  transform: none;
+  filter:
+    drop-shadow(0 0 8px rgba(244, 190, 86, 0.78))
+    drop-shadow(0 0 24px rgba(207, 121, 34, 0.56));
+  animation: six-loading-badge-breathe 1.6s ease-in-out infinite;
+  will-change: filter;
+}
+
+[data-six-loading-shimmer-band="1"] {
+  animation: six-loading-badge-shimmer 2.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+[data-six-loading-rim="1"] {
+  animation: six-loading-rim-shimmer 1.6s ease-in-out infinite;
+  will-change: filter, opacity;
+}
+
+@keyframes six-loading-badge-shimmer {
+  0% { opacity: 0; transform: translateX(0); }
+  12% { opacity: 0.3; }
+  50% { opacity: 0.75; }
+  88% { opacity: 0.3; }
+  100% { opacity: 0; transform: translateX(1232px); }
+}
+
+@keyframes six-loading-badge-breathe {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 8px rgba(244, 190, 86, 0.7))
+      drop-shadow(0 0 20px rgba(207, 121, 34, 0.48));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 11px rgba(255, 224, 164, 0.9))
+      drop-shadow(0 0 30px rgba(207, 121, 34, 0.68));
+  }
+}
+
+@keyframes six-loading-rim-shimmer {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(232, 173, 89, 0.56)); opacity: 0.88; }
+  50% { filter: drop-shadow(0 0 7px rgba(255, 224, 164, 0.92)); opacity: 1; }
+}
+
+/* AVATAR STAGE CONTROLS — G's selected slim smoky-bronze visual language.
+   Every lifecycle state and breakpoint keeps its existing semantic controls,
+   2x2 placement, and hit geometry. Only the face paint and label size change. */
+[data-stage-controls="1"].stage-controls-cluster {
+  --stage-control-label-size: 15px;
+  --stage-control-icon-size: calc(var(--stage-control-label-size) * 1.1);
+  width: min(76.5vw, max(calc(var(--stage-width) * 0.549), 288px));
+  height: 106px;
+  grid-template-columns: repeat(2, calc(45% - 2.7px));
+  grid-template-rows: repeat(2, 48px);
+  column-gap: calc(5% + 2.7px);
+  row-gap: 10px;
+  justify-content: center;
+  overflow: visible;
+  border: 0;
+  border-radius: 0 !important;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* G's shared classic-button material (2026-09-03). Geometry stays owned above;
+   this block is the single visual authority for the four stage controls. */
+:where([data-stage-controls="1"] .btn-stage) {
+  font-family: "Lato", "Segoe UI", Arial, sans-serif;
+  font-weight: 600;
+  background:
+    radial-gradient(125% 190% at 18% 10%, rgba(241, 196, 119, 0.13), transparent 46%),
+    radial-gradient(100% 170% at 84% 90%, rgba(132, 73, 26, 0.22), transparent 58%),
+    linear-gradient(180deg, rgba(55, 29, 10, 0.82), rgba(25, 13, 5, 0.9));
+  border-color: rgba(205, 145, 65, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 226, 168, 0.1),
+    inset 0 -10px 20px rgba(64, 29, 8, 0.19),
+    0 1px 0 rgba(255, 196, 103, 0.05),
+    0 3px 10px rgba(12, 6, 2, 0.28);
+}
+
+:where(
+  [data-stage-controls="1"] [data-stage-control-inline-label="1"],
+  [data-public-contact-ink="1"],
+  [data-stage-legal-line="1"] .aiasap-legal-ink,
+  [data-stage-legal-line="1"] .aiasap-legal-separator
+) {
+  background-image: linear-gradient(
+    180deg,
+    var(--aiasap-contact-gold-1) 0%,
+    var(--aiasap-contact-gold-2) 34%,
+    var(--aiasap-contact-gold-3) 70%,
+    var(--aiasap-contact-gold-4) 100%
+  );
+  background-clip: text;
+  color: transparent !important;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent !important;
+  filter: drop-shadow(0 1px 1px rgba(37, 18, 5, 0.78));
+  text-shadow: none !important;
+}
+
+[data-stage-controls="1"] [data-stage-control-inline-label="1"] {
+  font-family: "Lato", "Segoe UI", Arial, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.075em;
+}
+
+[data-stage-controls="1"] .stage-control-icon {
+  color: var(--aiasap-contact-gold-2);
+  opacity: 1 !important;
+  filter: drop-shadow(0 1px 1px rgba(37, 18, 5, 0.78)) !important;
+  text-shadow: none !important;
+}
+
+[data-stage-controls="1"] .stage-control-icon > svg {
+  stroke: url(#aiasap-contact-gold-gradient);
+  stroke-opacity: 1;
+  opacity: 1;
+}
+
+[data-public-contact-action="1"] {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 21px !important;
+  white-space: nowrap;
+}
+
+@media (max-width: 599px) {
+  [data-public-contact-links="1"] {
+    --public-contact-bottom: calc(var(--stage-bottom) + 2.4rem);
+    --public-contact-width: min(calc(100svw - 8px), calc(var(--stage-width) + 36px));
+  }
+
+  [data-public-contact-links="1"] > div {
+    column-gap: 8px;
+  }
+
+  [data-public-contact-action="1"] {
+    height: 44px;
+    padding-inline: 2px;
+  }
+
+  [data-public-phone-link="1"] {
+    font-size: 19px;
+    letter-spacing: -0.015em;
+  }
+}
+
+[data-public-contact-ink="1"] {
+  font-family: "Lato", "Segoe UI", Arial, sans-serif;
+  font-weight: 600;
+  line-height: 1;
+}
+
+[data-stage-legal-line="1"] {
+  font-family: "Lato", "Segoe UI", Arial, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  text-shadow: 0 1px 1px rgba(30, 14, 4, 0.7);
+}
+
+[data-stage-legal-line="1"] .aiasap-legal-separator {
+  opacity: 1;
+}
+
+[data-stage-controls="1"] [data-stage-control],
+[data-stage-controls="1"] [data-stage-control] > .btn-stage {
+  width: 100%;
+  height: 48px;
+}
+
+[data-stage-controls="1"] [data-stage-control-inline-label="1"] {
+  font-size: var(--stage-control-label-size);
+}
+
+[data-stage-controls="1"] .stage-control-icon > svg {
+  width: var(--stage-control-icon-size);
+  height: var(--stage-control-icon-size);
+}
+
+@media (min-width: 600px) {
+  [data-stage-controls="1"].stage-controls-cluster {
+    --stage-control-label-size: 20.4px;
+    height: 118px;
+    grid-template-rows: repeat(2, 54px);
+  }
+
+  [data-stage-controls="1"] [data-stage-control],
+  [data-stage-controls="1"] [data-stage-control] > .btn-stage {
+    height: 54px;
+  }
+}
+
+:where([data-stage-controls="1"]) .btn-stage,
+:where([data-stage-controls="1"]) .btn-stage:disabled,
+:where([data-stage-controls="1"]) .btn-stage:hover:not(:disabled) {
+  background:
+    radial-gradient(125% 190% at 18% 10%, rgba(241, 196, 119, 0.13), transparent 46%),
+    radial-gradient(100% 170% at 84% 90%, rgba(132, 73, 26, 0.22), transparent 58%),
+    linear-gradient(180deg, rgba(55, 29, 10, 0.82), rgba(25, 13, 5, 0.9));
+  border: 1px solid rgba(205, 145, 65, 0.58);
+  border-radius: 0.625rem !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 226, 168, 0.1),
+    inset 0 -10px 20px rgba(64, 29, 8, 0.19),
+    0 1px 0 rgba(255, 196, 103, 0.05),
+    0 3px 10px rgba(12, 6, 2, 0.28);
+  opacity: 1;
+  text-shadow: 0 1px 1.5px rgba(58, 33, 8, 0.55);
+}
+
+:where([data-stage-controls="1"]) .btn-stage:hover:not(:disabled) {
+  border-color: rgba(226, 173, 93, 0.7);
+  filter: none;
+}
+
+:where([data-stage-controls="1"]) .btn-stage:disabled {
+  opacity: 1;
+}
+
+:where([data-stage-controls="1"]) .stage-control-icon {
+  filter: drop-shadow(0 1px 1.5px rgba(58, 33, 8, 0.55));
+}
+
+[data-stage-controls="1"] [data-stage-control-label="1"] {
+  background: none;
+  background-clip: border-box;
+  color: rgb(215, 160, 90);
+  -webkit-text-fill-color: rgb(215, 160, 90);
+}
+
+/* G's all-device glyph correction. These transforms touch only the drawn SVGs:
+   RUNNING STOP remains exactly 0.90x in both axes, while RUNNING MUTE keeps its
+   width and lands at the Gallery/Quiet midpoint (22.50375px phone, 27.0045px
+   non-phone). START intentionally uses Lucide's natural pre-reduction geometry. */
+[data-stage-controls="1"][data-mobile-start-controls="1"] [data-phone-running-stop-glyph="1"] {
+  transform: scale(0.9);
+  transform-origin: center;
+}
+
+[data-stage-controls="1"][data-mobile-start-controls="1"] [data-phone-running-mute-glyph="1"] {
+  transform: scaleY(0.9);
+  transform-origin: center;
+}
+
+/* START and returned STOP share the same wide, separated two-column geometry.
+   The grid gap now provides the requested visible gutter, so neither right-hand
+   face needs an independent optical translation. */
+
+/* G's 600+ correction: retain the winning visible button and icon sizes while
+   carrying the slightly larger label and smoky-bronze face across the same
+   compact two-by-two construction. */
+@media (min-width: 600px) {
+  [data-stage-controls="1"][data-mobile-start-controls="1"] {
+    width: min(76.5vw, max(calc(var(--stage-width) * 0.549), 288px));
+    height: 118px;
+    grid-template-rows: repeat(2, 54px);
+  }
+
+  [data-stage-controls="1"][data-mobile-start-controls="1"] [data-stage-control] {
+    width: 100%;
+    height: 54px;
+  }
+
+  [data-stage-controls="1"][data-mobile-start-controls="1"] [data-stage-control] > .btn-stage {
+    width: 100%;
+    height: 54px;
+    flex-direction: row;
+    gap: 3px;
+    border-radius: 0.625rem !important;
+  }
+
+  [data-stage-controls="1"][data-mobile-start-controls="1"] .stage-control-icon > svg {
+    width: var(--stage-control-icon-size);
+    height: var(--stage-control-icon-size);
+  }
+
+  [data-stage-controls="1"][data-mobile-start-controls="1"] .btn-stage > [data-stage-control-label="1"] {
+    display: block;
+    font-size: var(--aiasap-idle-control-label);
+  }
+
+  [data-stage-controls="1"][data-mobile-start-controls="1"] [data-stage-control] > [data-stage-control-label="1"] {
+    display: none;
+  }
+}
+
+/* The parser-time fitter retains its proven breakpoint constants. Equal and
+   opposite wrapper scales make the visible word byte-stable across 599/600;
+   wide desktop settles at 73% of its 35svh-capped badge width. */
+@media (min-width: 600px) {
+  [data-six-loading-label="1"] {
+    width: 292.5px;
+    transform: scaleX(0.7);
+  }
+}
+
+@media (min-width: 800px) {
+  [data-six-loading-label="1"] {
+    transform: scaleX(0.63);
+  }
+}
+
+/* STAGE LOCK (G 2026-08-31): "this is 33%, but we're supposed to be locking this
+   in. Everybody's screen, it's gonna look different." One 9:16 poster. Zoom and
+   width must not pick a second layout. Do not restore Gucci. Do not restyle the
+   legal bar paint. */
+.aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+.aiasap-tablet-idle-stage {
+  --stage-height: min(94svh, calc(100svw * 16 / 9)) !important;
+  --stage-width: calc(var(--stage-height) * 9 / 16) !important;
+  --stage-top: calc((100svh - var(--stage-height)) / 2) !important;
+  --stage-bottom: var(--stage-top) !important;
+}
+
+html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > .aiasap-tablet-idle-media,
+.aiasap-tablet-idle-media {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: visible !important;
+  height: auto !important;
+  flex: 1 1 auto !important;
+}
+
+/* PHONE COMPOSITION (G 2026-09-03): the locked 9:16 scene is shorter than a
+   tall phone viewport. Pin that scene to the north edge so the exposed stage
+   background is not painted as a bar above the mark and Six reads higher in
+   the composition. The md+ framed poster remains centered. */
+@media (max-width: 767px) {
+  html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > .aiasap-tablet-idle-media,
+  .aiasap-tablet-idle-media {
+    align-items: flex-start !important;
+  }
+}
+
+.aiasap-tablet-idle-media > img.six-primary-scene,
+[data-six-stage-media="1"] > video.six-primary-scene:not(.object-contain) {
+  position: relative !important;
+  inset: auto !important;
+  height: var(--stage-height) !important;
+  width: auto !important;
+  max-height: none !important;
+  aspect-ratio: 9 / 16 !important;
+  object-fit: cover !important;
+  object-position: center 50% !important;
+  box-sizing: border-box !important;
+  /* PHYSICAL PHONE CORRECTION (G 2026-09-01): the previous 9% inner pad
+     lowered and shortened Six inside the already-locked 9:16 poster. Keep the
+     full source frame; camera-mode thumbnails retain their own framing. */
+  padding-top: 0 !important;
+  background-color: #241608 !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+@media (min-width: 768px) {
+  .aiasap-tablet-idle-media > img.six-primary-scene,
+  [data-six-stage-media="1"] > video.six-primary-scene:not(.object-contain) {
+    border-radius: 2.25rem !important;
+    border: 1px solid rgba(215, 160, 90, 0.4) !important;
+    box-shadow: 0 0 0 1px rgba(215, 160, 90, 0.45), 0 30px 90px rgba(0, 0, 0, 0.72) !important;
+  }
+  [data-six-initial-idle="1"] .stage-legal-footer {
+    top: calc(var(--stage-top) + var(--stage-height) + 6px) !important;
+    bottom: auto !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    width: max-content !important;
+  }
+}
+
+[data-six-initial-idle="1"] .aiasap-brand-lockup {
+  top: calc(var(--stage-top) + 0.25rem) !important;
+}
+
+[data-stage-controls="1"].stage-controls-cluster {
+  bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.203 + 28px) !important;
+}
+
+/* Phone portrait: all four stage faces are 90% of the authenticated 157px
+   width and 80% of the authenticated 48px height. The 12px north shift clears
+   Six's hands without changing order, gaps, ink size, or tablet/desktop. */
+@media (max-width: 599px) {
+  [data-stage-controls="1"].stage-controls-cluster {
+    width: 259.7px;
+    height: 86.8px;
+    grid-template-rows: repeat(2, 38.4px);
+    row-gap: 10px !important;
+    bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.203 + 5px) !important;
+  }
+
+  [data-stage-controls="1"] [data-stage-control],
+  [data-stage-controls="1"] [data-stage-control] > .btn-stage {
+    height: 38.4px;
+  }
+}
+
+/* PHONE + TABLET ORIENTATION LOCK (G, 2026-09-03). A served web page cannot
+   promise an OS-level orientation lock in every browser. The client requests
+   portrait-primary where the platform permits it; this deterministic fallback
+   keeps one upright 9:16 shell centred inside a sideways physical viewport.
+   There is deliberately no sideways text or body transform. Desktop never
+   receives the class. */
+html.aiasap-mobile-portrait-canvas,
+html.aiasap-mobile-portrait-canvas body {
+  width: 100svw;
+  height: 100svh;
+  min-width: 100svw;
+  min-height: 100svh;
+  max-width: 100svw;
+  max-height: 100svh;
+  overflow: hidden;
+}
+
+html.aiasap-mobile-portrait-canvas [data-aiasap-portrait-shell="1"] {
+  --aiasap-portrait-shell-width: min(100svw, calc(100svh * 9 / 16));
+  --aiasap-portrait-shell-height: min(100svh, calc(100svw * 16 / 9));
+  --stage-height: min(calc(var(--aiasap-portrait-shell-height) - 166px), calc(var(--aiasap-portrait-shell-width) * 16 / 9));
+  --stage-width: calc(var(--stage-height) * 9 / 16);
+  --stage-top: calc((var(--aiasap-portrait-shell-height) - var(--stage-height)) / 2);
+  --stage-bottom: var(--stage-top);
+  display: block;
+  position: fixed;
+  left: calc((100svw - var(--aiasap-portrait-shell-width)) / 2);
+  top: calc((100svh - var(--aiasap-portrait-shell-height)) / 2);
+  width: var(--aiasap-portrait-shell-width);
+  height: var(--aiasap-portrait-shell-height);
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+  contain: layout;
+}
+
+html.aiasap-mobile-portrait-canvas [data-aiasap-portrait-shell="1"] .aiasap-tablet-idle-stage {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  --stage-height: min(calc(var(--aiasap-portrait-shell-height) - 166px), calc(var(--aiasap-portrait-shell-width) * 16 / 9)) !important;
+  --stage-width: calc(var(--stage-height) * 9 / 16) !important;
+  --stage-top: calc((var(--aiasap-portrait-shell-height) - var(--stage-height)) / 2) !important;
+  --stage-bottom: var(--stage-top) !important;
+}
+
+/* The browser still evaluates media queries against the physical landscape
+   viewport. Reassert the accepted phone-portrait winners inside the upright
+   phone shell; this is parity, not a separate landscape composition. */
+html.aiasap-phone-portrait-canvas [data-stage-controls="1"].stage-controls-cluster {
+  --stage-control-label-size: 15px;
+  width: 259.7px;
+  height: 86.8px;
+  grid-template-rows: repeat(2, 38.4px);
+  row-gap: 10px !important;
+  bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.203 + 5px) !important;
+}
+
+html.aiasap-phone-portrait-canvas [data-stage-controls="1"] [data-stage-control],
+html.aiasap-phone-portrait-canvas [data-stage-controls="1"] [data-stage-control] > .btn-stage {
+  height: 38.4px;
+}
+
+html.aiasap-phone-portrait-canvas [data-public-contact-links="1"] {
+  --public-contact-bottom: calc(var(--stage-bottom) + 2.4rem);
+  --public-contact-width: min(calc(100svw - 8px), calc(var(--stage-width) + 36px));
+}
+
+html.aiasap-phone-portrait-canvas [data-public-contact-links="1"] > div {
+  column-gap: 8px;
+}
+
+html.aiasap-phone-portrait-canvas [data-public-contact-action="1"] {
+  height: 44px;
+  padding-inline: 2px;
+}
+
+html.aiasap-phone-portrait-canvas [data-public-phone-link="1"] {
+  font-size: 19px;
+  letter-spacing: -0.015em;
+}
+
+html.aiasap-phone-portrait-canvas [data-six-initial-idle="1"] .aiasap-brand-lockup,
+html.aiasap-phone-portrait-canvas [data-six-active-stage="1"] .aiasap-brand-lockup {
+  transform: translateY(-18px);
+}
+
+/* iPad portrait refinement (G, 2026-09-03). Move the framed composition north
+   as one unit. Contacts sit eight pixels inside the shifted bottom rim; Legal
+   is compensated by eight pixels so its net movement is only two pixels north.
+   No landscape selector exists and phone/desktop winners remain untouched. */
+@media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+  .aiasap-tablet-idle-stage {
+    --stage-top: calc((100svh - var(--stage-height)) / 2 - 10px) !important;
+    --stage-bottom: calc(100svh - var(--stage-top) - var(--stage-height)) !important;
+  }
+
+  .aiasap-tablet-idle-media {
+    transform: translateY(-10px);
+  }
+
+  [data-public-contact-links="1"] {
+    --public-contact-bottom: calc((100svh - min(94svh, calc(100svw * 16 / 9))) / 2 + 18px);
+  }
+
+  [data-six-initial-idle="1"] .stage-legal-footer {
+    top: calc(var(--stage-top) + var(--stage-height) + 14px) !important;
+  }
+}
+
+/* SCREEN TYPE + PHONE COMPOSITION PASS (G, 2026-09-03). Outer geometry is
+   frozen. Text alone grows by 10%; icons retain their prior independent sizes.
+   The longer contact pair has no horizontal growth budget, so its 23.1px ink
+   is optically condensed back into the authenticated link boxes. */
+.aiasap-logo-mark {
+  font-size: calc(var(--stage-width) * 0.11) !important;
+}
+
+[data-stage-tagline="1"] {
+  font-size: calc(var(--stage-width) * 0.0275) !important;
+}
+
+[data-stage-controls="1"].stage-controls-cluster {
+  --stage-control-label-size: 16.5px;
+  --stage-control-icon-size: 16.5px;
+}
+
+[data-public-contact-links="1"] > div {
+  /* G 2026-09-04: "take the www dot off ... and then recenter those." These
+     columns were pixel-measured for "www.WildWorks.Live". With the www. gone a
+     fixed column is wider than its text and the pair drifts off centre. auto
+     lets each link hug its own text; the grid's justify-center centres the pair
+     for good, at any string length. */
+  grid-template-columns: auto auto;
+}
+
+[data-public-contact-action="1"] {
+  width: 100%;
+  font-size: 23.1px !important;
+}
+
+[data-public-contact-ink="1"] {
+  display: inline-block;
+  transform: translateY(2px) scaleX(0.909091);
+}
+
+[data-stage-legal-line="1"] {
+  font-size: clamp(12.1px, 3.41vw, 16.5px) !important;
+}
+
+@media (min-width: 600px) {
+  [data-stage-controls="1"].stage-controls-cluster {
+    --stage-control-label-size: 22.44px;
+    --stage-control-icon-size: 22.44px;
+  }
+
+  [data-stage-legal-line="1"] {
+    font-size: 19.8px !important;
+  }
+}
+
+/* Portrait tablet Legal already owns the final 27px to the viewport edge.
+   Preserve the complete line at its unchanged anchor rather than clipping the
+   requested 19.8px ink by 2.69px. */
+@media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
+  [data-stage-legal-line="1"] {
+    font-size: 18px !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .aiasap-logo-mark {
+    font-size: calc(var(--stage-width) * 0.11495) !important;
+    top: calc(0.45rem + 2px) !important;
+  }
+
+  [data-public-contact-links="1"] > div {
+    grid-template-columns: auto auto;  /* G 2026-09-04: recentre after www. drop */
+  }
+
+  [data-six-initial-idle="1"] > .aiasap-tablet-idle-media {
+    background-image: url("/startscreen-noband.png") !important;
+    background-position: center center !important;
+    background-size: cover !important;
+    background-repeat: no-repeat !important;
+  }
+
+  [data-six-initial-idle="1"] > .aiasap-tablet-idle-media > img.six-primary-scene {
+    z-index: 0;
+    transform: none !important;
+    width: 100% !important;
+    height: 100% !important;
+    /* CORRECTED 2026-09-04 (G, on his phone): "the avatar is still off the bottom
+       of the screen. His hands are cut off ... he needs to be centered, but no
+       brown lines on the sides."
+       The earlier note here claimed the top anchor cropped "empty floor, never
+       his face." That was wrong on a phone. MEASURED at a 450x709 stage: the
+       still is 385x690, cover scales it to 450x806, and the 97px of overflow
+       came off the BOTTOM in one piece - his hands. Centring splits it, which
+       keeps the hands and costs a little headroom the logo already covers.
+       Desktop shifts ~3px (its box is 9/16, almost the still's own aspect), so
+       this is a phone fix that leaves the approved desktop look alone.
+       cover still means NO side bars, which was the original point. */
+    object-fit: cover !important;
+    object-position: center 50% !important;
+  }
+}
+
+/* Landscape mobile/tablet keeps every glyph upright. The portrait canvas is
+   narrow by definition on a phone turned sideways, so the contact bar may use
+   the surrounding brown pillars while remaining fully inside the viewport. */
+html.aiasap-mobile-portrait-canvas [data-public-contact-links="1"] {
+  --public-contact-height: 44px;
+  --public-contact-width: min(calc(100svw - 24px), max(321px, calc(var(--stage-width) * 0.9)));
+}
+
+html.aiasap-mobile-portrait-canvas [data-public-contact-action="1"] {
+  height: 44px !important;
+}
+
+/* PUBLIC CONTACT INTERSTITIAL (G, 2026-09-03). The two public actions are
+   text-only links below the avatar rim and above Legal at every viewport. Their
+   invisible 44px interaction rows preserve touch access without painting a
+   box, border, radius, background, or shadow around either link. */
+[data-public-contact-links="1"] {
+  --public-contact-height: 44px;
+  --public-contact-width: min(calc(100svw - 8px), max(calc(var(--stage-width) * 0.9), 412px));
+  top: calc(var(--stage-top) + var(--stage-height) + 6px);
+  bottom: auto !important;
+}
+
+[data-public-contact-action="1"] {
+  height: var(--public-contact-height) !important;
+}
+
+.aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+[data-six-initial-idle="1"] .stage-legal-footer {
+  top: calc(var(--stage-top) + var(--stage-height) + var(--public-contact-height, 43.2px) + 12px) !important;
+  bottom: auto !important;
+}
+
+@media (min-width: 600px) and (pointer: fine) {
+  .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+  [data-six-initial-idle="1"] .stage-legal-footer {
+    top: calc(var(--stage-top) + var(--stage-height) + 56px) !important;
+  }
+}
+
+
+@media (min-width: 600px) and (pointer: coarse) {
+  .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+  [data-six-initial-idle="1"] .stage-legal-footer {
+    top: calc(var(--stage-top) + var(--stage-height) + 56px) !important;
+  }
+}
+
+@media (min-width: 768px) and (pointer: fine) {
+  :root,
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+  .aiasap-tablet-idle-stage {
+    --stage-height: min(calc(100svh - 146px), calc(100svw * 16 / 9), 80rem) !important;
+  }
+
+  /* Desktop: the 44px interaction rows remain intact, but their visible text
+     moves nine pixels north (18px rim-to-ink becomes 9px). Legal follows ten
+     pixels north, leaving a clean five-pixel gap below the invisible hit rows
+     and keeping the complete 27px line inside a 900px-tall viewport. */
+  [data-public-contact-links="1"] {
+    top: calc(var(--stage-top) + var(--stage-height) - 3px);
+  }
+
+  .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+  [data-six-initial-idle="1"] .stage-legal-footer {
+    top: calc(var(--stage-top) + var(--stage-height) + 42px) !important;
+  }
+}
+
+@media (min-width: 768px) and (pointer: coarse) {
+  :root,
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+  .aiasap-tablet-idle-stage {
+    --stage-height: min(calc(100svh - 166px), calc(100svw * 16 / 9), 80rem) !important;
+  }
+}
+
+/* Mute's accepted 3px icon-label gap remains the untouched default.
+   2026-09-04: the boxes lost 10% of their width on G's word, and GALLERY is
+   the longest label - it runs out of room first. He allowed for exactly this:
+   "if you have to move the gallery and the icon for gallery closer to it to
+   squeeze everything and do that also." So the other three drop from 6px to
+   Mute's already-approved 3px rather than to some new invented number. */
+[data-stage-control="start"] > .btn-stage,
+[data-stage-control="quiet"] > .btn-stage,
+[data-stage-control="gallery"] > .btn-stage {
+  column-gap: 3px !important;
+}
+
+@media (max-width: 767px) {
+  :root,
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+  .aiasap-tablet-idle-stage {
+    /* G's later direction expands the served 76px footer by 19.7%. */
+    --stage-height: calc(100svh - 91px) !important;
+    --stage-width: 100svw !important;
+    --stage-top: 0px !important;
+    --stage-bottom: calc(100svh - var(--stage-height)) !important;
+  }
+
+  /* Freeze G's accepted phone controls against the media/interstitial change.
+     Their dimensions remain owned by the existing control rules; this retains
+     the exact pre-change vertical anchor computed from the former 96px reserve. */
+  [data-stage-controls="1"].stage-controls-cluster {
+    bottom: calc(
+      96px + min(calc(100svh - 96px), calc(100svw * 16 / 9)) * 0.203 + 5px
+    ) !important;
+  }
+
+  html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > .aiasap-tablet-idle-media,
+  html.aiasap-phone-start-lock [data-six-initial-idle="1"] > .aiasap-tablet-idle-media,
+  [data-six-active-stage="1"] > [data-six-stage-media="1"] {
+    flex: 0 0 var(--stage-height) !important;
+    height: var(--stage-height);
+    max-height: var(--stage-height);
+  }
+
+  .aiasap-tablet-idle-media > img.six-primary-scene,
+  [data-six-stage-media="1"] > video.six-primary-scene:not(.object-contain) {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: var(--stage-height) !important;
+    max-width: none !important;
+    aspect-ratio: auto !important;
+    object-fit: cover !important;
+    object-position: center 50% !important;
+  }
+
+  [data-public-contact-links="1"] {
+    top: calc(var(--stage-top) + var(--stage-height) + 6px);
+  }
+
+  .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+  [data-six-initial-idle="1"] .stage-legal-footer {
+    /* PhoneFlow owns a bottom stack. Absolute `top` was therefore relative to
+       that 55px stack (at y=655 on a 390x710 viewport), producing y=1325 and
+       making Legal physically invisible. Fixed makes this viewport-relative;
+       the landscape portrait shell remains its containing block via contain. */
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    top: calc(var(--stage-top) + var(--stage-height) + 52px) !important;
+    bottom: auto !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
+  [data-public-contact-links="1"] {
+    top: calc((100svh + var(--stage-height)) / 2 - 4px);
+  }
+
+  .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+  [data-six-initial-idle="1"] .stage-legal-footer {
+    top: calc((100svh + var(--stage-height)) / 2 + 46px) !important;
+  }
+}
+
+@media (max-width: 767px) {
+  [data-six-initial-idle="1"] > .aiasap-tablet-idle-media > img.six-primary-scene {
+    width: 100% !important;
+    height: 100% !important;
+    /* CORRECTED 2026-09-04 (G, on his phone): "the avatar is still off the bottom
+       of the screen. His hands are cut off ... he needs to be centered, but no
+       brown lines on the sides."
+       The earlier note here claimed the top anchor cropped "empty floor, never
+       his face." That was wrong on a phone. MEASURED at a 450x709 stage: the
+       still is 385x690, cover scales it to 450x806, and the 97px of overflow
+       came off the BOTTOM in one piece - his hands. Centring splits it, which
+       keeps the hands and costs a little headroom the logo already covers.
+       Desktop shifts ~3px (its box is 9/16, almost the still's own aspect), so
+       this is a phone fix that leaves the approved desktop look alone.
+       cover still means NO side bars, which was the original point. */
+    object-fit: cover !important;
+    object-position: center 50% !important;
+  }
+}
+
+/* Final landscape-shell cascade authority. It intentionally follows every
+   ordinary phone/tablet/desktop breakpoint so no physical-landscape viewport
+   can make descendants escape back to device-width coordinates. */
+html.aiasap-mobile-portrait-canvas [data-aiasap-portrait-shell="1"] {
+  --aiasap-portrait-shell-width: min(
+    var(--aiasap-visual-width, 100svw),
+    calc(var(--aiasap-visual-height, 100svh) * 9 / 16)
+  ) !important;
+  --aiasap-portrait-shell-height: min(
+    var(--aiasap-visual-height, 100svh),
+    calc(var(--aiasap-visual-width, 100svw) * 16 / 9)
+  ) !important;
+  left: calc(var(--aiasap-visual-offset-left, 0px) + (var(--aiasap-visual-width, 100svw) - var(--aiasap-portrait-shell-width)) / 2) !important;
+  top: calc(var(--aiasap-visual-offset-top, 0px) + (var(--aiasap-visual-height, 100svh) - var(--aiasap-portrait-shell-height)) / 2) !important;
+  width: var(--aiasap-portrait-shell-width) !important;
+  height: var(--aiasap-portrait-shell-height) !important;
+  container-name: aiasap-portrait-shell;
+  container-type: size;
+}
+
+html.aiasap-mobile-portrait-canvas [data-stage-controls="1"].stage-controls-cluster {
+  --stage-control-label-size: clamp(12px, 4.23cqw, 16.5px);
+  --stage-control-icon-size: var(--stage-control-label-size);
+  width: min(288.6px, calc(100cqw - 8px)) !important;
+  height: 86.8px !important;
+  grid-template-rows: repeat(2, 38.4px) !important;
+  row-gap: 10px !important;
+  justify-content: center;
+}
+
+html.aiasap-mobile-portrait-canvas [data-stage-controls="1"] [data-stage-control],
+html.aiasap-mobile-portrait-canvas [data-stage-controls="1"] [data-stage-control] > .btn-stage {
+  height: 38.4px !important;
+}
+
+html.aiasap-mobile-portrait-canvas [data-public-contact-links="1"] {
+  --public-contact-width: calc(100cqw - 8px);
+  left: 50% !important;
+  width: var(--public-contact-width) !important;
+  max-width: calc(100cqw - 8px) !important;
+}
+
+html.aiasap-mobile-portrait-canvas [data-public-contact-links="1"] > div {
+  grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr) !important;
+  column-gap: 4px !important;
+}
+
+html.aiasap-mobile-portrait-canvas [data-public-contact-action="1"] {
+  min-width: 0;
+  padding-inline: 0;
+  font-size: clamp(10px, 5cqw, 23.1px) !important;
+}
+
+html.aiasap-mobile-portrait-canvas [data-stage-legal-line="1"] {
+  width: 100cqw !important;
+  max-width: 100cqw !important;
+  gap: clamp(1px, 0.8cqw, 6px) !important;
+  font-size: clamp(8px, 2.3cqw, 16px) !important;
+  white-space: nowrap;
+}
+
+html.aiasap-mobile-portrait-canvas .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+html.aiasap-mobile-portrait-canvas [data-six-initial-idle="1"] .stage-legal-footer {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100cqw !important;
+  max-width: 100cqw !important;
+  top: calc(var(--stage-top) + var(--stage-height) + 56px) !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
+  --stage-control-label-size: 20.196px;
+  --stage-control-icon-size: 20.196px;
+}
+
+@container aiasap-portrait-shell (min-width: 360px) {
+  html.aiasap-mobile-portrait-canvas [data-stage-controls="1"].stage-controls-cluster {
+    width: 288px !important;
+    height: 118px !important;
+    grid-template-rows: repeat(2, 54px) !important;
+  }
+
+  html.aiasap-mobile-portrait-canvas [data-stage-controls="1"] [data-stage-control],
+  html.aiasap-mobile-portrait-canvas [data-stage-controls="1"] [data-stage-control] > .btn-stage {
+    height: 54px !important;
+  }
+}
+
+
+/* ========================================================================
+   FOOTER TYPE PASS - MUST STAY LAST.
+   These rules were first written higher up and did NOTHING: a @media query
+   adds no specificity, so the later unscoped `--public-contact-height: 44px`
+   and `font-size: 23.1px !important` simply won on source order. Measured on
+   the real page, before and after. Keep this block at the end of the file.
+   ======================================================================== */
+/* ------------------------------------------------------------------------
+   G, 2026-09-04: "make the legal text smaller ... shorter and less in your
+   face ... and WildWorks the website dot live and the phone number make them
+   larger ... taller, wider, more dominant."
+
+   Scope is his: "not on mobile, but on everything else, including iPad", so
+   this is min-width:768px and the phone rules above are untouched. It sits
+   after the 768-1024 portrait legal rule on purpose - same specificity, later
+   wins, so iPad portrait is included exactly as he asked.
+
+   THE BUDGET IS FIXED. The stage reserves 146px of viewport height, split
+   evenly, so there are only ~73px below the avatar rim for the contact row
+   AND the legal line together. The contact row can only grow by as much as
+   the legal line gives up - which is the trade he just asked for.
+   Measured before and after; see the numbers in the commit.
+   ------------------------------------------------------------------------ */
+@media (min-width: 768px) {
+  [data-stage-legal-line="1"] {
+    font-size: 15px !important;
+  }
+
+  [data-public-contact-links="1"] {
+    /* The 44px row is a TOUCH TARGET, not the look. Growing it to 52px pushed
+       the row into the Legal line: there are only ~73px below the rim for
+       both, measured. Dominance comes from the type, not from an invisible
+       hit box, so the row height stays exactly where it was approved. */
+    --public-contact-width: min(calc(100svw - 16px), max(calc(var(--stage-width) * 1.05), 580px));
+  }
+
+  [data-public-contact-links="1"] > div {
+    column-gap: 24px;
+  }
+
+  [data-public-contact-action="1"] {
+    font-size: 29px !important;
+  }
+
+  [data-public-contact-ink="1"] {
+    /* The 0.909 squeeze existed because the pair had no horizontal growth
+       budget at 23.1px. The wider container above gives it one, and letting
+       the letters back out to their true width is most of what "wider, more
+       dominant" means here. */
+    transform: translateY(2px) scaleX(1);
+    font-weight: 700;
+  }
+}
+
+
+/* GALLERY IS THE LONGEST LABEL, AND IT RAN OUT OF ROOM.
+   G, 2026-09-04: "take ten percent off the sides ... on all four boxes" and,
+   in the same breath, "if you have to move the gallery and the icon for
+   gallery closer to it to squeeze everything and do that also."
+   MEASURED after the trim: at md+ its content was 134.8px inside a 116.9px
+   box - 17.9px over, and the label was painting across its own right border.
+   The other three had 9-21px to spare.
+   The label's FONT SIZE is deliberately untouched: all four read at the same
+   size, which is the part the eye checks. The room comes from the icon, the
+   letter-spacing and the side padding instead. Phone is not touched at all -
+   it measured 4.2px inside its box already. */
+@media (min-width: 768px) {
+  [data-stage-control="gallery"] > .btn-stage {
+    padding-inline: 1px !important;
+  }
+
+  /* The tracking lives on the label span (INLINE_LABEL), not on the face -
+     setting it on the face changed nothing. "GALLERY" is 7 characters, so
+     0.1em at 16.5px was ~11px of pure letter-spacing. */
+  [data-stage-control="gallery"] [data-stage-control-inline-label="1"] {
+    letter-spacing: 0.01em !important;
+  }
+
+  [data-stage-control="gallery"] > .btn-stage svg {
+    width: 18px !important;
+    height: 18px !important;
+  }
+}
+
+/* OPEN FLOATING CONTROLS (G, 2026-09-04). Replaces the four rectangular
+   backplates with icon-above-word glyphs that float directly on 6's denim
+   chest. Geometry (cluster width, grid columns/rows, anchor) is inherited
+   from the shared cluster rules above — this block only strips the box and
+   adds the shared amber-gold luminous glow. */
+[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control {
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  opacity: 1;
+}
+
+[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control:hover:not(:disabled) {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  filter: brightness(1.08);
+}
+
+[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Icon stack is bigger than in the boxed layout — the label sits directly
+   below with a tight gap and the two together fill the grid-cell height. */
+[data-stage-controls-open="1"] [data-stage-control] {
+  --stage-open-icon-size: calc(var(--stage-control-icon-size, 22.44px) * 1.78);
+}
+
+[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg {
+  width: var(--stage-open-icon-size) !important;
+  height: var(--stage-open-icon-size) !important;
+  stroke: url(#aiasap-contact-gold-gradient) !important;
+  stroke-opacity: 1;
+  color: var(--aiasap-contact-gold-2);
+  fill-opacity: inherit;
+  filter:
+    drop-shadow(0 0 2px rgba(255, 244, 205, 0.88))
+    drop-shadow(0 0 6px rgba(247, 160, 44, 0.72))
+    drop-shadow(0 2px 3px rgba(37, 18, 5, 0.82)) !important;
+  opacity: 1 !important;
+}
+
+/* START's compass rose is a solid-diamond glyph — moderate its glow so its
+   perceived luminance matches the other three outline-first icons. */
+[data-stage-controls-open="1"] [data-stage-control] [data-stage-control-glow="muted"] .stage-control-icon > svg,
+[data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-glow="muted"] .stage-control-icon > svg {
+  filter:
+    drop-shadow(0 0 1.5px rgba(255, 239, 196, 0.62))
+    drop-shadow(0 0 4px rgba(240, 145, 32, 0.46))
+    drop-shadow(0 1px 2px rgba(37, 18, 5, 0.76)) !important;
+}
+
+/* Labels sit directly below each icon on the open layout. */
+[data-stage-controls-open="1"] [data-stage-control] .stage-open-control > [data-stage-control-inline-label="1"] {
+  margin-top: 2px;
+}
+
+/* Phones are already handled by the shared cluster rules; keep the mobile
+   grid-cell height honest so the icon+word stack never clips. */
+@media (max-width: 599px) {
+  [data-stage-controls-open="1"] [data-stage-control] {
+    --stage-open-icon-size: calc(var(--stage-control-icon-size, 16.5px) * 1.62);
+  }
+}
+
+
+/* ========================================================================
+   PHONE FRAMING — G, 2026-09-04 evening. MUST STAY LAST.
+   ------------------------------------------------------------------------
+   G, on his phone, twice: "his hands are off to screen at the bottom ...
+   he zoomed in a little too much ... the text is, like, on his hair", then
+   "It needs to be pulled back because it's cropped at the top and cropped at
+   the bottom. Make the full avatar fit perfectly in the screen, then have a
+   little brown bar at the bottom for the domain, the phone number, and the
+   legal line." Then: "the brown bar cut off his knuckles ... he can be a
+   little higher, but then the text is gonna have to be a little higher."
+   And: "If you have to have super minimal sidebars of, like, a dark brown
+   or something like that, go ahead and do it."
+
+   WHY THE OLD RULE COULD NOT WIN, MEASURED at 390x710:
+   the media box was 390x619 (100svh minus a 91px footer reserve) and the
+   source is 385x690. `cover` scales by width to 390x699 and then throws away
+   the 80px that do not fit - 40px off the TOP and 40px off the BOTTOM,
+   because object-position was 50% 50%. That is his headroom and his hands,
+   in one number. No object-position value fixes it; only removing the crop
+   does, and the crop only disappears when the frame is allowed its full
+   height. 699 <= 710, so at full width it FITS - as long as the bar stops
+   reserving 91px above it and instead sits ON the empty floor.
+
+   SOURCE LANDMARKS, measured off public/startscreen-noband.png (385x690):
+   top of his hair = 13% , bottom of his hands = 93% . Rows 93-100% are bare
+   floor, so a bar that starts below 93% covers floor and never covers him.
+
+   GEOMETRY NOW: the frame keeps its own 385:690 aspect, is pinned to the top
+   of the viewport, and is lifted by --six-lift so his knuckles clear the bar.
+   `contain` guarantees NOTHING is ever cropped; on a viewport too short for
+   the full frame it scales down instead, which is where G's authorised
+   "super minimal dark brown sidebars" come from. On his own phone there are
+   none - the frame is exactly viewport-wide.
+   ======================================================================== */
+@media (max-width: 767px) {
+  :root,
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+  .aiasap-tablet-idle-stage {
+    /* How far Six rides above the top edge so the bar clears his knuckles. */
+    --six-lift: 14px;
+    /* The little brown bar: domain + phone number, then the legal line. */
+    --six-bar-h: 64px;
+    /* Full-width height of the 385x690 frame, capped so it can never be
+       taller than the screen it has to fit inside. */
+    --six-frame-h: min(
+      calc(100svw * 690 / 385),
+      calc(100svh + var(--six-lift))
+    );
+  }
+
+  /* The media column owns the whole screen now - the bar overlays it rather
+     than reserving space above it. Flat brand brown behind, so any letterbox
+     on a short phone reads as a dark surround and never as a cropped Six. */
+  html:has([data-six-initial-idle="1"]) [data-six-initial-idle="1"] > .aiasap-tablet-idle-media,
+  html.aiasap-phone-start-lock [data-six-initial-idle="1"] > .aiasap-tablet-idle-media,
+  [data-six-initial-idle="1"] > .aiasap-tablet-idle-media,
+  [data-six-active-stage="1"] > [data-six-stage-media="1"] {
+    position: relative !important;
+    flex: 0 0 100svh !important;
+    height: 100svh !important;
+    max-height: 100svh !important;
+    overflow: hidden !important;
+    background-image: none !important;
+    background-color: #241608 !important;
+  }
+
+  /* THE FRAME ITSELF. Its box is given the source's own aspect ratio, so
+     `contain` has nothing to crop and nothing to distort. */
+  .aiasap-tablet-idle-media > img.six-primary-scene,
+  [data-six-initial-idle="1"] > .aiasap-tablet-idle-media > img.six-primary-scene,
+  [data-six-stage-media="1"] > video.six-primary-scene:not(.object-contain) {
+    position: absolute !important;
+    top: calc(-1 * var(--six-lift)) !important;
+    bottom: auto !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) !important;
+    aspect-ratio: 385 / 690 !important;
+    height: var(--six-frame-h) !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+    object-fit: contain !important;
+    object-position: 50% 50% !important;
+    background-color: #241608 !important;
+  }
+
+  /* THE LITTLE BROWN BAR. Painted inside the media column so it sits over the
+     bare floor below his hands, opaque, full bleed. */
+  [data-six-initial-idle="1"] > .aiasap-tablet-idle-media::after,
+  [data-six-active-stage="1"] > [data-six-stage-media="1"]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--six-bar-h);
+    background-color: #241608;
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  /* Domain + phone number, then the legal line, both moved down INTO the bar
+     and lifted above it in the stack. */
+  [data-public-contact-links="1"] {
+    top: calc(100svh - 63px) !important;
+    z-index: 70 !important;
+  }
+
+  .aiasap-tablet-idle-stage:has([data-public-contact-links="1"]) .stage-legal-footer,
+  [data-six-initial-idle="1"] .stage-legal-footer,
+  .stage-legal-footer {
+    top: calc(100svh - 18px) !important;
+    z-index: 70 !important;
+  }
+
+  /* "the text is gonna have to be a little higher" - the whole lockup rides
+     up with him so the gap over his hair is kept, not spent.
+     MEASURED, and the first two attempts both failed, so the reasons are here:
+     `top` is already owned at 4px by an earlier rule, so setting top did
+     nothing. A `transform` DID move it - the wrong way (+5px), because the
+     lockup already carries a translateY(-18px) and a transform declaration
+     REPLACES it rather than adding to it. A `top` on the relatively-positioned
+     <h1> is no good either: a relative offset does not move the siblings that
+     follow it, so the logo would leave the tagline behind.
+     A negative margin composes with all three. Before: tagline bottom 75.4 vs
+     hair top 76.9 = 1.5px of air. After: ~14px. */
+  .aiasap-brand-lockup {
+    margin-top: -6px !important;
+  }
+
+  /* The lockup can only rise ~6px before the wordmark's caps are clipped by
+     the top edge (the <h1> box carries ~9px of leading above its ink, so -13px
+     cut the letters). The rest of the room is taken from the gap BETWEEN the
+     logo and the tagline instead, which costs nothing. */
+  [data-stage-tagline="1"] {
+    margin-top: -12px !important;
+  }
+
+  /* "on mobile, the tagline needs a little more spacing between the letters,
+     just a little bit more." The phone line is squeezed twice (scale-x 0.9 on
+     the <p> AND on the ink span), so tracking is the only lever that opens the
+     letters without thinning them - the same trade the tagline file documents.
+     Set on the ink owner, which is where tracking actually lands. */
+  [data-stage-tagline="1"] {
+    letter-spacing: 0.1872em !important;
+  }
+
+  /* The four chest controls are pinned to Six's body, not to the viewport, so
+     they have to travel with him. 0.75 is exactly where G accepted them:
+     measured on the pre-change page, the cluster's bottom edge sat at 75.0%
+     of the frame's height. Keeping that fraction keeps his approved placement
+     while the frame moves underneath it. */
+  [data-stage-controls="1"].stage-controls-cluster {
+    bottom: calc(
+      100svh - (var(--six-frame-h) * 0.75 - var(--six-lift))
+    ) !important;
+  }
+
+  /* The capture box lands ON the top row of buttons, so it is anchored to the
+     SAME expression plus the measured 44px that the bottom row and its gap
+     occupy (card_probe.py asserts it covers the row in every state). Without
+     this it kept the old --stage-height anchor, the buttons moved down with
+     Six, and the box stopped covering START/GALLERY - 8 phone failures. */
+  [data-contact-card-anchor="1"] {
+    bottom: calc(
+      100svh - (var(--six-frame-h) * 0.75 - var(--six-lift)) + 62px
+    ) !important;
+  }
+}
+
+/* ========================================================================
+   OPEN-CONTROL SIZING — G, 2026-09-04 evening, against his own reference
+   sheet. MUST STAY LAST (it has to beat six hard-coded row heights).
+   ------------------------------------------------------------------------
+   G: "Leave all the text the same size. Start mute, gallery, and quiet. And
+   then ... make the icons themselves much bigger. like, the way that they are
+   in the screenshot." Then: "a little distance between, like, the word start
+   and the microphone and the word gallery and that, you know, feather
+   underneath it, and bring them a little closer together. Like, the two on the
+   left and the two on the right bring them just a little closer together."
+
+   THE RATIO IS MEASURED OFF HIS SHEET, not guessed. In
+   aiasap-approved-four-controls.png the compass ink is 222px tall and the word
+   START (all caps, so its ink IS its cap height) is 88px: ICON INK = 2.52x CAP
+   HEIGHT. On the page the label cap height measured 12px at the 16.5px label
+   size (0.727x), and the compass fills 88.75% of its 24-unit viewBox, so the
+   icon BOX has to be 2.52 * 0.727 / 0.8875 = 2.06x the LABEL SIZE. Keying it
+   to the label size rather than to a breakpoint constant makes the sheet's
+   ratio hold at every size on its own - phone 16.5 -> 34px, desktop
+   22.44 -> 46px - and the label size is left exactly where he accepted it.
+
+   Rows are AUTO here on purpose. The old layout pinned them (38.4px phone,
+   54px md) and the icon+word stack already overflowed that box by ~15px, which
+   is why the words and the icon below them read as one mush: the measured gap
+   from an icon to its OWN word was 5.0px while the gap from a word to the NEXT
+   row's icon was 1.5px, so every icon grouped with the wrong word. Letting the
+   rows size to their content puts row-gap back in charge of what the eye
+   actually sees, which is what G is asking for.
+   ======================================================================== */
+[data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+  height: auto !important;
+  grid-template-rows: auto auto !important;
+  /* "a little distance between the word start and the microphone" */
+  row-gap: clamp(14px, 3.6vw, 20px) !important;
+  /* "the two on the left and the two on the right ... just a little closer" */
+  column-gap: 8px !important;
+  align-content: end !important;
+}
+
+/* The pinned 38.4/48/54px cell heights belong to the boxed layout. */
+[data-stage-controls-open="1"] [data-stage-control],
+[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control {
+  height: auto !important;
+}
+
+[data-stage-controls-open="1"] [data-stage-control] {
+  --stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 2.06) !important;
+}
+
+/* The BOXED layout put the word UNDER the button, and this invisible twin
+   reserved that space. The open layout carries the word INSIDE the button, so
+   the twin is now pure dead height - 18.6px per row. It was already hidden on
+   the front door but NOT in the card fixture, so the two disagreed about how
+   tall a row is (162.2px vs 125px at phone) and card_probe.py was measuring a
+   layout G never sees. Hiding it in the open layout makes them agree. */
+[data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-label="1"] {
+  display: none !important;
+}
+
+
+/* SHEET SPACING — G, 2026-09-04: "almost that space between left, right, and
+   up and down between the four. Just take that and build it on six."
+   MEASURED off aiasap-approved-four-controls.png and normalized to its cap
+   height (88px), so it transfers to any label size:
+     icon -> its own word      0.22 x cap  ->  2.6px at our 12px cap
+     word -> next row's icon   1.41 x cap  -> 16.9px
+     word -> word across       1.47 x cap  -> 17.6px
+   The first two are set here. The third is bounded by GALLERY's word: see the
+   cluster width note below. */
+[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control {
+  gap: 1px !important;
+}
+
+[data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+  row-gap: 13px !important;
+  /* THE COLUMN GAP, AND WHY THE CLUSTER BOX DOES NOT SHRINK WITH IT.
+     The sheet wants 17.6px between the words. The words are centred inside
+     their grid columns, so the gap is column-gap + half the slack in each
+     column - which measured 54.2px at the old 45% columns. Closing it means
+     narrowing the COLUMNS, not the cluster: the cluster's own width is what
+     the capture box matches (G, ride 48c99dfa: "the box should be, you know,
+     basically as wide as like the quiet and mute"), and the email ladder in
+     ContactStatusCard.tsx is tuned to a 256px inner width so that G's own
+     short address still paints at the 1.85rem he approved. Taking the cluster
+     to the ~195px this gap needs would drop that top rung by a third and clip
+     his address, so the outer box is left alone and only the columns move.
+     33% + 2px lands the word gap at ~20px against the sheet's 17.6, and still
+     leaves GALLERY - the longest label - 5px of slack in its column. */
+  grid-template-columns: repeat(2, 33%) !important;
+  column-gap: 2px !important;
+}
+
+
+/* ========================================================================
+   GOLD GLYPHS + CHEST ANCHOR — G, 2026-09-04 late, holding his reference
+   sheet. MUST STAY LAST (it re-anchors the cluster and the capture box).
+   ------------------------------------------------------------------------
+   G: "the start gallery mute quiet buttons, they're not on the same
+   latitude. They gotta be level side to side. And, basically, just take
+   that and put it on six's chest ... his stomach is just above his hands.
+   Make it beautiful."
+
+   LEVEL: every glyph paints y = 1.0..23.0 of its own viewBox and every <svg>
+   is rendered at ONE shared height with its width following its own aspect.
+   The old rule forced width = height on a 24x24 box and then scaled some
+   glyphs with a transform, which is exactly how the painted ink of START and
+   GALLERY (and MUTE and QUIET) ended up 3-9px different in height. Width is
+   now `auto`, so the flourish is wide and the mic is narrow, and the painted
+   top and bottom of each pair land on the same pixel. Measured by
+   chest_probe.py at ten viewports.
+
+   GOLD: the glyphs are solid gradient-gold with a hairline bronze edge (paint
+   lives in the SVG itself now), so the old stroke-only forcing is turned off
+   here and the glow is one shared halo for all four - the sheet's warm
+   luminance, not a thin outline.
+
+   CHEST: the hands-top landmark is 573/690 = 0.8304 of the frame (skin scan
+   on public/startscreen-noband.png). The cluster's bottom edge sits a small
+   gap above that line on every breakpoint - phone via the pinned frame, md+
+   via --stage-height (the md poster is `cover` into 9:16, which shifts the
+   landmark by 0.3%, inside the gap). The capture box travels with it by the
+   same measured row offsets as before (62px phone, 94px md).
+   ======================================================================== */
+[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg[data-stage-glyph="1"] {
+  width: auto !important;
+  height: var(--stage-open-icon-size) !important;
+  stroke: none !important;
+  fill-opacity: 1;
+  overflow: visible;
+}
+
+[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg[data-stage-glyph="1"],
+[data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-glow="muted"] .stage-control-icon > svg[data-stage-glyph="1"] {
+  filter:
+    drop-shadow(0 0 1.5px rgba(255, 241, 200, 0.9))
+    drop-shadow(0 0 7px rgba(247, 160, 44, 0.72))
+    drop-shadow(0 0 16px rgba(230, 120, 20, 0.34))
+    drop-shadow(0 2px 3px rgba(37, 18, 5, 0.85)) !important;
+}
+
+/* The words on his sheet carry the same warm halo as the marks. */
+[data-stage-controls-open="1"] [data-stage-control] .stage-open-control > [data-stage-control-inline-label="1"] {
+  filter:
+    drop-shadow(0 1px 1px rgba(37, 18, 5, 0.8))
+    drop-shadow(0 0 6px rgba(247, 160, 44, 0.42));
+}
+
+/* The state tone ("off" = mic off / quiet) used to recolor a stroke; the
+   glyphs are gradient-filled now, so the tone dims and warms the whole mark. */
+[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control.text-\[\#d77a2f\] .stage-control-icon > svg[data-stage-glyph="1"] {
+  filter:
+    sepia(0.35) saturate(1.35) brightness(0.82)
+    drop-shadow(0 0 1.5px rgba(255, 220, 170, 0.7))
+    drop-shadow(0 0 6px rgba(215, 122, 47, 0.6))
+    drop-shadow(0 2px 3px rgba(37, 18, 5, 0.85)) !important;
+}
+
+@media (max-width: 767px) {
+  :root,
+  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
+  .aiasap-tablet-idle-stage {
+    /* viewport y of the top of his clasped hands */
+    --six-hands-top: calc(var(--six-frame-h) * 0.8304 - var(--six-lift));
+    /* air between the bottom of QUIET/MUTE and his hands */
+    --six-chest-gap: 12px;
+  }
+
+  [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+    bottom: calc(100svh - var(--six-hands-top) + var(--six-chest-gap)) !important;
+  }
+
+  [data-contact-card-anchor="1"] {
+    bottom: calc(100svh - var(--six-hands-top) + var(--six-chest-gap) + 62px) !important;
+  }
+}
+
+@media (min-width: 768px) {
+  [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
+    /* 1 - 0.8304 = 0.1696 of the frame lies below the hands line; +12px gap,
+       +4px because the md cluster carries translateY(4px). */
+    bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.1696 + 16px) !important;
+  }
+
+  [data-contact-card-anchor="1"] {
+    /* 66px, not the 94px the card's own md class says: that class was written
+       against a cluster anchored 28px lower (the 0.203 + 28px rule), so the
+       true measured offset from the cluster's bottom to the card's bottom is
+       94 - 28 = 66. card_probe.py caught the 28px the moment both were
+       re-based on one expression (16 md/desktop failures). */
+    bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.1696 + 16px + 66px) !important;
+  }
 }

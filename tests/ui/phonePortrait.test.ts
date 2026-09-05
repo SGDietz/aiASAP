@@ -201,15 +201,28 @@ describe("phone portrait contract", () => {
     expect(css).toContain("width: 100% !important");
     expect(css).toContain("aspect-ratio: auto !important");
     expect(css).toContain('background-image: url("/startscreen-noband.png") !important');
-    // G 2026-09-04 ordered the brown side bars gone. The idle still is now
-    // cover+top, matching the LIVE video, so nothing letterboxes.
+    // G 2026-09-04 evening, twice, on his phone: "his hands are off to screen
+    // at the bottom ... the text is, like, on his hair." The phone frame is now
+    // `contain` inside its own 385:690 box so NOTHING is cropped; md+ keeps
+    // the `cover` poster. (He authorised the minimal dark side bars a short
+    // phone needs for that, the same round.)
     expect(css).toContain("object-fit: cover !important");
-    expect(css).not.toContain("object-fit: contain !important");
+    expect(css).toContain("aspect-ratio: 385 / 690 !important");
+    expect(css).toContain("object-fit: contain !important");
     expect(css).toContain("--stage-control-label-size: 16.5px");
     expect(css).toContain("--stage-control-icon-size: 16.5px");
     expect(css).toContain("font-size: clamp(12.1px, 3.41vw, 16.5px) !important");
     expect(css).toContain("top: calc(0.45rem + 2px) !important");
-    expect(css).toContain("96px + min(calc(100svh - 96px), calc(100svw * 16 / 9)) * 0.203 + 8px");
+    // G, 2026-09-04, ink on the screenshot: "move all four of the buttons
+    // up ... where the mute and quiet are, move them up to where the start
+    // and gallery is." One MEASURED button row: 38px phone / 54px tablet+,
+    // row-gap 10px, so G then judged that too high: the move is now HALF a row on
+    // tablet+ (+32) and a light nudge on phone (+16). Bottom-anchored, so
+    // the whole 2x2 moves and the gap to 6's hands grows by one row.
+    // Then: "just on mobile, move the boxes down just a little bit, like a
+    // half box down." A phone button is 38px tall, so half a box is 19px:
+    // 24 - 19 = 5.
+    expect(css).toContain("96px + min(calc(100svh - 96px), calc(100svw * 16 / 9)) * 0.203 + 5px");
     expect(css).toContain('top: calc(var(--stage-top) + var(--stage-height) + 6px)');
     expect(css).toContain('top: calc(var(--stage-top) + var(--stage-height) + 52px) !important');
     expect(css).toContain("position: fixed !important");

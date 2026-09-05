@@ -5,61 +5,66 @@ import { describe, expect, it } from "vitest";
 const source = (file: string) =>
   fs.readFileSync(path.join(process.cwd(), file), "utf8");
 
-describe("physical-phone RUNNING inner-icon geometry", () => {
-  it("keeps STOP at its natural 22.5px peer-reference paint height", () => {
-    const controls = source("src/components/StageControls.tsx");
-    const css = source("app/globals.css");
+/**
+ * G, 2026-09-04 late, holding his reference sheet: "the start gallery mute
+ * quiet buttons, they're not on the same latitude. They gotta be level side
+ * to side. And, basically, just take that and put it on six's chest ... his
+ * stomach is just above his hands. Make it beautiful."
+ *
+ * LEVEL BY CONSTRUCTION. Every glyph paints y = 1.0..23.0 of its own viewBox
+ * and every <svg> renders at ONE shared height with width following its own
+ * aspect. That is the whole guarantee: no per-icon scale, no nudges. The
+ * painted proof is chest_probe.py (ink top/bottom per pair at ten viewports,
+ * within 1px). This guard keeps the construction from being undone in code.
+ */
+describe("open-control glyph geometry (level by construction)", () => {
+  const controls = source("src/components/StageControls.tsx");
+  const css = source("app/globals.css");
+  const chest = css.slice(css.indexOf("GOLD GLYPHS + CHEST ANCHOR"));
 
-    expect(controls).toContain('data-phone-running-stop-glyph="1"');
-    expect(css).toMatch(
-      /data-phone-running-stop-glyph="1"[\s\S]*?transform: scale\(0\.9\);[\s\S]*?transform-origin: center;/,
-    );
-    expect(18 * (30 / 24) * 0.9).toBe(20.25);
+  it("renders all four sheet glyphs through one shared-height svg owner", () => {
+    for (const glyph of ["CompassRoseIcon", "FlourishIcon", "VintageMicIcon", "FeatherWaveIcon"]) {
+      expect(controls).toContain(`export function ${glyph}()`);
+      expect(controls.match(new RegExp(`<${glyph} />`, "g"))).toHaveLength(2);
+    }
+    expect(controls).toContain('data-stage-glyph="1"');
+    // each glyph's own aspect; heights are all 24 so the ink rule is shared
+    expect(controls).toContain('viewBox="0 0 44 24"'); // flourish, wide
+    expect(controls).toContain('viewBox="0 0 26 24"'); // feather
+    expect(controls.match(/viewBox="0 0 24 24"/g)).toHaveLength(2); // compass, mic
+    expect(controls).not.toMatch(/viewBox="0 0 \d+ (?!24")/);
   });
 
-  it("shortens only the RUNNING MUTE glyph to 0.90x height", () => {
-    const controls = source("src/components/StageControls.tsx");
-    const css = source("app/globals.css");
-
-    expect(controls.match(/data-phone-running-mute-glyph=/g)).toHaveLength(2);
-    expect(controls).toContain('running ? "1" : undefined');
-    expect(css).toMatch(
-      /data-phone-running-mute-glyph="1"[\s\S]*?transform: scaleY\(0\.9\);[\s\S]*?transform-origin: center;/,
-    );
-    expect(20 * (30 / 24) * 0.9).toBe(22.5);
+  it("carries no per-icon scale or transform nudge in the component", () => {
+    expect(controls).not.toContain("scale={");
+    expect(controls).not.toMatch(/transform: `scale/);
+    expect(controls).not.toContain("translate(0 1.3)");
   });
 
-  it("does not change shared layout sizing, cells, or responsive icon slots", () => {
-    const controls = source("src/components/StageControls.tsx");
-    const css = source("app/globals.css");
-
-    expect(controls).toContain('? "h-[20px] w-[20px]"');
-    expect(controls).toContain('gap-[3px]');
-    expect(css).toContain("@media (max-width: 599px)");
-    expect(css).toContain("@media (min-width: 600px)");
-    expect(css).toContain("width: var(--stage-control-icon-size);");
-    expect(css).toContain("height: var(--stage-control-icon-size);");
-    expect((25 + 20.0075) / 2).toBeCloseTo(22.50375, 8);
+  it("lets CSS own one shared glyph height with width following the aspect", () => {
+    expect(chest).toContain("width: auto !important;");
+    expect(chest).toContain("height: var(--stage-open-icon-size) !important;");
+    expect(chest).toContain("stroke: none !important;");
+    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 2.06) !important");
   });
 
-  it("restores START natural geometry while preserving STOP and MUTE transforms", () => {
-    const controls = source("src/components/StageControls.tsx");
-    const css = source("app/globals.css");
+  it("anchors the cluster and the capture box to the hands line on every breakpoint", () => {
+    // hands top = 573/690 of the frame, skin-scanned on startscreen-noband.png
+    expect(chest).toContain("--six-hands-top: calc(var(--six-frame-h) * 0.8304 - var(--six-lift));");
+    expect(chest).toContain("--six-chest-gap: 12px;");
+    expect(chest).toContain("bottom: calc(100svh - var(--six-hands-top) + var(--six-chest-gap)) !important;");
+    expect(chest).toContain("bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.1696 + 16px) !important;");
+    expect(chest).toContain("var(--six-chest-gap) + 62px) !important;");
+    expect(chest).toContain("* 0.1696 + 16px + 66px) !important;");
+    expect((1 - 0.8304).toFixed(4)).toBe("0.1696");
+  });
 
-    expect(controls).toContain('data-stage-start-glyph="1"');
-    expect(css).not.toMatch(/data-stage-start-glyph="1"[\s\S]*?transform:/);
-    expect(css).toMatch(
-      /data-phone-running-stop-glyph="1"[\s\S]*?transform: scale\(0\.9\);[\s\S]*?data-phone-running-mute-glyph="1"[\s\S]*?transform: scaleY\(0\.9\);/,
-    );
-    // Browser path bounds quantize to 1/64px; five decimals distinguishes the
-    // exact 0.90 source transform while allowing that expected subpixel noise.
-    expect(20.001543045043945 / 18.001388549804688).toBeCloseTo(1 / 0.9, 5);
-    expect(22.50146484375 / 20.2513427734375).toBeCloseTo(1 / 0.9, 5);
-    expect(24.001861572265625 / 21.601654052734375).toBeCloseTo(1 / 0.9, 5);
-    expect(27.0018310546875 / 24.3016357421875).toBeCloseTo(1 / 0.9, 5);
-    expect(36 * 0.9).toBe(32.4);
-    expect(27 * 0.9).toBe(24.3);
-    expect(30 * 0.9).toBe(27);
-    expect((30 + 24.00897216796875) / 2).toBeCloseTo(27.004486083984375, 12);
+  it("stays the last block so it beats every earlier anchor", () => {
+    const at = css.indexOf("GOLD GLYPHS + CHEST ANCHOR");
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeGreaterThan(css.lastIndexOf("OPEN-CONTROL SIZING"));
+    expect(at).toBeGreaterThan(css.lastIndexOf("PHONE FRAMING"));
+    expect(at).toBeGreaterThan(css.lastIndexOf("* 0.203 + 28px) !important"));
+    expect(at).toBeGreaterThan(css.lastIndexOf("* 0.75 - var(--six-lift))"));
   });
 });

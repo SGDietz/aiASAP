@@ -163,7 +163,9 @@ describe("phone start-screen avatar lock", () => {
     expect(css).toContain("--aiasap-phone-legal-reserve: 55px;");
     expect(css).toContain("height: calc(100svh - 34.65px);");
     expect(34.65).toBe(49.5 * 0.7);
-    expect(css).not.toContain(".aiasap-tablet-idle-media::after");
+    // 2026-09-04 evening: the little brown bar under his hands IS an ::after
+    // on the media column (PHONE FRAMING block), painted over bare floor.
+    expect(css).toContain('[data-six-initial-idle="1"] > .aiasap-tablet-idle-media::after');
     expect(css).toContain('[data-six-active-stage="1"] > [data-six-stage-media="1"]');
   });
 

@@ -5,22 +5,26 @@ import { describe, expect, it } from "vitest";
 const source = (file: string) =>
   fs.readFileSync(path.join(process.cwd(), file), "utf8");
 
-describe("horizontal stage-control contents", () => {
-  it("places every icon before its visible label in one centered row", () => {
+describe("open stage-control contents", () => {
+  it("places every icon above its visible label in one centered stack", () => {
+    // G, 2026-09-04: open icon-above-word controls float on 6's chest.
     const controls = source("src/components/StageControls.tsx");
     const button = controls.slice(controls.indexOf("<button"), controls.indexOf("</button>") + 9);
-    expect(button).toContain("flex-row items-center justify-center gap-[3px]");
+    expect(button).toContain("flex-col items-center justify-center gap-[3px]");
     expect(button.indexOf("stage-control-icon")).toBeLessThan(
       button.indexOf("data-stage-control-inline-label"),
     );
-    expect(button).not.toContain("flex-col");
+    expect(button).not.toContain("flex-row");
     expect(controls).toContain('label={running ? "Stop" : "Start"}');
   });
 
   it("adds space to Start, Quiet, and Gallery without changing Mute's accepted gap", () => {
     const controls = source("src/components/StageControls.tsx");
     const css = source("app/globals.css");
-    expect(css).toMatch(/\[data-stage-control="start"\][\s\S]*?\[data-stage-control="quiet"\][\s\S]*?\[data-stage-control="gallery"\][\s\S]*?column-gap: 6px !important;/);
+    // G allowed the squeeze when the boxes lost 10%: "if you have to move the
+    // gallery and the icon for gallery closer to it ... do that also." These
+    // three drop to Mute's already-approved 3px rather than a new number.
+    expect(css).toMatch(/\[data-stage-control="start"\][\s\S]*?\[data-stage-control="quiet"\][\s\S]*?\[data-stage-control="gallery"\][\s\S]*?column-gap: 3px !important;/);
     expect(css).not.toContain('[data-stage-control="mute"] > .btn-stage');
     expect(controls).toContain("gap-[3px]");
   });
@@ -28,18 +32,35 @@ describe("horizontal stage-control contents", () => {
   it("uses the shared wide-face CSS authority and keeps Gallery on one line", () => {
     const controls = source("src/components/StageControls.tsx");
     const css = source("app/globals.css");
-    expect(css).toContain("width: min(85vw, max(calc(var(--stage-width) * 0.61), 320px));");
+    // G, 2026-09-04 (second pass): "take ten percent off the sides, just the
+    // left right on all four boxes, all devices, just the visuals ... they're
+    // just a little too big." The boxes are two equal columns of the cluster,
+    // so the cluster width carries the 10% and every HEIGHT stays as approved.
+    // Measured after: phone 127->114, desktop 141->127.
+    expect(css).toContain("width: min(76.5vw, max(calc(var(--stage-width) * 0.549), 288px));");
     expect(css).toContain("grid-template-columns: repeat(2, calc(45% - 2.7px))");
     expect(css).toContain("column-gap: calc(5% + 2.7px)");
     expect(css).toContain("justify-content: center");
     expect(css).toContain("row-gap: 10px");
     expect(css).toContain("grid-template-rows: repeat(2, 48px)");
     expect(css).toContain("grid-template-rows: repeat(2, 54px)");
-    expect(css).toContain("width: 288.6px");
+    // -10% on G's word, 2026-09-04. The phone cluster carries the reduction
+    // so each of the four boxes narrows 10% (127 -> 114, measured) while the
+    // 38px heights stay exactly as approved.
+    expect(css).toContain("width: 259.7px");
     expect(css).toContain("grid-template-rows: repeat(2, 38.4px)");
     expect(css.match(/row-gap: 10px !important/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(css).toContain("var(--stage-height) * 0.203 + 8px");
-    expect(controls).toContain('text-[15px] sm:text-[16.5px] leading-none');
+    // G, 2026-09-04, ink on the screenshot: "move all four of the buttons
+    // up ... where the mute and quiet are, move them up to where the start
+    // and gallery is." One MEASURED button row: 38px phone / 54px tablet+,
+    // row-gap 10px, so G then judged that too high: the move is now HALF a row on
+    // tablet+ (+32) and a light nudge on phone (+16). Bottom-anchored, so
+    // the whole 2x2 moves and the gap to 6's hands grows by one row.
+    // Mobile only, half a box (19px of a 38px button) back down: 24 - 19 = 5.
+    expect(css).toContain("var(--stage-height) * 0.203 + 5px");
+    expect(controls).toContain('text-[12px] sm:text-[14px] leading-none');
+    // the real label size is the CSS authority; the glyph box is keyed to it
+    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 2.06) !important");
     expect(controls).toContain("tracking-[0.1em]");
     expect(controls).not.toContain("whitespace-normal");
   });
