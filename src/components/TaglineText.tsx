@@ -1,9 +1,12 @@
 /**
- * BEAUTIFUL BRILLIANT CHEAP AUTOPILOT — G's exact aiASAP tagline. He revised
- * it four times on 2026-09-04 evening: the "+" equation form, then a
- * period-separated form, then an arrow before Autopilot, then this one
- * (typed by G at 20:50, word for word). THIS is the current wording — four
- * words, no plus signs, no periods, no arrow.
+ * BEAUTIFUL & BRILLIANT & CHEAP ON AUTOPILOT — G's exact aiASAP tagline.
+ * He revised it FIVE times on 2026-09-04 evening: the "+" equation form, a
+ * period-separated form, an arrow before Autopilot, four bare words, and then
+ * this one (typed word for word at 21:05). THIS is the current wording —
+ * ampersands between the first three, lowercase "on" before Autopilot.
+ *
+ * Taglines are sacred (CLAUDE.md): never reword or re-punctuate this without
+ * G saying so.
  *
  * Taglines are sacred (CLAUDE.md): never reword, re-punctuate or "tidy" this
  * without G saying so. The visible and screen-reader owners carry identical
@@ -20,10 +23,25 @@ const Initial = ({ children }: { children: React.ReactNode }) => (
   <span className="text-[1.167em]">{children}</span>
 );
 
-/* The operators (+ and >) came and went with the earlier revisions. The 0.9
-   scale-x and the letter-spacing on the ink span are G's approved squeeze;
-   the squeeze once lived partly in operator margins, and those are gone with
-   the operators, so the line simply sits a little narrower. */
+/**
+ * The & operators. G tuned this treatment on the "+" version and never took it
+ * back, so the ampersands inherit it exactly: raised to the middle of the
+ * capitals' height rather than sitting on the baseline at their feet, weight
+ * 900, and a MARGIN either side rather than a space character so the gap is
+ * tunable without touching the glyph.
+ *
+ * G, on the earlier operators: "the plus signs and the arrow to the right are
+ * all low and not nearly bold enough. So raise them up to kind of the middle
+ * of the capital words height middle and make them significantly more bold."
+ * Then: "the boldness is perfect, but they're too high" — 0.26em overshot to
+ * the cap TOP, so 0.14em is the middle.
+ */
+const Op = ({ children }: { children: React.ReactNode }) => (
+  <span className="relative -top-[0.14em] mx-[0.11em] inline-block text-[0.95em] font-black">
+    {children}
+  </span>
+);
+
 
 export function TaglineText() {
   return (
@@ -31,11 +49,14 @@ export function TaglineText() {
       data-stage-tagline-ink="1"
       className="inline-block origin-center scale-x-[0.9] tracking-[-0.005em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[1.6632em] text-transparent md:text-[1.32em]"
     >
-      <span className="sr-only">Beautiful Brilliant Cheap Autopilot</span>
+      <span className="sr-only">Beautiful &amp; Brilliant &amp; Cheap on Autopilot</span>
       <span aria-hidden>
-        <Initial>B</Initial><Small>eautiful</Small>{" "}
-        <Initial>B</Initial><Small>rilliant</Small>{" "}
+        <Initial>B</Initial><Small>eautiful</Small>
+        <Op>&amp;</Op>
+        <Initial>B</Initial><Small>rilliant</Small>
+        <Op>&amp;</Op>
         <Initial>C</Initial><Small>heap</Small>{" "}
+        <Small>on</Small>{" "}
         <Initial>A</Initial><Small>utopilot</Small>
       </span>
     </span>

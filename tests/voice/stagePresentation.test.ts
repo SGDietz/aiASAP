@@ -25,13 +25,15 @@ describe("smoke-stage presentation contract", () => {
 
   it("uses brand-colored STOP/START glyphs without moving the control row", () => {
     const controls = source("src/components/StageControls.tsx");
-    // G's four sheet glyphs, 2026-09-04: compass / flourish / mic / feather.
-    expect(controls).toMatch(/label=\{running \? "Stop" : "Start"\}[\s\S]*?<CompassRoseIcon \/>/);
-    expect(controls).toContain("<FlourishIcon />");
-    expect(controls).toContain("<VintageMicIcon />");
-    expect(controls).toContain("<FeatherWaveIcon />");
-    expect(controls).not.toContain("<Square");
-    expect(controls).not.toContain("<Play");
+    // G, 2026-09-04 late, backing the gold sheet out: "the old icons, the old
+    // spacing ... go back, like, twenty four hours, to the second screenshot."
+    // The plain outline glyphs are the baseline again. The ornate sheet marks
+    // are one commit back (efeffb05) if we want pieces of them.
+    expect(controls).toMatch(/running \? <Square[\s\S]*?<Play className=\{ICON\}/);
+    expect(controls).toContain("<Images className={ICON}");
+    expect(controls).toMatch(/micOff \? <MicOff[\s\S]*?<Mic className=\{ICON\}/);
+    expect(controls).toMatch(/quiet \? <VolumeX[\s\S]*?<Volume2 className=\{ICON\}/);
+    expect(controls).not.toContain("CompassRoseIcon");
     expect(controls).toContain("var(--stage-height)*0.225");
     expect(controls).toContain("var(--stage-height)*0.203");
     expect(controls).toContain(
@@ -42,7 +44,7 @@ describe("smoke-stage presentation contract", () => {
   it("restores the prior tagline-era brand geometry with the exact new copy", () => {
     const loadingCopy = source("src/components/TaglineText.tsx");
     const lockup = source("src/components/StageBrandLockup.tsx");
-    expect(loadingCopy).toContain("Beautiful Brilliant Cheap Autopilot");
+    expect(loadingCopy).toContain("Beautiful &amp; Brilliant &amp; Cheap on Autopilot");
     expect(loadingCopy).toContain('className="text-[1.167em]"');
     expect(loadingCopy).toContain('<Initial>L</Initial><LoadingRest>OADING<span data-six-loading-phone-dots="1">...</span></LoadingRest>');
     expect(lockup).toContain("<TaglineText />");

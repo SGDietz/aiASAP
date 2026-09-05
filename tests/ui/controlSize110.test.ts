@@ -22,11 +22,12 @@ describe("accepted Six control sizing", () => {
     expect(controls).toContain('"text-[12px] sm:text-[14px] leading-none');
     expect(controls).toContain("gap-[6.6px]");
     expect(controls).toContain("flex-col items-center justify-center gap-[3px]");
-    // no per-icon pixel boxes and no per-icon scale nudges in the TSX - the
-    // shared height is the one thing that keeps the pairs level
+    // no per-icon pixel boxes and no per-icon scale nudges in the TSX - one
+    // shared square box is what keeps the row partners level
     expect(controls).not.toMatch(/h-\[18px\] w-\[18px\]/);
     expect(controls).not.toContain("scale={");
-    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 2.06) !important");
+    expect(controls).toContain('const ICON = "stage-open-glyph"');
+    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.35) !important");
   });
 
   it("keeps explicit cluster gaps, anchors, opacity, and shared state owners", () => {

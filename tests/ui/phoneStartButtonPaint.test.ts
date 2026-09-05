@@ -28,19 +28,17 @@ describe("cross-device avatar control paint", () => {
     expect(coreRules).not.toMatch(/animation:|backdrop-filter|blur\(/);
   });
 
-  it("uses solid gold glyphs and one gradient label authority", () => {
-    // G, 2026-09-04, holding his sheet: solid gold marks with a warm halo, not
-    // thin outlines. The paint lives in the SVG (shared gradient + hairline
-    // bronze edge); CSS turns the old stroke forcing off for these glyphs.
-    expect(controls).toContain('const GOLD = "url(#aiasap-contact-gold-gradient)"');
-    expect(controls).toContain("fill={GOLD}");
-    expect(controls).toContain('data-stage-glyph="1"');
-    expect(css).toContain('svg[data-stage-glyph="1"]');
-    expect(css).toContain("stroke: none !important;");
+  it("uses outline glyphs stroked with the shared gold gradient", () => {
+    // G, 2026-09-04 late: back to the plain outline icons of his second
+    // screenshot. Paint is a gradient STROKE on the lucide svg, not a fill.
+    expect(controls).toContain('from "lucide-react"');
+    expect(controls).toContain('const ICON = "stage-open-glyph"');
+    expect(css).toContain("stroke: url(#aiasap-contact-gold-gradient) !important;");
+    expect(css).not.toContain("stroke: none !important;");
+    expect(controls).toContain('id="aiasap-contact-gold-gradient"');
     expect(rules).toContain('[data-stage-control-label="1"]');
     expect(controls).not.toContain("bg-gradient-to-b");
     expect(controls).not.toContain("bg-clip-text");
-    expect(controls).not.toContain("fill-none");
   });
 
   it("keeps initial START enabled while preserving true dormant disabled states", () => {

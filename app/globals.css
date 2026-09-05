@@ -1825,21 +1825,23 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
   stroke-opacity: 1;
   color: var(--aiasap-contact-gold-2);
   fill-opacity: inherit;
-  filter:
-    drop-shadow(0 0 2px rgba(255, 244, 205, 0.88))
-    drop-shadow(0 0 6px rgba(247, 160, 44, 0.72))
-    drop-shadow(0 2px 3px rgba(37, 18, 5, 0.82)) !important;
+  /* G, 2026-09-04 late: "Remove the glow." The two `0 0` shadows WERE the
+     glow - a white-hot core and an amber halo. Only the offset dark shadow
+     stays, which is not glow: it is what keeps a thin gold outline readable
+     against denim of the same value. */
+  filter: drop-shadow(0 1px 2px rgba(37, 18, 5, 0.7)) !important;
   opacity: 1 !important;
 }
 
 /* START's compass rose is a solid-diamond glyph — moderate its glow so its
    perceived luminance matches the other three outline-first icons. */
+/* The "muted" variant existed only to hold ONE glyph's glow down to match the
+   other three. With the glow gone there is nothing left to moderate, so all
+   four share the single shadow above. The hook is kept because the component
+   still passes it. */
 [data-stage-controls-open="1"] [data-stage-control] [data-stage-control-glow="muted"] .stage-control-icon > svg,
 [data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-glow="muted"] .stage-control-icon > svg {
-  filter:
-    drop-shadow(0 0 1.5px rgba(255, 239, 196, 0.62))
-    drop-shadow(0 0 4px rgba(240, 145, 32, 0.46))
-    drop-shadow(0 1px 2px rgba(37, 18, 5, 0.76)) !important;
+  filter: drop-shadow(0 1px 2px rgba(37, 18, 5, 0.7)) !important;
 }
 
 /* Labels sit directly below each icon on the open layout. */
@@ -2021,8 +2023,15 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
      this it kept the old --stage-height anchor, the buttons moved down with
      Six, and the box stopped covering START/GALLERY - 8 phone failures. */
   [data-contact-card-anchor="1"] {
+    /* 49px, RE-MEASURED after the icons went back to the small outline set:
+       the cluster lost 17.5px of height (120 -> 102.5 at 390x710), so the old
+       62px carried the box up off the row it is meant to cover and
+       card_probe.py failed 8 phone states. The top row now sits 411.7-455.5
+       and the bottom row starts at 466.4, so the box's bottom edge belongs in
+       that gap: 510.2 - 461 = 49. Re-run card_probe.py after ANY chest-button
+       size change - a front-door screenshot cannot see this box. */
     bottom: calc(
-      100svh - (var(--six-frame-h) * 0.75 - var(--six-lift)) + 62px
+      100svh - (var(--six-frame-h) * 0.75 - var(--six-lift)) + 49px
     ) !important;
   }
 }
@@ -2073,7 +2082,16 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
 }
 
 [data-stage-controls-open="1"] [data-stage-control] {
-  --stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 2.06) !important;
+  /* G, 2026-09-04 late: "the old icons, the old spacing ... go back, like,
+     twenty four hours, to the second screenshot." The 2.06x blow-up was
+     measured off the GOLD SHEET, which is the look he just backed out of.
+     These are the plain outline glyphs again, so the box goes back to just
+     over the label size - measured against his screenshot, the icon ink reads
+     about 1.3x the word's cap height, and cap height is 0.727x the label size
+     while a lucide glyph fills ~0.83 of its 24-unit box: 1.3 * 0.727 / 0.83 =
+     1.14. Rounded up a touch to 1.35 because the open layout has no box around
+     the mark to give it presence. */
+  --stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.35) !important;
 }
 
 /* The BOXED layout put the word UNDER the button, and this invisible twin
@@ -2096,12 +2114,13 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
      word -> word across       1.47 x cap  -> 17.6px
    The first two are set here. The third is bounded by GALLERY's word: see the
    cluster width note below. */
-[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control {
-  gap: 1px !important;
-}
-
+/* The 1px icon->word gap and the tight 33% columns below were BOTH measured
+   off the gold sheet. G backed the sheet out, so the roomy spacing from his
+   second screenshot is restored: the button's own Tailwind gap-[3px] owns the
+   icon-to-word distance again, and the columns go back to the shared 45% +
+   5% gap, which is what puts real air between START and GALLERY. */
 [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
-  row-gap: 13px !important;
+  row-gap: 15px !important;
   /* THE COLUMN GAP, AND WHY THE CLUSTER BOX DOES NOT SHRINK WITH IT.
      The sheet wants 17.6px between the words. The words are centred inside
      their grid columns, so the gap is column-gap + half the slack in each
@@ -2115,107 +2134,48 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
      his address, so the outer box is left alone and only the columns move.
      33% + 2px lands the word gap at ~20px against the sheet's 17.6, and still
      leaves GALLERY - the longest label - 5px of slack in its column. */
-  grid-template-columns: repeat(2, 33%) !important;
-  column-gap: 2px !important;
+  grid-template-columns: repeat(2, calc(45% - 2.7px)) !important;
+  column-gap: calc(5% + 2.7px) !important;
 }
 
 
 /* ========================================================================
-   GOLD GLYPHS + CHEST ANCHOR — G, 2026-09-04 late, holding his reference
-   sheet. MUST STAY LAST (it re-anchors the cluster and the capture box).
+   THE BOTTOM THREE, IN THE WORDMARK'S OWN BLEND — G, 2026-09-04 late.
+   MUST STAY LAST (it has to beat the FOOTER TYPE PASS and the phone-only
+   legal paint, both of which set their own gradients further up).
    ------------------------------------------------------------------------
-   G: "the start gallery mute quiet buttons, they're not on the same
-   latitude. They gotta be level side to side. And, basically, just take
-   that and put it on six's chest ... his stomach is just above his hands.
-   Make it beautiful."
+   G: "Make all three things at the bottom - the WildWorks.Live, the phone
+   number, and the legal line - all kind of the same color as aiASAP. So it's
+   like that softer yellow with a little bit darkness blend at the bottom.
+   But, yeah, just do it like aiASAP."
 
-   LEVEL: every glyph paints y = 1.0..23.0 of its own viewBox and every <svg>
-   is rendered at ONE shared height with its width following its own aspect.
-   The old rule forced width = height on a 24x24 box and then scaled some
-   glyphs with a transform, which is exactly how the painted ink of START and
-   GALLERY (and MUTE and QUIET) ended up 3-9px different in height. Width is
-   now `auto`, so the flourish is wide and the mic is narrow, and the painted
-   top and bottom of each pair land on the same pixel. Measured by
-   chest_probe.py at ten viewports.
+   So these three stops are LIFTED VERBATIM off the wordmark, which carries
+   `bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108]` in
+   StageBrandLockup.tsx - Tailwind places from/via/to at 0/50/100%. Named here
+   so the two can never drift apart again.
 
-   GOLD: the glyphs are solid gradient-gold with a hairline bronze edge (paint
-   lives in the SVG itself now), so the old stroke-only forcing is turned off
-   here and the glow is one shared halo for all four - the sheet's warm
-   luminance, not a thin outline.
-
-   CHEST: the hands-top landmark is 573/690 = 0.8304 of the frame (skin scan
-   on public/startscreen-noband.png). The cluster's bottom edge sits a small
-   gap above that line on every breakpoint - phone via the pinned frame, md+
-   via --stage-height (the md poster is `cover` into 9:16, which shifts the
-   landmark by 0.3%, inside the gap). The capture box travels with it by the
-   same measured row offsets as before (62px phone, 94px md).
+   ONLY the three footer items move. The four chest labels share the same
+   :where() rule further up and stay on the contact-gold four-stop, because G
+   named the bottom of the screen and nothing else.
    ======================================================================== */
-[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg[data-stage-glyph="1"] {
-  width: auto !important;
-  height: var(--stage-open-icon-size) !important;
-  stroke: none !important;
-  fill-opacity: 1;
-  overflow: visible;
+:root {
+  --aiasap-wordmark-1: #ffe9c2;
+  --aiasap-wordmark-2: #d7a05a;
+  --aiasap-wordmark-3: #3a2108;
 }
 
-[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg[data-stage-glyph="1"],
-[data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-glow="muted"] .stage-control-icon > svg[data-stage-glyph="1"] {
-  filter:
-    drop-shadow(0 0 1.5px rgba(255, 241, 200, 0.9))
-    drop-shadow(0 0 7px rgba(247, 160, 44, 0.72))
-    drop-shadow(0 0 16px rgba(230, 120, 20, 0.34))
-    drop-shadow(0 2px 3px rgba(37, 18, 5, 0.85)) !important;
-}
-
-/* The words on his sheet carry the same warm halo as the marks. */
-[data-stage-controls-open="1"] [data-stage-control] .stage-open-control > [data-stage-control-inline-label="1"] {
-  filter:
-    drop-shadow(0 1px 1px rgba(37, 18, 5, 0.8))
-    drop-shadow(0 0 6px rgba(247, 160, 44, 0.42));
-}
-
-/* The state tone ("off" = mic off / quiet) used to recolor a stroke; the
-   glyphs are gradient-filled now, so the tone dims and warms the whole mark. */
-[data-stage-controls-open="1"] [data-stage-control] > .stage-open-control.text-\[\#d77a2f\] .stage-control-icon > svg[data-stage-glyph="1"] {
-  filter:
-    sepia(0.35) saturate(1.35) brightness(0.82)
-    drop-shadow(0 0 1.5px rgba(255, 220, 170, 0.7))
-    drop-shadow(0 0 6px rgba(215, 122, 47, 0.6))
-    drop-shadow(0 2px 3px rgba(37, 18, 5, 0.85)) !important;
-}
-
-@media (max-width: 767px) {
-  :root,
-  .aiasap-tablet-idle-stage[data-six-initial-idle="1"],
-  .aiasap-tablet-idle-stage {
-    /* viewport y of the top of his clasped hands */
-    --six-hands-top: calc(var(--six-frame-h) * 0.8304 - var(--six-lift));
-    /* air between the bottom of QUIET/MUTE and his hands */
-    --six-chest-gap: 12px;
-  }
-
-  [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
-    bottom: calc(100svh - var(--six-hands-top) + var(--six-chest-gap)) !important;
-  }
-
-  [data-contact-card-anchor="1"] {
-    bottom: calc(100svh - var(--six-hands-top) + var(--six-chest-gap) + 62px) !important;
-  }
-}
-
-@media (min-width: 768px) {
-  [data-stage-controls-open="1"][data-stage-controls="1"].stage-controls-cluster {
-    /* 1 - 0.8304 = 0.1696 of the frame lies below the hands line; +12px gap,
-       +4px because the md cluster carries translateY(4px). */
-    bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.1696 + 16px) !important;
-  }
-
-  [data-contact-card-anchor="1"] {
-    /* 66px, not the 94px the card's own md class says: that class was written
-       against a cluster anchored 28px lower (the 0.203 + 28px rule), so the
-       true measured offset from the cluster's bottom to the card's bottom is
-       94 - 28 = 66. card_probe.py caught the 28px the moment both were
-       re-based on one expression (16 md/desktop failures). */
-    bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.1696 + 16px + 66px) !important;
-  }
+[data-public-contact-ink="1"],
+[data-stage-legal-line="1"] .aiasap-legal-ink,
+[data-stage-legal-line="1"] .aiasap-legal-separator,
+[data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] > span {
+  background-image: linear-gradient(
+    180deg,
+    var(--aiasap-wordmark-1) 0%,
+    var(--aiasap-wordmark-2) 50%,
+    var(--aiasap-wordmark-3) 100%
+  ) !important;
+  background-clip: text !important;
+  -webkit-background-clip: text !important;
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
 }

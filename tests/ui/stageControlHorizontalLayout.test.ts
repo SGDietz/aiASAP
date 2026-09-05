@@ -60,7 +60,7 @@ describe("open stage-control contents", () => {
     expect(css).toContain("var(--stage-height) * 0.203 + 5px");
     expect(controls).toContain('text-[12px] sm:text-[14px] leading-none');
     // the real label size is the CSS authority; the glyph box is keyed to it
-    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 2.06) !important");
+    expect(css).toContain("--stage-open-icon-size: calc(var(--stage-control-label-size, 16.5px) * 1.35) !important");
     expect(controls).toContain("tracking-[0.1em]");
     expect(controls).not.toContain("whitespace-normal");
   });

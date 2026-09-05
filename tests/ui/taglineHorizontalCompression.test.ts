@@ -32,17 +32,25 @@ describe("tagline horizontal-only compression", () => {
 
   it("keeps exact visual and accessibility copy on one line", () => {
     const tagline = source("src/components/TaglineText.tsx");
-    // G, 2026-09-04 20:50, typed word for word, FOURTH revision and the current
-    // one: "Beautiful Brilliant Cheap Autopilot" - four words, no operators.
-    // (TaglineText.tsx carries the history of the three before it.)
-    expect(tagline).toContain('<span className="sr-only">Beautiful Brilliant Cheap Autopilot</span>');
+    // G, 2026-09-04 21:05, typed word for word, FIFTH revision and the current
+    // one: "Beautiful & Brilliant & Cheap on Autopilot" - ampersands between
+    // the first three, lowercase "on" before Autopilot. (TaglineText.tsx
+    // carries the history of the four before it.)
+    expect(tagline).toContain('<span className="sr-only">Beautiful &amp; Brilliant &amp; Cheap on Autopilot</span>');
     // Four initials render at the shared Initial size: B, B, C, A — one for
     // every capital in the exact tagline spelling. It was five while the line
     // read "... Cheap. On Autopilot."; G's equation drops the "On".
     expect(tagline.match(/<Initial>[BCA]<\/Initial>/g)).toHaveLength(4);
-    // No operators at all in the fourth revision - no Op span, no plus, no arrow.
-    expect(tagline).not.toContain("<Op>");
+    // Two ampersands in the fifth revision, and no plus or arrow. They are copy,
+    // not decoration, so they are matched as their own spans.
+    expect(tagline.match(/<Op>&amp;<\/Op>/g)).toHaveLength(2);
+    expect(tagline).not.toContain("<Op>+</Op>");
     expect(tagline).not.toContain("&gt;");
+    // G's operator treatment, tuned on the "+" version and never taken back:
+    // raised to the middle of the capitals, weight 900, margin either side.
+    expect(tagline).toContain("-top-[0.14em]");
+    expect(tagline).toContain("font-black");
+    expect(tagline).toContain("mx-[0.11em]");
     expect(tagline).not.toContain("<br");
   });
 });
