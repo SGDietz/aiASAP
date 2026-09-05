@@ -23,12 +23,12 @@ describe("shared aiASAP stage tagline", () => {
     expect(lockup).toContain("aiasap-tablet-idle-tagline");
     expect(lockup).toContain('data-stage-tagline="1"');
     expect(lockup).toContain("whitespace-nowrap opacity-100");
-    // G, 2026-09-04 21:05, typed word for word, FIFTH revision and the current
-    // one: "Beautiful & Brilliant & Cheap on Autopilot" - ampersands between
-    // the first three, lowercase "on" before Autopilot. (TaglineText.tsx
-    // carries the history of the four before it.)
-    expect(loadingCopy).toContain("Beautiful &amp; Brilliant &amp; Cheap on Autopilot");
-    expect(loadingCopy.match(/Beautiful &amp; Brilliant &amp; Cheap on Autopilot/g)).toHaveLength(1);
+    // G, 2026-09-04, SEVENTH revision and the current one, typed word for
+    // word: "Beautiful Brilliant Cheap > Autopilot". The arrow is back in the
+    // connector's slot. (TaglineText.tsx carries the history of the six
+    // before it.)
+    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
+    expect(loadingCopy.match(/Beautiful Brilliant Cheap &gt; Autopilot/g)).toHaveLength(1);
     expect(loadingCopy).toContain('data-stage-tagline-ink="1"');
     // A second 10% squeeze on G's word, 2026-09-04: 0.9 -> 0.81, horizontal
     // only. The type size is deliberately unchanged.

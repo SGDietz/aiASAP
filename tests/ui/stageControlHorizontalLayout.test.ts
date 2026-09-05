@@ -102,11 +102,31 @@ describe("open stage-control contents", () => {
     // the footer took a few minutes earlier. The gradient's ID is historical -
     // these icons are its only users.
     expect(controls).toContain('id="aiasap-contact-gold-gradient"');
-    expect(controls).toContain('stopColor="var(--aiasap-wordmark-1)"');
-    expect(controls).toContain('stopColor="var(--aiasap-wordmark-3)"');
+    // THE SLICE, not the raw ramp. G, 2026-09-04: "Looks like there's some
+    // black, and it just doesn't match the aiASAP." Same three stops, but
+    // `background-clip: text` runs a gradient over the ELEMENT box, and the
+    // wordmark's h1 has leading + padding while small text is leading-none -
+    // so small text ran off both ends of the ramp into near-black. These are
+    // the wordmark's own visible range solved back onto a full 0-100%.
+    // MEASURED after: label 188 -> 103 luminance vs wordmark 190 -> 105.
+    expect(controls).toContain('stopColor="var(--aiasap-blend-small-1)"');
+    expect(controls).toContain('stopColor="var(--aiasap-blend-small-3)"');
     expect(css).toContain("--aiasap-wordmark-1: #ffe9c2;");
     expect(css).toContain("--aiasap-wordmark-2: #d7a05a;");
     expect(css).toContain("--aiasap-wordmark-3: #3a2108;");
+    // G, 2026-09-04: "See how beautiful and light aiASAP is ... remove all the
+    // junk visually ... mimic that perfect light at the top, just a little bit
+    // of darkness at the bottom." Four stops, so the light is held through the
+    // top two thirds and the darkness is compressed into the last third and
+    // stops at a warm brown, never near-black. MEASURED after: label luminance
+    // 226 -> 150, icon 235 -> 115, against the wordmark's own 209 -> 105.
+    expect(css).toContain("--aiasap-blend-small-1: #ffe9c2;");
+    expect(css).toContain("--aiasap-blend-small-2: #f2d29a;");
+    expect(css).toContain("--aiasap-blend-small-3: #dda86a;");
+    expect(css).toContain("--aiasap-blend-small-4: #a06c2e;");
+    // "Remove all the junk": the hard 1px shadow is replaced by the wordmark's
+    // own soft bloom, on the words and the icons alike.
+    expect(css).toContain("filter: drop-shadow(0 1px 6px rgba(25, 15, 5, 0.4)) !important;");
     const blend = css.slice(css.indexOf("THE BOTTOM THREE, IN THE WORDMARK'S OWN BLEND"));
     expect(blend).toContain('[data-stage-controls="1"] [data-stage-control-inline-label="1"]');
     expect(blend).toContain('[data-public-contact-ink="1"]');

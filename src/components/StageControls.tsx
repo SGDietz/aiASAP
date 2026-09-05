@@ -158,13 +158,17 @@ export function StageControls({
           {/* NAME IS HISTORICAL, STOPS ARE THE WORDMARK'S. G, 2026-09-04 late:
               "Make this start gallery mute quiet all that also the same color
               blends and the icons as aiASAP." These are the three stops off
-              the wordmark in StageBrandLockup.tsx, same as the footer. The id
+              wordmark, sliced the way the wordmark's own box shows them - an
+              icon fills nearly its whole box, so on the raw 0-100% ramp its
+              bottom third went to near-black (G: "looks like there's some
+              black"). See the --aiasap-blend-small note in globals.css. The id
               is left alone because these four icons are its only users and
               renaming it buys nothing but risk mid-iteration. */}
           <linearGradient id="aiasap-contact-gold-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--aiasap-wordmark-1)" />
-            <stop offset="50%" stopColor="var(--aiasap-wordmark-2)" />
-            <stop offset="100%" stopColor="var(--aiasap-wordmark-3)" />
+            <stop offset="0%" stopColor="var(--aiasap-blend-small-1)" />
+            <stop offset="40%" stopColor="var(--aiasap-blend-small-2)" />
+            <stop offset="72%" stopColor="var(--aiasap-blend-small-3)" />
+            <stop offset="100%" stopColor="var(--aiasap-blend-small-4)" />
           </linearGradient>
         </defs>
       </svg>
@@ -234,13 +238,17 @@ export function DormantStageControls() {
           {/* NAME IS HISTORICAL, STOPS ARE THE WORDMARK'S. G, 2026-09-04 late:
               "Make this start gallery mute quiet all that also the same color
               blends and the icons as aiASAP." These are the three stops off
-              the wordmark in StageBrandLockup.tsx, same as the footer. The id
+              wordmark, sliced the way the wordmark's own box shows them - an
+              icon fills nearly its whole box, so on the raw 0-100% ramp its
+              bottom third went to near-black (G: "looks like there's some
+              black"). See the --aiasap-blend-small note in globals.css. The id
               is left alone because these four icons are its only users and
               renaming it buys nothing but risk mid-iteration. */}
           <linearGradient id="aiasap-contact-gold-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--aiasap-wordmark-1)" />
-            <stop offset="50%" stopColor="var(--aiasap-wordmark-2)" />
-            <stop offset="100%" stopColor="var(--aiasap-wordmark-3)" />
+            <stop offset="0%" stopColor="var(--aiasap-blend-small-1)" />
+            <stop offset="40%" stopColor="var(--aiasap-blend-small-2)" />
+            <stop offset="72%" stopColor="var(--aiasap-blend-small-3)" />
+            <stop offset="100%" stopColor="var(--aiasap-blend-small-4)" />
           </linearGradient>
         </defs>
       </svg>

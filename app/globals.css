@@ -2161,9 +2161,49 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
    see on the front door now runs on one blend.
    ======================================================================== */
 :root {
+  /* The wordmark's literal three stops, as written in StageBrandLockup.tsx. */
   --aiasap-wordmark-1: #ffe9c2;
   --aiasap-wordmark-2: #d7a05a;
   --aiasap-wordmark-3: #3a2108;
+
+  /* THE SAME BLEND, LIGHT AT THE TOP, A LITTLE DARKNESS AT THE BOTTOM.
+     G, 2026-09-04 late: "Looks like there's some black, and it just doesn't
+     match the aiASAP ... with start gallery mute quiet. I mean, look at it."
+
+     He was right, and the cause is NOT the colors - both used the identical
+     three stops. It is the BOX. `background-clip: text` runs the gradient over
+     the element's box, not over the letters. The wordmark's h1 carries
+     leading-[1.12] plus vertical padding, so its capitals occupy only the
+     MIDDLE of that box and sample roughly 34%-75% of the ramp. The small text
+     is leading-none, so its capitals sample about 15%-84% - they run right off
+     the bright top and down into the near-black tail.
+
+     MEASURED off the rendered page (brightest ink pixel per row):
+       wordmark caps  #e4b97c -> #8a6333   luminance 190 -> 105
+       START label    #f3d3a2 -> #6b4922   luminance 214 ->  78   <- the mud
+     Solving the wordmark's own slice back onto a full 0-100% ramp gives the
+     three values below, so small text now paints the wordmark's exact range.
+     Anything set at roughly label size uses these; the wordmark keeps the
+     originals above, because its box already does this for it.
+
+     THEN G LOOKED AGAIN: "See how beautiful and light aiASAP is. That should
+     be the way all the buttons are, just so light and beautiful. You remove
+     all the junk visually and just make them beautiful like aiASAP. We try to
+     mimic that perfect light at the top, just a little bit of darkness at the
+     bottom."
+
+     So the slice is no longer a straight remap of the wordmark's midtones —
+     it is the SHAPE he described. Four stops instead of three, because a
+     3-stop linear ramp spends half its length getting dark. The light is held
+     through the top two thirds and the darkness is compressed into the last
+     third, and the bottom stop stops at a warm brown rather than continuing
+     toward the wordmark's near-black tail. Luminance 235 -> 116, against the
+     wordmark's own 190 -> 105: brighter at the top, which is the "light" he
+     is pointing at, and never muddy at the foot. */
+  --aiasap-blend-small-1: #ffe9c2;
+  --aiasap-blend-small-2: #f2d29a;
+  --aiasap-blend-small-3: #dda86a;
+  --aiasap-blend-small-4: #a06c2e;
 }
 
 [data-public-contact-ink="1"],
@@ -2173,12 +2213,32 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
 [data-stage-controls="1"] [data-stage-control-inline-label="1"] {
   background-image: linear-gradient(
     180deg,
-    var(--aiasap-wordmark-1) 0%,
-    var(--aiasap-wordmark-2) 50%,
-    var(--aiasap-wordmark-3) 100%
+    var(--aiasap-blend-small-1) 0%,
+    var(--aiasap-blend-small-2) 40%,
+    var(--aiasap-blend-small-3) 72%,
+    var(--aiasap-blend-small-4) 100%
   ) !important;
   background-clip: text !important;
   -webkit-background-clip: text !important;
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
+  /* "You remove all the junk visually." The junk was a hard, near-opaque
+     shadow sitting 1px under every glyph, which reads as grime at this size.
+     The wordmark does not carry one - it carries a soft wide bloom,
+     drop-shadow(0 1px 6px rgba(25,15,5,0.4)) in StageBrandLockup.tsx - so
+     these take the wordmark's, verbatim. It still lifts the type off denim;
+     it just stops looking like dirt. */
+  filter: drop-shadow(0 1px 6px rgba(25, 15, 5, 0.4)) !important;
+  text-shadow: none !important;
+}
+
+/* The four chest icons are stroked with the same ramp through the SVG
+   gradient, so they take the same soft bloom rather than the hard shadow. */
+[data-stage-controls-open="1"] [data-stage-control] .stage-control-icon > svg,
+[data-stage-controls-open="1"] [data-stage-control] > [data-stage-control-glow="muted"] .stage-control-icon > svg {
+  filter: drop-shadow(0 1px 6px rgba(25, 15, 5, 0.4)) !important;
+}
+
+[data-stage-controls="1"] .stage-control-icon {
+  filter: none !important;
 }
