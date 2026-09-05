@@ -1,5 +1,6 @@
 import { getSupabaseAdminConfig } from "../supabaseAdmin";
 import { sendPurposeEmail } from "../emailSenders";
+import { emailShell, emailPre } from "../emailTheme";
 import { sendTelegramAlert } from "../telegramAlert";
 import type { ErrorLogRow, LogLevel, LogRuntime } from "./types";
 
@@ -39,6 +40,17 @@ function maybeSendCrashEmail(payload: ErrorLogRow): void {
     to,
     subject: `Watchdog: error in ${payload.route ?? payload.runtime}`,
     text,
+    // G 2026-08-25: aiASAP emails carry the aiASAP theme. The copy above is
+    // unchanged - emailPre just paints it.
+    // G 2026-09-04: "all emails should have the top of 6, his face at
+    // least" - ops mail included. The old no-photo-on-a-crash-report line
+    // was my call, not his, and it predates the rule.
+    html: emailShell({
+      title: `Watchdog: error in ${payload.route ?? payload.runtime}`,
+      heading: "Something broke.",
+      align: "left",
+      bodyHtml: emailPre(text),
+    }),
   });
 }
 

@@ -29,6 +29,30 @@ import {
   setCustomVoiceMuted,
 } from "../liveavatar/customVoiceDelivery";
 import { logAppEvent } from "../lib/telemetry";
+import {
+  EMPTY_BUILD_INTEREST_STATE,
+  canAdvanceBuildInterview,
+  resolveContactSave,
+  stepBuildInterest,
+  type BuildInterestState,
+  type BuildInterestStep,
+} from "../lib/buildInterestFlow";
+import { formatSixSpeechForTts } from "../lib/voice/speechBrand";
+import { markPendingBuildAccountSetup, postOpportunitySignal } from "../lib/opportunityClient";
+import { StageControls } from "./StageControls";
+import { ContactStatusCard } from "./ContactStatusCard";
+import { StageLegalFooter } from "./StageLegalFooter";
+import { WildWorksLinkButton } from "./WildWorksLinkButton";
+import { PublicContactCard } from "./PublicContactCard";
+import {
+  isPublicContactRequest,
+  PUBLIC_CONTACT_SPOKEN_RESPONSE,
+} from "../lib/publicContact";
+import {
+  resolveAvatarSiteIntent,
+  resolveWildWorksLinkTurn,
+  type WildWorksOfferState,
+} from "../lib/wildWorksLinkIntent";
 
 type Turn = { role: "user" | "assistant"; content: string };
 
@@ -39,6 +63,8 @@ type Props = {
   micOff?: boolean;
   /** Cap the history sent to the brain. Keeps cost and latency sane. */
   historyTurns?: number;
+  /** Return to CUSTOM avatar mode; the parent owns the paid session mint. */
+  onReturnAvatar: () => void;
 };
 
 type MinimalRecognition = {
@@ -89,6 +115,7 @@ export function VoiceOnlyStage({
   speakerMuted = false,
   micOff = false,
   historyTurns = 12,
+  onReturnAvatar,
 }: Props) {
   // "fault" exists so a dead brain or dead voice is VISIBLE. Without it the
   // screen sat on "6 is listening" through every failure and the person waited
@@ -97,10 +124,14 @@ export function VoiceOnlyStage({
     "idle" | "listening" | "thinking" | "speaking" | "fault"
   >("idle");
   const [unsupported, setUnsupported] = useState(false);
+  const [running, setRunning] = useState(true);
+  const [localMicOff, setLocalMicOff] = useState(micOff);
+  const [localSpeakerMuted, setLocalSpeakerMuted] = useState(speakerMuted);
   const recRef = useRef<MinimalRecognition | null>(null);
   const historyRef = useRef<Turn[]>([]);
   const busyRef = useRef(false);
-  const micOffRef = useRef(micOff);
+  const micOffRef = useRef(localMicOff);
+  const runningRef = useRef(true);
   const mountedRef = useRef(true);
   // Every utterance takes a ticket. Only the newest ticket may write state,
   // append history, or speak. This is what makes barge-in real: when somebody
@@ -110,17 +141,25 @@ export function VoiceOnlyStage({
   // True only while 6 is actually producing sound. Talking over him is allowed;
   // talking over the model call is not (that would double-charge and interleave).
   const speakingRef = useRef(false);
+  const [buildInterestState, setBuildInterestState] = useState<BuildInterestState>(EMPTY_BUILD_INTEREST_STATE);
+  const buildInterestStateRef = useRef<BuildInterestState>(EMPTY_BUILD_INTEREST_STATE);
+  const [wildWorksOfferState, setWildWorksOfferState] = useState<WildWorksOfferState>("idle");
+  const wildWorksOfferStateRef = useRef<WildWorksOfferState>("idle");
 
   useEffect(() => {
-    micOffRef.current = micOff;
-  }, [micOff]);
+    micOffRef.current = localMicOff;
+  }, [localMicOff]);
+
+  useEffect(() => {
+    runningRef.current = running;
+  }, [running]);
 
   // Speaker mute is owned by customVoiceDelivery so voice-only and avatar mode
   // cannot disagree about whether 6 is muted.
   useEffect(() => {
-    setCustomVoiceMuted(speakerMuted);
-    if (speakerMuted) cutVoiceOnlyAudio();
-  }, [speakerMuted]);
+    setCustomVoiceMuted(localSpeakerMuted);
+    if (localSpeakerMuted) cutVoiceOnlyAudio();
+  }, [localSpeakerMuted]);
 
   const speak = useCallback(async (text: string, turnId: number) => {
     if (!text.trim()) return;
@@ -135,7 +174,10 @@ export function VoiceOnlyStage({
       const res = await fetch("/api/elevenlabs-text-to-speech", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        // Brand at the speech boundary, same rule as avatar mode: the written
+        // form stays `aiASAP` everywhere else, and only the TTS input becomes
+        // the approved spoken form (2026-08-31).
+        body: JSON.stringify({ text: formatSixSpeechForTts(text) }),
       });
       if (!res.ok) {
         fault("http_error", { status: res.status });
@@ -164,9 +206,70 @@ export function VoiceOnlyStage({
     }
   }, []);
 
+  // Extracted 2026-08-31 so the on-screen contact box drives the SAME machine
+  // and the SAME submit_opportunity_contact RPC the spoken path uses. Returns
+  // true when the step was handled and the caller must stop.
+  const applyBuildInterestStep = useCallback(
+    async (scripted: ReturnType<typeof stepBuildInterest>, turnId: number): Promise<boolean> => {
+      if (!scripted.handled) return false;
+      buildInterestStateRef.current = scripted.state;
+      setBuildInterestState(scripted.state);
+      if (scripted.state.stage === "confirming" && scripted.state.method) {
+        void postOpportunitySignal("contact_captured", {
+          method: scripted.state.method,
+          value: scripted.state.value,
+          send_consent: scripted.state.sendConsent === true,
+        });
+      }
+      let spoken = scripted.spoken;
+      if (scripted.effect.kind === "start_account") {
+        markPendingBuildAccountSetup();
+        spoken = "I’ll bring the avatar back so we can set up your free account.";
+      } else if (scripted.effect.kind === "save_contact") {
+        if (spoken) await speak(spoken, turnId);
+        const saved = await postOpportunitySignal("submit_contact", {
+          method: scripted.effect.method,
+          value: scripted.effect.value,
+          full_name: scripted.state.fullName ?? null,
+          exact_package_consent: scripted.state.packageConsent === true,
+          contact_readback_confirmed: Boolean(scripted.state.readbackConfirmedAt),
+          readback_confirmed_at: scripted.state.readbackConfirmedAt ? new Date(scripted.state.readbackConfirmedAt).toISOString() : null,
+          follow_up_authorized_at: scripted.state.followUpAuthorizedAt ? new Date(scripted.state.followUpAuthorizedAt).toISOString() : null,
+        });
+        const resolved = resolveContactSave(scripted.state, saved.ok && saved.submitted);
+        buildInterestStateRef.current = resolved.state;
+        setBuildInterestState(resolved.state);
+        spoken = resolved.spoken;
+      }
+      if (spoken) {
+        const scriptedTurn: Turn = { role: "assistant", content: spoken };
+        historyRef.current = [...historyRef.current, scriptedTurn].slice(-historyTurns);
+        await speak(spoken, turnId);
+      }
+      if (scripted.effect.kind === "start_account" && turnId === turnIdRef.current) onReturnAvatar();
+      return true;
+    },
+    [historyTurns, onReturnAvatar, speak],
+  );
+
+  const handleContactCardStep = useCallback(
+    async (step: BuildInterestStep) => {
+      cutVoiceOnlyAudio();
+      const turnId = ++turnIdRef.current;
+      await applyBuildInterestStep(step, turnId);
+      if (mountedRef.current && turnId === turnIdRef.current) {
+        setState(micOffRef.current ? "idle" : "listening");
+      }
+    },
+    [applyBuildInterestStep],
+  );
+
   const handleUtterance = useCallback(
     async (userText: string) => {
       if (!userText.trim()) return;
+      // A final recognition event can already be queued when STOP calls
+      // recognition.stop(). Do not let that stale event start a brain request.
+      if (!runningRef.current) return;
       // BARGE-IN FIRST, unconditionally. This line used to sit BELOW a
       // `busyRef.current` guard — and busyRef is true for the whole time 6 is
       // speaking, so the guard returned before the cut ever ran and talking
@@ -183,12 +286,41 @@ export function VoiceOnlyStage({
       const userTurn: Turn = { role: "user", content: userText };
       historyRef.current = [...historyRef.current, userTurn].slice(-historyTurns);
       try {
+        void postOpportunitySignal("turn", { text: userText });
+        if (isPublicContactRequest(userText)) {
+          await speak(PUBLIC_CONTACT_SPOKEN_RESPONSE, turnId);
+          return;
+        }
+        const wildWorks = resolveWildWorksLinkTurn(userText, wildWorksOfferStateRef.current);
+        if (wildWorks) {
+          wildWorksOfferStateRef.current = wildWorks.nextState;
+          setWildWorksOfferState(wildWorks.nextState);
+          if (wildWorks.handled && wildWorks.spoken) {
+            const scriptedTurn: Turn = {
+              role: "assistant",
+              content: wildWorks.spoken,
+            };
+            historyRef.current = [...historyRef.current, scriptedTurn].slice(-historyTurns);
+            await speak(wildWorks.spoken, turnId);
+            return;
+          }
+        }
+        const avatarSite = resolveAvatarSiteIntent(userText);
+        if (avatarSite) {
+          const scriptedTurn: Turn = { role: "assistant", content: avatarSite };
+          historyRef.current = [...historyRef.current, scriptedTurn].slice(-historyTurns);
+          await speak(avatarSite, turnId);
+          return;
+        }
+        const scripted = stepBuildInterest(buildInterestStateRef.current, userText);
+        if (await applyBuildInterestStep(scripted, turnId)) return;
         const res = await fetch("/api/openai-chat-complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: userText,
             history: historyRef.current.slice(0, -1),
+            buildGateSatisfied: canAdvanceBuildInterview(buildInterestStateRef.current, false),
           }),
         });
         if (res.ok) {
@@ -229,7 +361,7 @@ export function VoiceOnlyStage({
         }
       }
     },
-    [historyTurns, speak],
+    [applyBuildInterestStep, historyTurns, onReturnAvatar, speak],
   );
 
   // The recognizer. `continuous` recognizers stop themselves on silence and on
@@ -251,7 +383,7 @@ export function VoiceOnlyStage({
       // no-op: onend handles the restart
     };
     rec.onend = () => {
-      if (!mountedRef.current || micOffRef.current) return;
+      if (!mountedRef.current || micOffRef.current || !runningRef.current) return;
       try {
         rec.start();
       } catch {
@@ -275,7 +407,7 @@ export function VoiceOnlyStage({
   useEffect(() => {
     const rec = recRef.current;
     if (!rec) return;
-    if (micOff) {
+    if (!running || localMicOff) {
       try {
         rec.stop();
       } catch {
@@ -290,10 +422,68 @@ export function VoiceOnlyStage({
         // already running
       }
     }
-  }, [micOff]);
+  }, [localMicOff, running]);
 
-  const label = unsupported
-    ? "This browser cannot listen — try Chrome"
+  const handleStopStart = useCallback(() => {
+    if (runningRef.current) {
+      wildWorksOfferStateRef.current = "idle";
+      setWildWorksOfferState("idle");
+      runningRef.current = false;
+      setRunning(false);
+      turnIdRef.current += 1;
+      busyRef.current = false;
+      speakingRef.current = false;
+      cutVoiceOnlyAudio();
+      try {
+        recRef.current?.stop();
+      } catch {
+        // already stopped
+      }
+      setState("idle");
+      return;
+    }
+    runningRef.current = true;
+    setRunning(true);
+    if (!micOffRef.current) {
+      try {
+        recRef.current?.start();
+        setState("listening");
+      } catch {
+        // already running
+      }
+    }
+  }, []);
+
+  const stopVoiceOnlyForLegal = useCallback(() => {
+    // Legal navigation is a hard audio boundary even though VOICE has no paid
+    // avatar session. Invalidate in-flight turns, stop the ears, and cut the
+    // WebAudio source before StageLegalFooter changes the document.
+    runningRef.current = false;
+    mountedRef.current = false;
+    turnIdRef.current += 1;
+    busyRef.current = false;
+    speakingRef.current = false;
+    setRunning(false);
+    setState("idle");
+    wildWorksOfferStateRef.current = "idle";
+    setWildWorksOfferState("idle");
+    cutVoiceOnlyAudio();
+    const rec = recRef.current;
+    if (rec) {
+      rec.onend = null;
+      try {
+        rec.abort?.();
+        rec.stop();
+      } catch {
+        // Already stopped is the desired legal-navigation state.
+      }
+    }
+  }, []);
+
+  const label = !running
+    ? "6 is stopped"
+    : unsupported
+      ? "This browser cannot listen — try Chrome"
     : state === "fault"
       ? "6 lost his voice for a second — say that again"
       : state === "speaking"
@@ -305,15 +495,40 @@ export function VoiceOnlyStage({
             : "6 is here — turn the mic on to talk";
 
   return (
-    <div
-      data-voice-only="1"
-      aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4"
-      style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.55)" }}
-    >
-      <p className="text-center text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
-        {label}
-      </p>
-    </div>
+    <>
+      <div
+        data-voice-only="1"
+        aria-live="polite"
+        className="pointer-events-none fixed inset-x-0 z-30 flex justify-center px-4"
+        style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.43)" }}
+      >
+        <p className="text-center text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
+          {label}
+        </p>
+      </div>
+      <ContactStatusCard state={buildInterestState} onStep={handleContactCardStep} />
+      <PublicContactCard />
+      <StageControls
+        running={running}
+        micOff={localMicOff}
+        quiet={localSpeakerMuted}
+        onStopStart={handleStopStart}
+        onToggleMic={() => setLocalMicOff((value) => !value)}
+        onToggleQuiet={() => setLocalSpeakerMuted((value) => !value)}
+      />
+      {wildWorksOfferState === "shown" && (
+        <WildWorksLinkButton
+          onDismiss={() => {
+            wildWorksOfferStateRef.current = "idle";
+            setWildWorksOfferState("idle");
+          }}
+        />
+      )}
+      <StageLegalFooter
+        phoneFlow
+        placementClassName="md:absolute md:bottom-2 md:left-1/2 md:-translate-x-1/2"
+        onBeforeNavigate={stopVoiceOnlyForLegal}
+      />
+    </>
   );
 }

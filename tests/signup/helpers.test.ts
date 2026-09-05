@@ -10,6 +10,7 @@ import {
   extractSpokenEmailCandidate,
   hasEmailCorrectionIntent,
   hasEndSessionIntent,
+  isDirectAvatarStopCommand,
   hasExplicitAccountSendOnCloseIntent,
   isAccountConsentYes,
   isInternalSignal,
@@ -81,6 +82,31 @@ describe("hasEndSessionIntent — close must escape the email fast-path (G 2026-
       false,
     );
     expect(isInternalSignal("[SILENT]")).toBe(true);
+  });
+});
+
+describe("direct spoken stop for Six — Android CUSTOM regression (G 2026-08-25)", () => {
+  it("accepts only a standalone imperative and not embedded commentary", () => {
+    expect(isDirectAvatarStopCommand("Stop, Six")).toBe(true);
+    expect(isDirectAvatarStopCommand("Six, stop")).toBe(true);
+    expect(isDirectAvatarStopCommand("please stop 6 now")).toBe(true);
+    expect(isDirectAvatarStopCommand("That should not stop Six")).toBe(false);
+    expect(
+      isDirectAvatarStopCommand(
+        "I just cleared my throat. That should not stop Six. He should just continue on.",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not classify embedded stop-Six commentary as an end-session request", () => {
+    expect(hasEndSessionIntent("Stop, Six")).toBe(true);
+    expect(hasEndSessionIntent("Six, stop")).toBe(true);
+    expect(hasEndSessionIntent("That should not stop Six")).toBe(false);
+    expect(
+      hasEndSessionIntent(
+        "I just cleared my throat. That should not stop Six. He should just continue on.",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -160,8 +186,8 @@ describe("isStitchedSessionClose — bare 'session' shard finishes a split close
 
 describe("parseSpelledEmailChunk — letters land on 6's chest (G 2026-06-01)", () => {
   it("single spoken letters become a clean run", () => {
-    expect(parseSpelledEmailChunk("s g d i e t z")).toEqual({
-      chars: "sgdietz",
+    expect(parseSpelledEmailChunk("e x a m p l e")).toEqual({
+      chars: "example",
       looksSpelled: true,
     });
   });
@@ -186,13 +212,13 @@ describe("parseSpelledEmailChunk — letters land on 6's chest (G 2026-06-01)", 
     expect(out.looksSpelled).toBe(true);
   });
   it("an inline address is taken verbatim", () => {
-    const out = parseSpelledEmailChunk("sgdietz@pm.me");
-    expect(out.chars).toBe("sgdietz@pm.me");
+    const out = parseSpelledEmailChunk("example@pm.me");
+    expect(out.chars).toBe("example@pm.me");
     expect(out.looksSpelled).toBe(true);
   });
   it("SWEEP 2026-06-10: hyphen-chained letters are a spell, not a word", () => {
-    const out = parseSpelledEmailChunk("s-g-d-i-e-t-z at pm dot me");
-    expect(out.chars).toBe("sgdietz@pm.me");
+    const out = parseSpelledEmailChunk("e-x-a-m-p-l-e at pm dot me");
+    expect(out.chars).toBe("example@pm.me");
     expect(out.looksSpelled).toBe(true);
   });
   it("ordinary conversation does NOT look spelled", () => {
@@ -203,20 +229,20 @@ describe("parseSpelledEmailChunk — letters land on 6's chest (G 2026-06-01)", 
 
 describe("extractSpokenEmailCandidate — never save a guess", () => {
   it("parses a fully spoken address", () => {
-    expect(extractSpokenEmailCandidate("my email is sgdietz at pm dot me")).toBe(
-      "sgdietz@pm.me",
+    expect(extractSpokenEmailCandidate("my email is example at pm dot me")).toBe(
+      "example@pm.me",
     );
   });
   it("a clean inline address wins outright", () => {
-    expect(extractSpokenEmailCandidate("sgdietz@pm.me")).toBe("sgdietz@pm.me");
+    expect(extractSpokenEmailCandidate("example@pm.me")).toBe("example@pm.me");
   });
   it("bails to null on the dropped-local-part shape (SGD IETZ@pm.me)", () => {
     expect(extractSpokenEmailCandidate("Okay, it's SGD IETZ@pm.me")).toBe(null);
   });
   it("BUGFIX 2026-06-10: the spelled letter E survives a one-breath spell", () => {
     // Old noise filter ate "e" (the 'e' of 'e mail') → saved sgditz@pm.me.
-    expect(extractSpokenEmailCandidate("s g d i e t z at pm dot me")).toBe(
-      "sgdietz@pm.me",
+    expect(extractSpokenEmailCandidate("e x a m p l e at pm dot me")).toBe(
+      "example@pm.me",
     );
   });
   it("BUGFIX 2026-06-10: long spelled locals keep their head (no 6-token cap)", () => {
@@ -227,11 +253,11 @@ describe("extractSpokenEmailCandidate — never save a guess", () => {
   });
   it("leading chatter still never glues onto the local part", () => {
     expect(
-      extractSpokenEmailCandidate("okay so it's s g d i e t z at pm dot me"),
-    ).toBe("sgdietz@pm.me");
+      extractSpokenEmailCandidate("okay so it's e x a m p l e at pm dot me"),
+    ).toBe("example@pm.me");
     expect(
-      extractSpokenEmailCandidate("send the link to sgdietz at pm dot me"),
-    ).toBe("sgdietz@pm.me");
+      extractSpokenEmailCandidate("send the link to example at pm dot me"),
+    ).toBe("example@pm.me");
   });
   it("plain talk yields null", () => {
     expect(extractSpokenEmailCandidate("I want you to remember me")).toBe(null);
@@ -241,8 +267,8 @@ describe("extractSpokenEmailCandidate — never save a guess", () => {
 describe("mergeEmailDomainCorrection — fix just the domain, keep the local", () => {
   it("swaps in the corrected domain", () => {
     expect(
-      mergeEmailDomainCorrection("no, it's pm dot me", "sgdietz@gmail.com"),
-    ).toBe("sgdietz@pm.me");
+      mergeEmailDomainCorrection("no, it's pm dot me", "example@gmail.com"),
+    ).toBe("example@pm.me");
   });
   it("returns null without a prior email", () => {
     expect(mergeEmailDomainCorrection("pm dot me", null)).toBe(null);
@@ -253,9 +279,9 @@ describe("parseEmailFromAvatarReadback — observational readback parser", () =>
   it("parses the canonical spelled readback", () => {
     expect(
       parseEmailFromAvatarReadback(
-        "Got it! That's S-G-D-I-E-T-Z at P-M dot M-E. Did I get that right?",
+        "Got it! That's E-X-A-M-P-L-E at P-M dot M-E. Did I get that right?",
       ),
-    ).toBe("sgdietz@pm.me");
+    ).toBe("example@pm.me");
   });
   it("trailing chatter never lands in the domain", () => {
     expect(
@@ -265,8 +291,8 @@ describe("parseEmailFromAvatarReadback — observational readback parser", () =>
     ).toBe("gdietz@gmail.com");
   });
   it("an inline address spoken verbatim wins", () => {
-    expect(parseEmailFromAvatarReadback("That's sgdietz@pm.me, right?")).toBe(
-      "sgdietz@pm.me",
+    expect(parseEmailFromAvatarReadback("That's example@pm.me, right?")).toBe(
+      "example@pm.me",
     );
   });
   it("a question with no address yields null", () => {
@@ -321,6 +347,11 @@ describe("extractDeviceNameCandidate — junk never becomes a name (G 2026-06-07
     expect(extractDeviceNameCandidate("It is", true)).toBe(null);
     expect(extractDeviceNameCandidate("first time", true)).toBe(null);
     expect(extractDeviceNameCandidate("I'm talking", true)).toBe(null);
+    expect(extractDeviceNameCandidate("I'm him", true)).toBe(null);
+    expect(extractDeviceNameCandidate("him", true)).toBe(null);
+    expect(extractDeviceNameCandidate("her", true)).toBe(null);
+    expect(extractDeviceNameCandidate("them", true)).toBe(null);
+    expect(extractDeviceNameCandidate("hi", true)).toBe(null);
   });
   it("explicit identity answers preserve valid names while rejecting setup residue", () => {
     expect(extractDeviceNameCandidate("my name is George Good", false)).toBe(
@@ -392,9 +423,16 @@ describe("email correction intent — positive confirmation never reopens entry"
     "But now it's not written correct.",
     "No, that's not right.",
     "You didn't spell it correct.",
+    "No, that's wrong, it's actually foo@bar.com",
+    "Wrong. It's john.doe@gmail.com",
+    "No, that isn't right; use john at gmail dot com",
   ])("accepts %j only while an email gate is active", (text) => {
     expect(hasEmailCorrectionIntent(text, true)).toBe(true);
     expect(hasEmailCorrectionIntent(text, false)).toBe(false);
+  });
+
+  it("does not mistake an email local-part named actually for a correction cue", () => {
+    expect(hasEmailCorrectionIntent("actually@example.com", true)).toBe(false);
   });
 
   it.each([

@@ -1,4 +1,6 @@
+import { after } from "next/server";
 import { API_KEY, API_URL, AVATAR_ID, VOICE_ID } from "../secrets";
+import { getSupabaseAdminConfig } from "../../../src/lib/supabaseAdmin";
 import { assertCanMintSessionToken } from "../../../src/lib/liveavatarCredits";
 import { assertAllowedOrigin } from "../../../src/lib/apiRouteSecurity";
 import {
@@ -50,6 +52,14 @@ export async function POST(request: Request) {
 
   let session_token = "";
   let session_id = "";
+  const mintShape: Record<string, unknown> = {
+    shape: "FULL",
+    fullMs: null,
+    fullStatus: null,
+    fallbackMs: null,
+    fallbackStatus: null,
+  };
+  const routeStartedAt = Date.now();
   try {
     // LIP-SYNC (G 2026-06-14: "fix fucking everything"): mint mode FULL WITH a
     // voice_id but NO context_id. FULL sessions are room-based (no ws_url), so
@@ -61,6 +71,7 @@ export async function POST(request: Request) {
     // the FULL route. If this shape is rejected we fall back to the original
     // face-only CUSTOM mint so the session ALWAYS starts (frozen-mouth fallback,
     // never a broken start).
+    const fullStartedAt = Date.now();
     let res = await fetch(mintAt, {
       method: "POST",
       headers: mintHeaders,
@@ -71,16 +82,28 @@ export async function POST(request: Request) {
         turn_eagerness: "patient",
       }),
     });
+    mintShape.fullMs = Date.now() - fullStartedAt;
+    mintShape.fullStatus = res.status;
     if (!res.ok) {
+      // MEASURED, NOT GUESSED (2026-09-04). If this fallback fires on every
+      // start we are paying TWO provider round trips for every session and
+      // nobody knows, because the only record was a server console.warn that
+      // never leaves Vercel. The mint was measured at 889 ms on G's ride; a
+      // single token call should be well under half that. The app_event below
+      // settles it from real traffic instead of a guess, at zero added latency.
       console.warn(
         "start-custom-session: FULL+voice mint rejected, falling back to face-only CUSTOM:",
         res.status,
       );
+      const fallbackStartedAt = Date.now();
       res = await fetch(mintAt, {
         method: "POST",
         headers: mintHeaders,
         body: JSON.stringify({ ...base, mode: "CUSTOM" }),
       });
+      mintShape.fallbackMs = Date.now() - fallbackStartedAt;
+      mintShape.shape = "CUSTOM_fallback";
+      mintShape.fallbackStatus = res.status;
     }
     if (!res.ok) {
       const resp = await res.json();
@@ -124,6 +147,33 @@ export async function POST(request: Request) {
       },
     );
   }
+  mintShape.totalMs = Date.now() - routeStartedAt;
+  // after() so this never sits on the critical path - the visitor is staring at
+  // a still picture for every millisecond this route takes.
+  after(async () => {
+    try {
+      const { url, serviceRoleKey } = getSupabaseAdminConfig();
+      await fetch(`${url}/rest/v1/app_events`, {
+        method: "POST",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          event_type: "mint_shape",
+          severity: "low",
+          surface: "aiasap",
+          route: "/api/start-custom-session",
+          outcome: mintShape.shape === "FULL" ? "clean" : "fallback",
+          payload: mintShape,
+        }),
+      });
+    } catch {
+      // Telemetry must never affect a mint.
+    }
+  });
   return new Response(JSON.stringify({ session_token, session_id }), {
     status: 200,
     headers: {

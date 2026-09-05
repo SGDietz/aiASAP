@@ -31,7 +31,7 @@ describe("collapseRecalledFacts", () => {
       fact("a", "name", "Scott", "2026-06-09T10:00:00Z", 0.99),
       fact("b", "name", "Scott", "2026-06-09T11:00:00Z", 0.98),
       fact("c", "name", "G", "2026-06-10T12:00:00Z", 0.7),
-      fact("d", "address", "lives in Timonium, Maryland", "2026-06-10T12:01:00Z", 0.8),
+      fact("d", "address", "lives in Springfield, Illinois", "2026-06-10T12:01:00Z", 0.8),
     ];
     const out = collapseRecalledFacts(rows, 5);
     const names = out.filter((r) => r.kind === "name");

@@ -23,14 +23,14 @@ async function replayTurn(ports: any, userText: string): Promise<string> {
 describe("trace through dispatcher", () => {
   it("email via replayTurn dispatcher", async () => {
     const w = makeFakeWorld({ userName: "G" });
-    
+
     await replayTurn(w.ports, "set up an account");
     console.log("After trigger: awaitingReady=", w.ports.awaitingReady);
-    
+
     await replayTurn(w.ports, "yes");
     console.log("After 'yes': awaitingEmail=", w.ports.awaitingEmail);
-    
-    const result = await replayTurn(w.ports, "sgdietz@pm.me");
-    console.log("After 'sgdietz@pm.me': result=", result, "pendingEmail=", w.ports.pendingEmail);
+
+    const result = await replayTurn(w.ports, "example@pm.me");
+    console.log("After 'example@pm.me': result=", result, "pendingEmail=", w.ports.pendingEmail);
   });
 });

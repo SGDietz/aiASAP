@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { API_URL } from "../../../secrets";
 import {
   authorizationBearerHeader,
@@ -40,7 +41,28 @@ export async function POST(request: Request) {
     });
     const data = await res.json();
     if (res.ok && isLiveAvatarSuccessPayload(data)) {
-      await recordSessionStreamStarted(token);
+      // SPEED (2026-09-04): this is credit BOOKKEEPING, and it was awaited on
+      // the critical path of the slowest call in the whole startup. Measured on
+      // G's ride: /api/v1/sessions/start took 6,575 ms for a 1 KB response, and
+      // every millisecond of it is a visitor staring at a still picture.
+      //
+      // With no Upstash configured this writes to Supabase Storage, so it is a
+      // real network round trip, not a memory poke. The client does not need it
+      // to render 6.
+      //
+      // `after()` (Next 15) is the right tool, not a bare floating promise:
+      // Vercel keeps the function alive until after-work finishes, so the
+      // credit record is still written. Dropping the await without it would
+      // risk the function freezing mid-write and LOSING credit accounting -
+      // which is money, and must not be traded for speed.
+      after(async () => {
+        try {
+          await recordSessionStreamStarted(token);
+        } catch {
+          // recordSessionStreamStarted already swallows and logs its own
+          // errors; this is belt and braces so after-work can never reject.
+        }
+      });
     }
     return new Response(JSON.stringify(data), {
       status: res.status,

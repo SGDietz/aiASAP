@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { SIX_SYSTEM_PROMPT } from "../../src/lib/brain/sixSystemPrompt";
 
 /**
- * G'S ONE-NUMBER RULE. 6 says five thousand for the build and prices nothing
- * else - no figure, no percentage, no range, no example, for anything.
+ * G'S LOCKED PRODUCT-PRICE RULE. 6 may quote the custom avatar and the full
+ * build, but only with their approved payment splits.
  *
  * On 2026-08-21 the brain still quoted "around $10/month" for the assistant and
  * a tier ladder of "$10-$20-$50-$100-$200+". G's call: kill the figures. What
@@ -22,9 +22,11 @@ const SOURCE = resolve(__dirname, "../../tools/cw_6af8624c_prompt.txt");
 
 /**
  * Dollar amounts 6 is allowed to say, in every form the brain writes them.
- * The build is $5,000 in three payments; those four numbers and nothing else.
  */
-const ALLOWED = new Set(["$5,000", "$5000", "$2,000", "$2000", "$1,000", "$1000"]);
+const ALLOWED = new Set([
+  "$5,000", "$5000", "$2,000", "$2000", "$1,000", "$1000",
+  "$3,000", "$3000", "$1,200", "$1200", "$600",
+]);
 
 function dollarFigures(text: string): string[] {
   // Commas and decimals only count when digits follow, so a figure that ends a
@@ -33,8 +35,8 @@ function dollarFigures(text: string): string[] {
   return (text.match(re) ?? []).map((m) => m.replace(/\s/g, ""));
 }
 
-describe("6 quotes one number and only one number", () => {
-  it("names no dollar figure outside the build price and its three payments", () => {
+describe("6 quotes only locked product prices", () => {
+  it("names no dollar figure outside the two products and their payment splits", () => {
     const found = dollarFigures(SIX_SYSTEM_PROMPT).filter((f) => !ALLOWED.has(f));
     expect(found).toEqual([]);
   });
@@ -57,7 +59,7 @@ describe("6 quotes one number and only one number", () => {
     // Removing the figures must never turn into hiding the costs. A person who
     // finds out later feels tricked, and they would be right.
     expect(SIX_SYSTEM_PROMPT).toContain("running costs");
-    expect(SIX_SYSTEM_PROMPT.toLowerCase()).toContain("monthly fee");
+    expect(SIX_SYSTEM_PROMPT.toLowerCase()).toContain("avatar usage");
   });
 
   it("still says talking to 6 is free", () => {
@@ -130,11 +132,14 @@ describe("there is no subscription, anywhere, in anything 6 says", () => {
     }
   });
 
-  it("still gives the ownership guarantee, now with no strings", () => {
-    // The guarantee had to survive the removal - it is the point of the
-    // section. What went is the condition attached to it.
-    expect(SIX_SYSTEM_PROMPT).toContain("Anything you build here is yours");
-    expect(SIX_SYSTEM_PROMPT).toContain("No strings");
+  it("gives paid-project Your Rights through a written assignment", () => {
+    expect(SIX_SYSTEM_PROMPT).toContain("## YOUR RIGHTS - PAID CUSTOM DELIVERABLE OWNERSHIP");
+    expect(SIX_SYSTEM_PROMPT).toContain("Everything you pay for is yours");
+    expect(SIX_SYSTEM_PROMPT).toContain("project or project phase is completed and paid for");
+    expect(SIX_SYSTEM_PROMPT).toContain("springing written assignment vests only when aiASAP completes the agreed services");
+    expect(SIX_SYSTEM_PROMPT).toContain("keeps no ownership, royalties, equity, profit share");
+    expect(SIX_SYSTEM_PROMPT).toContain("payment, file delivery, or the customer's click by itself automatically transfers");
+    expect(SIX_SYSTEM_PROMPT).not.toContain("Never attach a payment condition to this");
   });
 
   it("STILL discloses the build's running costs", () => {
@@ -142,6 +147,6 @@ describe("there is no subscription, anywhere, in anything 6 says", () => {
     // time are real bills a client pays, and a person who finds out later feels
     // tricked. Deleting a price is fine; hiding a cost is not.
     expect(SIX_SYSTEM_PROMPT).toContain("running costs");
-    expect(SIX_SYSTEM_PROMPT).toContain("the avatar's monthly fees, website hosting");
+    expect(SIX_SYSTEM_PROMPT).toContain("avatar usage, website hosting");
   });
 });

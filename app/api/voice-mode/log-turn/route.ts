@@ -7,6 +7,36 @@ import {
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
 import { isPostgrestMissingColumnError } from "../../../../src/lib/appEventEnvelope";
+import { persistUserUtteranceLeadCapture } from "../../../../src/lib/leadCaptureFromUserText";
+import { normalizeTesterLabel } from "../../../../src/lib/testerAttribution";
+import {
+  FRAGMENT_SOURCE,
+  linkPiecesToTurns,
+} from "../../../../src/lib/transcript/fragmentLink";
+
+// THE HOLE COMMIT 3eb5e4ca LEFT (found 2026-08-31, proven by physical Android
+// session 79317698: zero contact_entities, zero lead_sessions, while
+// visitor_opportunities kept writing).
+//
+// That commit removed persistUserUtteranceLeadCapture from the transcript sync
+// route, correctly: the sync replays PROVIDER FRAGMENTS, so lead extraction ran
+// over half-sentences over and over. Its stated replacement was "accepted app
+// turns are the sole lead/profile authority" — but nobody added the call HERE,
+// which is where accepted app turns land. So after 2026-08-20 nothing wrote
+// leads at all.
+//
+// Restored on this route only, once per accepted turn, gated on proof that the
+// transcript row was genuinely inserted rather than deduped away. Provider
+// fragment replay still writes no leads.
+
+/** Skip lead extraction for long context lines mis-tagged as user, or internal prompts. */
+function shouldRunLeadCaptureOnUserTurn(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.length > 500) return false;
+  if (/^you are directly viewing (an image|a video)/i.test(t)) return false;
+  return true;
+}
 
 // Voice-list mode transcript logging (2026-06-11 r19). While the avatar is
 // stopped, turns never reach LiveAvatar's official transcript — they'd vanish
@@ -27,7 +57,9 @@ export async function POST(request: Request) {
       message?: string;
       eventId?: string;
       utteranceId?: string;
+      testerLabel?: string | null;
     };
+    const testerLabel = normalizeTesterLabel(body.testerLabel);
     const sessionId = body.sessionId ?? "";
     const role = body.role === "assistant" ? "assistant" : "user";
     const message =
@@ -61,8 +93,13 @@ export async function POST(request: Request) {
         apikey: serviceRoleKey,
         Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
+        // return=representation on the deduped path is the IDEMPOTENCE KEY.
+        // PostgREST answers an ignored duplicate with an empty array and a real
+        // insert with the row, which is the only way this route can tell a
+        // retry of the same event from a new turn — and lead/contact capture
+        // must run exactly once per turn, never once per retry.
         Prefer: eventId
-          ? "resolution=ignore-duplicates,return=minimal"
+          ? "resolution=ignore-duplicates,return=representation"
           : "return=minimal",
       },
       body: JSON.stringify({
@@ -73,7 +110,15 @@ export async function POST(request: Request) {
         utterance_id: utteranceId,
       }),
     });
-    let detail = res.ok ? "" : await res.text();
+    // Read the body ONCE, here, while we still can: `detail` on failure, the
+    // inserted-rows proof on success.
+    let insertedRows: unknown = undefined;
+    let detail = "";
+    if (res.ok) {
+      if (eventId) insertedRows = await res.json().catch(() => undefined);
+    } else {
+      detail = await res.text();
+    }
     if (
       !res.ok &&
       (eventId || utteranceId) &&
@@ -82,7 +127,9 @@ export async function POST(request: Request) {
         "utterance_id",
       ])
     ) {
-      // Backward-compatible only when the additive columns are genuinely absent.
+      // Transcript-only compatibility when the additive columns are genuinely
+      // absent. Without the event-id conflict key and returned representation,
+      // this route cannot prove a first insert, so lead capture fails closed.
       res = await fetch(`${url}/rest/v1/conversation_messages`, {
         method: "POST",
         headers: {
@@ -94,6 +141,7 @@ export async function POST(request: Request) {
         body: JSON.stringify({ session_id: sessionId, role, message }),
       });
       detail = res.ok ? "" : await res.text();
+      insertedRows = undefined; // legacy shape: no idempotent insert proof
     }
     if (!res.ok) {
       console.error("[voice-mode:log-turn] insert failed", res.status, detail.slice(0, 200));
@@ -102,6 +150,43 @@ export async function POST(request: Request) {
         headers: { "Content-Type": "application/json" },
       });
     }
+    if (role === "user" && utteranceId) {
+      // Back-link (2026-08-21). The provider's pieces of THIS turn usually reach
+      // the table before this row: the 20 s transcript-sync poll beats this
+      // fire-and-forget log by 0.1-20 s (03aef2a8: pieces at 01:07:05.070, this
+      // row at 01:07:05.186), so they were stored with utterance_id NULL. Fill
+      // that NULL now so readers fold them under this sentence. Fills only
+      // NULLs, deletes nothing, and can never fail the insert that already
+      // succeeded. Awaited, not void: Vercel freezes work that outlives the
+      // response (see link-session's after() note).
+      try {
+        await backLinkProviderPieces({ url, serviceRoleKey, sessionId, utteranceId, message });
+      } catch (e) {
+        console.error("[voice-mode:log-turn] back-link failed", e);
+      }
+    }
+
+    // ACCEPTED-APP-TURN LEAD AUTHORITY. Exactly once per turn:
+    //   - an event-id'd retry is proven a duplicate by the empty representation
+    //     above and writes nothing at all
+    //   - the writes themselves are merge-upserts keyed on session_id, so even
+    //     a double call cannot fan out extra contact_entities or lead_sessions
+    //   - visitor_opportunities is untouched here; submit_opportunity_contact
+    //     remains the one confirmed-contact authority
+    // Awaited for the same reason as the back-link: Vercel freezes work that
+    // outlives the response. It can never fail the row that already landed.
+    if (
+      role === "user" &&
+      shouldRunLeadCaptureOnUserTurn(message) &&
+      Array.isArray(insertedRows) && insertedRows.length > 0
+    ) {
+      try {
+        await persistUserUtteranceLeadCapture(sessionId, message, testerLabel);
+      } catch (e) {
+        console.error("[voice-mode:log-turn] lead capture failed", e);
+      }
+    }
+
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -113,4 +198,82 @@ export async function POST(request: Request) {
       headers: { "Content-Type": "application/json" },
     });
   }
+}
+
+// How far back a piece of THIS turn can sit. The browser's final lands 0.7-3 s
+// after the provider's last piece and 10-20 s after its first (03aef2a8); 90 s
+// is the same "after" window fragmentLink.ts uses for the user role.
+const BACK_LINK_LOOKBACK_S = 90;
+
+async function backLinkProviderPieces(args: {
+  url: string;
+  serviceRoleKey: string;
+  sessionId: string;
+  utteranceId: string;
+  message: string;
+}): Promise<number> {
+  const { url, serviceRoleKey, sessionId, utteranceId, message } = args;
+  const headers = {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    "Content-Type": "application/json",
+  };
+  const nowMs = Date.now();
+  const sinceLa = Math.floor(nowMs / 1000) - BACK_LINK_LOOKBACK_S;
+  const res = await fetch(
+    `${url}/rest/v1/conversation_messages?session_id=eq.${encodeURIComponent(sessionId)}` +
+      `&role=eq.user&source=eq.${FRAGMENT_SOURCE}&utterance_id=is.null` +
+      `&la_absolute_timestamp=gte.${sinceLa}` +
+      `&select=id,message,la_absolute_timestamp&order=la_absolute_timestamp.asc&limit=100`,
+    { method: "GET", headers },
+  );
+  if (!res.ok) return 0;
+  const pieces = (await res.json()) as Array<{
+    id: string;
+    message: string | null;
+    la_absolute_timestamp: number;
+  }>;
+  if (!Array.isArray(pieces) || pieces.length === 0) return 0;
+  const links = linkPiecesToTurns(
+    pieces
+      .filter((p) => typeof p.id === "string" && typeof p.la_absolute_timestamp === "number")
+      .map((p) => ({
+        key: p.id,
+        role: "user" as const,
+        message: p.message ?? "",
+        la_absolute_timestamp: p.la_absolute_timestamp,
+      })),
+    [
+      {
+        role: "user",
+        message,
+        utterance_id: utteranceId,
+        created_at: new Date(nowMs).toISOString(),
+      },
+    ],
+  );
+  if (links.length === 0) return 0;
+  const ids = links.map((l) => l.key);
+  // utterance_id=is.null in the filter makes this race-safe against a sync
+  // that linked the same piece a moment ago: a filled id is never overwritten.
+  const patch = await fetch(
+    `${url}/rest/v1/conversation_messages?id=in.(${ids.map(encodeURIComponent).join(",")})&utterance_id=is.null`,
+    {
+      method: "PATCH",
+      headers: { ...headers, Prefer: "return=minimal" },
+      body: JSON.stringify({ utterance_id: utteranceId }),
+    },
+  );
+  if (!patch.ok) {
+    console.error(
+      "[voice-mode:log-turn] back-link patch failed",
+      patch.status,
+      (await patch.text()).slice(0, 200),
+    );
+    return 0;
+  }
+  console.log(
+    `[transcript-link] session ${sessionId}: back-linked ${ids.length} piece(s) to ${utteranceId}`,
+  );
+  return ids.length;
 }

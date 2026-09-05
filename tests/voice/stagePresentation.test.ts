@@ -25,11 +25,13 @@ describe("smoke-stage presentation contract", () => {
 
   it("uses brand-colored STOP/START glyphs without moving the control row", () => {
     const controls = source("src/components/StageControls.tsx");
-    expect(controls).toMatch(/running \? \([\s\S]*?<Square[\s\S]*?className=\{icon\}/);
-    expect(controls).not.toContain(
-      'running ? <Square className={`${icon} text-white`}',
-    );
-    expect(controls).toMatch(/<Play[\s\S]*?className=\{icon\}[\s\S]*?aria-hidden \/>/);
+    // G's four sheet glyphs, 2026-09-04: compass / flourish / mic / feather.
+    expect(controls).toMatch(/label=\{running \? "Stop" : "Start"\}[\s\S]*?<CompassRoseIcon \/>/);
+    expect(controls).toContain("<FlourishIcon />");
+    expect(controls).toContain("<VintageMicIcon />");
+    expect(controls).toContain("<FeatherWaveIcon />");
+    expect(controls).not.toContain("<Square");
+    expect(controls).not.toContain("<Play");
     expect(controls).toContain("var(--stage-height)*0.225");
     expect(controls).toContain("var(--stage-height)*0.203");
     expect(controls).toContain(
@@ -40,7 +42,7 @@ describe("smoke-stage presentation contract", () => {
   it("restores the prior tagline-era brand geometry with the exact new copy", () => {
     const loadingCopy = source("src/components/TaglineText.tsx");
     const lockup = source("src/components/StageBrandLockup.tsx");
-    expect(loadingCopy).toContain("Cheap. Fast. Gorgeous. Brilliant.");
+    expect(loadingCopy).toContain("Beautiful Brilliant Cheap &gt; Autopilot");
     expect(loadingCopy).toContain('className="text-[1.167em]"');
     expect(loadingCopy).toContain('<Initial>L</Initial><LoadingRest>OADING<span data-six-loading-phone-dots="1">...</span></LoadingRest>');
     expect(lockup).toContain("<TaglineText />");
@@ -218,7 +220,7 @@ describe("smoke-stage presentation contract", () => {
 
   it("uses the current slightly enlarged shared stage-control labels", () => {
     const controls = source("src/components/StageControls.tsx");
-    expect(controls).toContain('"text-[14px] sm:text-[15.4px] leading-none');
+    expect(controls).toContain('"text-[12px] sm:text-[14px] leading-none');
     expect(controls).not.toContain('"text-[10px] sm:text-[11px] leading-none');
     for (const label of ["Stop", "Start", "Mute", "Quiet", "Gallery"]) {
       expect(controls).toContain(label);
@@ -328,7 +330,12 @@ describe("smoke-stage presentation contract", () => {
     const controls = source("src/components/StageControls.tsx");
     const css = source("app/globals.css");
     expect(controls).toContain("grid grid-cols-2 grid-rows-2 gap-x-[6px] gap-y-[6px]");
-    expect(css).toContain("width: min(85vw, max(calc(var(--stage-width) * 0.61), 320px));");
+    // G, 2026-09-04 (second pass): "take ten percent off the sides, just the
+    // left right on all four boxes, all devices, just the visuals ... they're
+    // just a little too big." The boxes are two equal columns of the cluster,
+    // so the cluster width carries the 10% and every HEIGHT stays as approved.
+    // Measured after: phone 127->114, desktop 141->127.
+    expect(css).toContain("width: min(76.5vw, max(calc(var(--stage-width) * 0.549), 288px));");
     expect(controls).toContain('className={`stage-controls-cluster fixed');
     expect(controls).toContain('dormant ? "pointer-events-none" : "pointer-events-auto"');
     for (const control of ["start", "mute", "quiet", "gallery"]) {
@@ -348,7 +355,13 @@ describe("smoke-stage presentation contract", () => {
       "md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.203)]",
     );
     expect(css).toContain("[data-stage-controls=\"1\"].stage-controls-cluster {");
-    expect(css).toContain("bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.203 - 4px) !important;");
+    // G, 2026-09-04, ink on the screenshot: "move all four of the buttons
+    // up ... where the mute and quiet are, move them up to where the start
+    // and gallery is." One MEASURED button row: 38px phone / 54px tablet+,
+    // row-gap 10px, so G then judged that too high: the move is now HALF a row on
+    // tablet+ (+32) and a light nudge on phone (+16). Bottom-anchored, so
+    // the whole 2x2 moves and the gap to 6's hands grows by one row.
+    expect(css).toContain("bottom: calc(var(--stage-bottom) + var(--stage-height) * 0.203 + 28px) !important;");
     expect(css).not.toContain("(pointer: fine) {\n  .stage-controls-cluster");
   });
 });

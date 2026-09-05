@@ -9,6 +9,7 @@ import {
 } from "./contactExtraction";
 import { getSupabaseAdminConfig } from "./supabaseAdmin";
 import { normalizeTesterLabel } from "./testerAttribution";
+import { hasDirectContactFollowUpRequest } from "./buildInterestFlow";
 
 export type LeadSessionRow = {
   session_id: string;
@@ -30,6 +31,28 @@ export type LeadCaptureResult = {
   assistantPrompt: string | null;
   shouldSkipVision: boolean;
 };
+
+export function mergeObservedConsentStatus(
+  current: LeadSessionRow["consent_status"],
+  intent: { interested: boolean; declined: boolean },
+  hasCapturedIdentity: boolean,
+): LeadSessionRow["consent_status"] {
+  if (current === "accepted") return "accepted";
+  if (intent.interested || hasCapturedIdentity) return "accepted";
+  if (intent.declined) return "declined";
+  return current;
+}
+
+export function classifyObservedFollowUpIntent(text: string): {
+  interested: boolean;
+  declined: boolean;
+} {
+  const legacy = detectFollowUpIntent(text);
+  return {
+    ...legacy,
+    interested: legacy.interested || hasDirectContactFollowUpRequest(text),
+  };
+}
 
 function supabaseHeaders(serviceRoleKey: string) {
   return {
@@ -331,7 +354,7 @@ export async function persistUserUtteranceLeadCapture(
 ): Promise<LeadCaptureResult> {
   const text = truncateUtf8String(rawText.trim(), MAX_TRANSCRIPTION_TEXT_CHARS);
   const { email, phone, fullName } = extractContactDetails(text);
-  const intent = detectFollowUpIntent(text);
+  const intent = classifyObservedFollowUpIntent(text);
   const testerLabel = normalizeTesterLabel(testerLabelInput);
   const { url, serviceRoleKey } = getSupabaseAdminConfig();
 
@@ -348,10 +371,14 @@ export async function persistUserUtteranceLeadCapture(
     last_prompted_at: null,
   };
 
-  let consentStatus = currentLead.consent_status;
-  if (intent.declined) consentStatus = "declined";
-  else if (intent.interested) consentStatus = "accepted";
-  if (phone || fullName) consentStatus = "accepted";
+  // Transcript observation is not an event-scoped consent gate. Once an
+  // explicit follow-up grant has been recorded, a later generic "no" (for
+  // example, answering "anything else?") must never erase it.
+  const consentStatus = mergeObservedConsentStatus(
+    currentLead.consent_status,
+    intent,
+    Boolean(phone || fullName),
+  );
 
   const mergedLead: LeadSessionRow = {
     ...currentLead,

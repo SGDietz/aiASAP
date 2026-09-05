@@ -113,16 +113,79 @@ export function installClientLogger(): void {
     "unhandledrejection",
     (event: PromiseRejectionEvent) => {
       const reason = event.reason;
-      const err =
-        reason instanceof Error
-          ? reason
-          : new Error(typeof reason === "string" ? reason : "unhandledrejection");
+      if (reason instanceof Error) {
+        void flush({
+          level: "error",
+          message: reason.message || "unhandledrejection",
+          stack: reason.stack,
+          context: { type: "unhandledrejection" },
+        });
+        return;
+      }
+      // A rejection that is NOT an Error used to become
+      // `new Error("unhandledrejection")`, which threw the real reason away and
+      // left a stack pointing at THIS file. Three faults between 2026-08-29 and
+      // 2026-09-04 were recorded as the literal word "unhandledrejection" with
+      // clientLogger.ts in the stack - unreadable, and unactionable. Providers
+      // reject with plain objects and Responses all the time. Describe whatever
+      // actually arrived, and keep it.
+      const described = describeRejection(reason);
       void flush({
         level: "error",
-        message: err.message,
-        stack: err.stack,
-        context: { type: "unhandledrejection" },
+        message: described.message,
+        stack: described.stack,
+        context: { type: "unhandledrejection", reason: described.detail },
       });
     },
   );
+}
+
+/**
+ * Turn any non-Error rejection reason into something a person can read, without
+ * ever throwing from inside an error handler.
+ */
+function describeRejection(reason: unknown): {
+  message: string;
+  stack?: string;
+  detail: string;
+} {
+  const cap = (s: string) => (s.length > 800 ? `${s.slice(0, 800)}…` : s);
+  try {
+    if (reason === undefined) return { message: "unhandledrejection: undefined", detail: "undefined" };
+    if (reason === null) return { message: "unhandledrejection: null", detail: "null" };
+    if (typeof reason === "string") return { message: cap(reason), detail: cap(reason) };
+    if (typeof reason !== "object") {
+      const s = String(reason);
+      return { message: `unhandledrejection: ${cap(s)}`, detail: cap(s) };
+    }
+    const obj = reason as Record<string, unknown>;
+    // Error-shaped without being an Error (structured-cloned, cross-realm, or a
+    // provider's own error object).
+    const msg =
+      typeof obj.message === "string" && obj.message
+        ? obj.message
+        : typeof obj.error === "string" && obj.error
+          ? obj.error
+          : typeof obj.statusText === "string" && obj.statusText
+            ? obj.statusText
+            : null;
+    const name = typeof obj.name === "string" ? obj.name : null;
+    const code = obj.code ?? obj.status ?? null;
+    let detail: string;
+    try {
+      detail = cap(JSON.stringify(obj));
+    } catch {
+      detail = cap(Object.prototype.toString.call(obj));
+    }
+    const head =
+      msg ?? (name ? `${name}` : null) ?? (code !== null ? `code ${String(code)}` : null);
+    return {
+      message: cap(head ? `unhandledrejection: ${head}` : `unhandledrejection: ${detail}`),
+      stack: typeof obj.stack === "string" ? cap(obj.stack) : undefined,
+      detail,
+    };
+  } catch {
+    // Never let the error handler become the error.
+    return { message: "unhandledrejection: undescribable", detail: "undescribable" };
+  }
 }

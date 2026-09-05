@@ -10,7 +10,7 @@ const source = readFileSync(
 describe("exact one-line opener contract", () => {
   it("keeps the exact opener behind the one-per-session claim", () => {
     const exact =
-      "6 here. Tell me what you feel passionate about, and what you're good at. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. First, tell me what you love doing most in this world.";
+      "6 here. Tell me what you love doing, and what you're good at, what you know. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. Start here, tell me what you love doing most in this world.";
     expect(source).toContain(exact);
     expect(source).toContain("claimSessionGreeting(anonymousGreetingSpokenRef)");
     expect(source).toContain("greeting = claimedGreeting ? VOICE_START_GREETING : null");

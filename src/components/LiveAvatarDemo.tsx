@@ -1,12 +1,71 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 // import Image from "next/image";
-import { LiveAvatarSession } from "./LiveAvatarSession";
 import { VoiceOnlyStage } from "./VoiceOnlyStage";
 import { StageControls } from "./StageControls";
-import Link from "next/link";
-import { TaglineText } from "./TaglineText";
+import { StageLegalFooter } from "./StageLegalFooter";
+import { StageBrandLockup } from "./StageBrandLockup";
+import { PublicContactCard } from "./PublicContactCard";
+import { SixLoadingIndicator } from "./SixLoadingIndicator";
+import { LiveAvatarSession } from "./LiveAvatarSession";
+import {
+  MicrophoneRecoveryCard,
+  type MicrophoneRecoveryState,
+} from "./MicrophoneRecoveryCard";
+import { postOpportunitySignal } from "../lib/opportunityClient";
+
+import {
+  inspectMicrophonePermission,
+  requestMicrophonePermission,
+  type MicrophonePermissionState,
+} from "../lib/voice/microphonePermission";
+import {
+  adoptEarlyStartRecord,
+  type EarlyStartRecord,
+} from "../lib/voice/earlyStartBridge";
+import {
+  beginStartupTiming,
+  installStartupResourceTimingObserver,
+  markStartupTiming,
+} from "../lib/voice/startupTiming";
+
+// LiveAvatarSession is intentionally part of the initial client graph. The
+// physical production ride proved that requesting its owner only after React
+// adoption created a separate 8.7s post-mint waterfall. Static availability
+// removes that network seam while the existing `sessionToken` render gate below
+// still prevents mount, provider start, media capture, or billing on page load
+// and on every denied/cancelled START.
+if (typeof window !== "undefined") {
+  markStartupTiming("session_chunk_complete", window);
+}
+
+/**
+ * Map a non-granted request outcome onto the surface the visitor sees.
+ *
+ * Every branch here used to collapse to null except "denied", so START reset
+ * itself with no message and no card. On Android that is the common case, not
+ * the rare one: when the browser APP lacks the OS microphone permission,
+ * getUserMedia rejects while Permissions.query still answers "prompt", which
+ * requestMicrophonePermission reports as "dismissed".
+ *
+ * "granted" never reaches this function; it is handled on the success path.
+ * "prompt" is not a documented return of requestMicrophonePermission, but it
+ * is folded into "dismissed" so a future change can never reintroduce a
+ * silent, unexplained START.
+ */
+function blockedRecoveryState(
+  permission: MicrophonePermissionState,
+): MicrophoneRecoveryState {
+  switch (permission) {
+    case "denied":
+      return "denied";
+    case "unavailable":
+      return "unavailable";
+    default:
+      return "dismissed";
+  }
+}
 
 // VOICE added 2026-08-21 (G: "we need to have a system built where it can be
 // voice only"). VOICE mints NO LiveAvatar session at all — that is the whole
@@ -37,6 +96,14 @@ function getRequestedLiveAvatarMode(): LiveAvatarMode {
   return wanted === "full" ? "FULL" : "CUSTOM";
 }
 
+// Phone start-screen viewport lock. Paired with the `aiasap-phone-start-lock`
+// block in app/globals.css, which is the whole explanation: the root <body> is
+// `min-h-screen` (100vh, chrome collapsed) while the start stage is 100svh
+// (chrome expanded), so the document was permanently one chrome-band taller
+// than the phone shows and the stage was centred inside it. That is what let the
+// page pan and what moved and re-cropped the still 6.
+const PHONE_START_LOCK_CLASS = "aiasap-phone-start-lock";
+
 // Post-click magic-link return arrives at "/?account=verified". Detect it
 // synchronously (before first render) so the auto-start bootstrap never fires —
 // we want the user to TAP before session 2 spins up. (G 2026-06-03)
@@ -45,33 +112,170 @@ function isPostClickReturn(): boolean {
   return new URLSearchParams(window.location.search).get("account") === "verified";
 }
 
+// ---------------------------------------------------------------------------
+// NEVER SHOW A VISITOR A PARSER ERROR.
+//
+// G, 2026-09-03, screenshot of his own front door:
+//   Unexpected token '<', "<!DOCTYPE "... is not valid JSON     [ Retry ]
+//
+// That is `res.json()` meeting an HTML page. The start call had two unguarded
+// `await res.json()` calls, so any HTML response - a Next error page, a proxy
+// or tunnel interstitial, a gateway timeout - threw a raw parser message
+// straight onto the stage, and the ACTUAL status and body were lost. He rides
+// through a Tailscale tunnel, which is exactly the sort of hop that answers
+// with HTML.
+//
+// So: read the body as text, parse only if it looks like JSON, show plain
+// English, and post the real status plus the first bytes to the log so the
+// next one of these is diagnosable instead of a mystery.
+// ---------------------------------------------------------------------------
+type StartResponseBody = { session_token?: string; error?: string };
+
+async function readStartResponse(
+  res: Response,
+): Promise<{ json: StartResponseBody | null; snippet: string }> {
+  const raw = await res.text().catch(() => "");
+  const snippet = raw.slice(0, 200);
+  const looksJson = raw.trimStart().startsWith("{") || raw.trimStart().startsWith("[");
+  if (!looksJson) return { json: null, snippet };
+  try {
+    return { json: JSON.parse(raw) as StartResponseBody, snippet };
+  } catch {
+    return { json: null, snippet };
+  }
+}
+
+function reportStartFailure(status: number, snippet: string): void {
+  try {
+    void fetch("/api/observability/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        level: "error",
+        route: "/",
+        message: `[start-session] non-JSON response status=${status} body=${snippet.replace(/\s+/g, " ")}`,
+      }),
+    });
+  } catch {
+    // diagnostics must never break the start path
+  }
+}
+
+
 export const LiveAvatarDemo = () => {
+  // Server HTML renders the accepted still-Six start scene and visible START.
+  // Attention waits for React, while the initial document bridge owns an early
+  // gesture and hands the exact same permission/mint work into this component.
+  const [isClientReady, setIsClientReady] = useState(false);
   const [sessionToken, setSessionToken] = useState("");
   const [mode, setMode] = useState<LiveAvatarMode>(getRequestedLiveAvatarMode);
   // STOP pressed on the stage. The session is genuinely torn down (the meter
   // stops) but the four buttons STAY on screen with START in the top-left.
   // Distinct from awaitReturnTap, which is the magic-link return screen.
   const [pausedOnStage, setPausedOnStage] = useState(false);
-  // DISABLED (G 2026-06-03): the separate static tap-screen was redundant — the
-  // live view's own "Tap/Click ANYWHERE To Talk To 6" begin-surface IS the tap-
-  // gate AND is identical (it's the real view) AND unlocks audio so the greeting
-  // is heard. So the click-through now auto-starts straight into the live view,
-  // exactly like a first session. (isPostClickReturn kept dormant for reference.)
+  // Legacy post-click return detection remains dormant; initial entry now uses
+  // the explicit Start control and never a full-surface click gate.
   void isPostClickReturn;
   const [awaitReturnTap, setAwaitReturnTap] = useState(false);
   // Nothing mints until this is true. See the bootstrap effect below.
   const [hasTappedToStart, setHasTappedToStart] = useState(false);
+  const [startMicGranted, setStartMicGranted] = useState(false);
+  // This state is intentionally mount-local. A browser query, a prior STOP, or
+  // a previous attempt may never pre-populate a blocked surface on fresh START.
+  const [startMicPermissionState, setStartMicPermissionState] =
+    useState<MicrophoneRecoveryState | null>(null);
+  // A true origin-level deny cannot prompt again on the same address. These
+  // drive the free query-only confirmation after the visitor changes Chrome's
+  // site control; neither can start a session.
+  const [startMicRechecking, setStartMicRechecking] = useState(false);
+  const [startMicStillBlocked, setStartMicStillBlocked] = useState(false);
+  // True only while the browser's own microphone sheet is up and unanswered.
+  //
+  // This exists because of how G's phone got into this mess (2026-08-28, his
+  // words): "I had to hit permission for my mic on my phone, then I tap
+  // somewhere else on the screen, and the mic permission went away. And then
+  // we've had problems ever since." Tapping the page dismisses the sheet, and a
+  // browser auto-blocks an origin after a few dismissals - which is why he was
+  // certain he never blocked anything. Returned STOP keeps that defensive held
+  // surface. Initial START instead enters its existing loading state after the
+  // gesture-owned request begins: on G's phone the held idle acknowledgement
+  // did not paint, so a real handled tap looked dead even though its mint ran.
+  const [startMicAwaitingAnswer, setStartMicAwaitingAnswer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isExited, setIsExited] = useState(false);
   const sessionBootstrapRef = useRef(false);
+  // Returning from VOICE must render CUSTOM first. Calling startSession in the
+  // same handler would use the stale VOICE callback and either no-op or race a
+  // second bootstrap. This ref hands the mint to the post-render effect below.
+  const avatarReturnPendingRef = useRef(false);
   // Set true the moment the user explicitly closes/ends the session. Guards the
   // bootstrap effect below so that onSessionStopped clearing the token can never
   // race the auto-start back into a fresh session before isExited flips to true.
   // Cleared only when the user taps Restart. Inactivity-stop never sets this.
   const explicitExitRef = useRef(false);
+  const startAbortRef = useRef<AbortController | null>(null);
+  // Double-tap guard for the microphone sheet (Chief's review, 2026-08-28).
+  // Two fast taps land in the same tick, so a state flag is still false for
+  // both and each would fire its own getUserMedia AND its own mint -- paying
+  // twice for one gesture. startAbortRef only ever owns the latest request, so
+  // it cannot undo the first. A ref updates synchronously and can.
+  const micPromptPendingRef = useRef(false);
+  // True only after a current gesture-owned request rejects and the Permissions
+  // API confirms this exact origin is denied. App telemetry on 2026-08-31
+  // confirmed retries in this state mint nothing; Chrome also will not show a
+  // new prompt until its site control changes. Dismissed/prompt outcomes never
+  // set this ref and therefore retain the real fresh-request path.
+  const micBlockedRef = useRef(false);
 
-  const startSession = useCallback(async () => {
+  useLayoutEffect(() => {
+    markStartupTiming("react_adopted");
+    const removeResourceObserver = installStartupResourceTimingObserver();
+    if (window.__AIASAP_EARLY_START__) {
+      window.__AIASAP_EARLY_START__.reactReady = true;
+    }
+    setIsClientReady(true);
+    return removeResourceObserver;
+  }, []);
+
+  useEffect(() => {
+    if (!hasTappedToStart) return;
+    void postOpportunitySignal("session_started");
+  }, [hasTappedToStart]);
+
+  useEffect(() => {
+    const onPageHide = () => {
+      startAbortRef.current?.abort();
+      void postOpportunitySignal("terminal", { reason: "disconnect" });
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
+
+  // START and returned STOP are one rendered idle authority. Lifecycle state
+  // still decides which START handler runs, but it cannot select a second
+  // approximation of the same screen.
+  const showsInitialIdle =
+    !hasTappedToStart && !sessionToken && !isExited && !awaitReturnTap && mode !== "VOICE";
+  const showsReturnedIdle =
+    pausedOnStage && !sessionToken && !isExited && mode !== "VOICE";
+  const showsSharedIdle = showsInitialIdle || showsReturnedIdle;
+
+  useLayoutEffect(() => {
+    if (!showsSharedIdle) return;
+    const root = document.documentElement;
+    root.classList.add(PHONE_START_LOCK_CLASS);
+    // Leaving for Legal, tapping Start, or unmounting must all hand normal
+    // scrolling back — the class is only ever true while this screen is up.
+    return () => root.classList.remove(PHONE_START_LOCK_CLASS);
+  }, [showsSharedIdle]);
+
+  const startSession = useCallback(async (options?: {
+    deferSessionToken?: boolean;
+    abortController?: AbortController;
+  }) => {
+    const abortController = options?.abortController ?? new AbortController();
+    startAbortRef.current = abortController;
     try {
       // VOICE never mints. Guarded here as well as in the bootstrap effect so
       // that no future caller can start a paid session from voice-only mode by
@@ -103,22 +307,278 @@ export const LiveAvatarDemo = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ lang: requestedLang, tz: deviceTz }),
+          signal: abortController.signal,
         },
       );
       if (!res.ok) {
-        const err = await res.json();
-        setError(err.error ?? "Failed to start session");
+        const { json, snippet } = await readStartResponse(res);
+        if (!json) reportStartFailure(res.status, snippet);
+        setError(
+          json?.error ??
+            "6 couldn't be reached just now. Tap Retry — nothing was charged.",
+        );
         setIsLoading(false);
         return;
       }
-      const { session_token } = await res.json();
-      setSessionToken(session_token);
-      setIsLoading(false);
+      const { json: started, snippet } = await readStartResponse(res);
+      if (!started?.session_token) {
+        // A 200 that is not JSON: a tunnel or proxy answered instead of us.
+        reportStartFailure(res.status, snippet);
+        setError("6 couldn't be reached just now. Tap Retry — nothing was charged.");
+        setIsLoading(false);
+        return null;
+      }
+      const session_token = started.session_token;
+        markStartupTiming("mint_complete");
+        // START owns the microphone preflight. The normal React path creates
+        // this mint only after that exact gesture grants capture; the early
+        // bridge passes the already-owned token through its adoption path.
+        if (!options?.deferSessionToken) {
+          setSessionToken(session_token);
+        }
+        setIsLoading(false);
+        return session_token as string;
     } catch (err: unknown) {
+      if ((err as Error).name === "AbortError") {
+        setIsLoading(false);
+        return null;
+      }
       setError((err as Error).message);
       setIsLoading(false);
+      return null;
+    } finally {
+      if (startAbortRef.current === abortController) {
+        startAbortRef.current = null;
+      }
     }
   }, [mode]);
+
+  const beginSessionFromStart = useCallback(async (fromStopped = false) => {
+    if (micPromptPendingRef.current) return;
+    // START owns the request before any provider/session work can consume the
+    // Android gesture that is required to show the legitimate permission prompt.
+    if (!window.isSecureContext) {
+      setStartMicGranted(false);
+      setStartMicPermissionState("insecure");
+      return;
+    }
+    // A known true site deny is not promptable on this origin. Re-read only;
+    // if Chrome now reports prompt/granted, the same tap continues into the
+    // current getUserMedia request below. No provider work is reachable here.
+    if (micBlockedRef.current) {
+      setStartMicRechecking(true);
+      setStartMicStillBlocked(false);
+      const [observed] = await Promise.all([
+        inspectMicrophonePermission(navigator),
+        new Promise((resolve) => setTimeout(resolve, 450)),
+      ]);
+      setStartMicRechecking(false);
+      if (observed === "denied" || observed === "unavailable") {
+        setStartMicGranted(false);
+        setStartMicPermissionState(observed);
+        setStartMicStillBlocked(observed === "denied");
+        return;
+      }
+      micBlockedRef.current = false;
+    }
+    beginStartupTiming();
+    // Every promptable START/recovery tap owns one current browser request.
+    // Provider work remains grant-first below, so dismissal/refusal costs
+    // nothing and cannot leave a stale session.
+    setStartMicGranted(false);
+    setStartMicPermissionState(null);
+    setStartMicStillBlocked(false);
+    micPromptPendingRef.current = true;
+    setStartMicAwaitingAnswer(true);
+    const permissionRequest = requestMicrophonePermission(navigator);
+    // Reserve this attempt synchronously before the loading-state render can
+    // wake the bootstrap effect. The controller owns cancellation while the
+    // browser permission sheet is open; no mint exists until grant.
+    const attemptController = new AbortController();
+    startAbortRef.current = attemptController;
+    sessionBootstrapRef.current = true;
+    // The microphone request above must remain the first browser operation in
+    // this gesture. Once it owns the gesture, initial START can truthfully show
+    // the existing post-START loading surface immediately. Do not await and do
+    // not replay the tap: Android may keep the permission promise pending while
+    // the sheet is open, and withholding this flip made a handled first tap
+    // look completely inert. Returned STOP deliberately keeps its stage still.
+    if (!fromStopped) setHasTappedToStart(true);
+    explicitExitRef.current = false;
+    if (fromStopped) {
+      // The returned-idle pixels stay put until the sheet is answered. Clearing
+      // pausedOnStage here swapped the page out from under the open sheet, the
+      // same defect as the initial path below. Moved to the granted branch.
+      setError(null);
+      const permission = await permissionRequest;
+      micPromptPendingRef.current = false;
+      setStartMicAwaitingAnswer(false);
+      if (permission !== "granted") {
+        attemptController.abort();
+        if (startAbortRef.current === attemptController) startAbortRef.current = null;
+        sessionBootstrapRef.current = false;
+        setPausedOnStage(true);
+        setStartMicGranted(false);
+        micBlockedRef.current = permission === "denied";
+        setStartMicPermissionState(blockedRecoveryState(permission));
+        return;
+      }
+      if (attemptController.signal.aborted || explicitExitRef.current) {
+        sessionBootstrapRef.current = false;
+        return;
+      }
+      markStartupTiming("microphone_granted");
+      // Answered, and answered Allow. Only now may the surface change.
+      setPausedOnStage(false);
+      const sessionRequest = startSession({
+        deferSessionToken: true,
+        abortController: attemptController,
+      });
+      const sessionToken = await sessionRequest;
+      if (sessionToken) setSessionToken(sessionToken);
+      setStartMicPermissionState(null);
+      micBlockedRef.current = false;
+      setStartMicGranted(true);
+      return;
+    }
+    // Initial START keeps the accepted immediate LOADING acknowledgement, but
+    // the paid mint is grant-first just like the pre-React bridge.
+    const permission = await permissionRequest;
+    micPromptPendingRef.current = false;
+    setStartMicAwaitingAnswer(false);
+    if (permission !== "granted") {
+      attemptController.abort();
+      if (startAbortRef.current === attemptController) startAbortRef.current = null;
+      sessionBootstrapRef.current = false;
+      setHasTappedToStart(false);
+      if (fromStopped) setPausedOnStage(true);
+      setStartMicGranted(false);
+      micBlockedRef.current = permission === "denied";
+      setStartMicPermissionState(blockedRecoveryState(permission));
+      return;
+    }
+    if (attemptController.signal.aborted || explicitExitRef.current) {
+      sessionBootstrapRef.current = false;
+      setHasTappedToStart(false);
+      return;
+    }
+    markStartupTiming("microphone_granted");
+    // Answered, and answered Allow. The bootstrap effect cannot double-mint:
+    // sessionBootstrapRef is already true, so it returns before startSession.
+    const sessionToken = await startSession({
+      deferSessionToken: true,
+      abortController: attemptController,
+    });
+    if (sessionToken) setSessionToken(sessionToken);
+    setStartMicPermissionState(null);
+    setStartMicGranted(true);
+  }, [startSession]);
+
+  const adoptEarlyStart = useCallback(async (record: EarlyStartRecord) => {
+    await adoptEarlyStartRecord(window, record, {
+      onClaim: (controller) => {
+        micPromptPendingRef.current = true;
+        setStartMicAwaitingAnswer(true);
+        setStartMicGranted(false);
+        setStartMicPermissionState(null);
+        setStartMicStillBlocked(false);
+        setError(null);
+        setIsLoading(true);
+        setHasTappedToStart(true);
+        explicitExitRef.current = false;
+        sessionBootstrapRef.current = true;
+        startAbortRef.current = controller;
+      },
+      onBlocked: (state) => {
+        micPromptPendingRef.current = false;
+        sessionBootstrapRef.current = false;
+        startAbortRef.current = null;
+        setStartMicAwaitingAnswer(false);
+        setHasTappedToStart(false);
+        setIsLoading(false);
+        setStartMicGranted(false);
+        micBlockedRef.current = state === "denied";
+        setStartMicPermissionState(
+          state === "insecure" ? "insecure" : blockedRecoveryState(state),
+        );
+      },
+      onGranted: (sessionToken) => {
+        markStartupTiming("mint_complete");
+        micPromptPendingRef.current = false;
+        startAbortRef.current = null;
+        setStartMicAwaitingAnswer(false);
+        setIsLoading(false);
+        setSessionToken(sessionToken);
+        setStartMicPermissionState(null);
+        micBlockedRef.current = false;
+        setStartMicGranted(true);
+      },
+      onFailure: (message, aborted) => {
+        micPromptPendingRef.current = false;
+        sessionBootstrapRef.current = false;
+        startAbortRef.current = null;
+        setStartMicAwaitingAnswer(false);
+        setHasTappedToStart(false);
+        setIsLoading(false);
+        if (!aborted) setError(message ?? "Failed to start session");
+      },
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    const record = window.__AIASAP_EARLY_START__;
+    if (!record?.started) return;
+    void adoptEarlyStart(record);
+  }, [adoptEarlyStart]);
+
+  useLayoutEffect(() => {
+    if (!hasTappedToStart) return;
+    // The React-owned existing loader is committed before the bridge attribute
+    // is removed, so the transition cannot flash the idle scene.
+    document.documentElement.removeAttribute("data-aiasap-early-start-state");
+  }, [hasTappedToStart]);
+
+  /**
+   * A confirmed site-level deny cannot show a fresh Chrome prompt on the same
+   * origin. This button therefore re-reads permission for free. Once Chrome's
+   * site control changes to prompt/granted, this same gesture hands off to the
+   * ordinary current-request START path. Dismissed/prompt recovery bypasses
+   * this function and requests immediately.
+   */
+  const recheckBlockedMicrophone = useCallback(async () => {
+    if (startMicRechecking) return;
+    setStartMicRechecking(true);
+    setStartMicStillBlocked(false);
+    try {
+      const observed = await inspectMicrophonePermission(navigator);
+      if (observed === "denied" || observed === "unavailable") {
+        setStartMicPermissionState(observed === "denied" ? "denied" : "unavailable");
+        setStartMicStillBlocked(observed === "denied");
+        return;
+      }
+      setStartMicPermissionState(null);
+      setStartMicStillBlocked(false);
+      await beginSessionFromStart(showsReturnedIdle);
+    } finally {
+      setStartMicRechecking(false);
+    }
+  }, [startMicRechecking, beginSessionFromStart, showsReturnedIdle]);
+
+  const stopPendingStartForLegal = useCallback(() => {
+    // Legal is a hard no-session boundary. This covers the narrow loading gap
+    // before LiveAvatarSession owns the real provider teardown.
+    explicitExitRef.current = true;
+    sessionBootstrapRef.current = false;
+    startAbortRef.current?.abort();
+    startAbortRef.current = null;
+    setIsLoading(false);
+    setSessionToken("");
+    setPausedOnStage(false);
+    setIsExited(false);
+    setHasTappedToStart(false);
+    setStartMicGranted(false);
+    setStartMicPermissionState(null);
+  }, []);
 
   useEffect(() => {
     if (isExited || sessionToken) {
@@ -147,10 +607,8 @@ export const LiveAvatarDemo = () => {
     if (mode === "VOICE") {
       return;
     }
-    // 2026-08-21, G: "in the very very beginning, don't start the avatar in
-    // motion ... have him stopped as though the restart screen, then on the
-    // screen it says tap click anywhere to talk to six. So we're not burning
-    // credits."
+    // Initial idle never auto-starts: Six remains visibly still until the
+    // explicit Start control sets hasTappedToStart.
     //
     // This is the single biggest money fix in the product. Until now, LOADING
     // THE PAGE minted a LiveAvatar session — every visit, every refresh, every
@@ -164,8 +622,18 @@ export const LiveAvatarDemo = () => {
     void startSession();
   }, [isExited, sessionToken, startSession, awaitReturnTap, mode, hasTappedToStart, pausedOnStage]);
 
+  useEffect(() => {
+    if (mode !== "CUSTOM" || !avatarReturnPendingRef.current) return;
+    avatarReturnPendingRef.current = false;
+    void startSession();
+  }, [mode, startSession]);
+
   const onSessionStopped = (opts?: { reason?: "inactivity" }) => {
-    void opts;
+    if (!explicitExitRef.current || opts?.reason === "inactivity") {
+      void postOpportunitySignal("terminal", {
+        reason: opts?.reason === "inactivity" ? "idle_timeout" : "disconnect",
+      });
+    }
     sessionBootstrapRef.current = false;
     // G 2026-06-01 (FIRST ORDER — CREDITS / MONEY): NEVER auto-restart on a
     // session stop. The old non-inactivity branch cleared the token WITHOUT
@@ -207,6 +675,7 @@ export const LiveAvatarDemo = () => {
   };
 
   const handleExit = (completeExit: boolean = false) => {
+    void postOpportunitySignal("terminal", { reason: "clean_end" });
     if (completeExit) {
       // Aggressively try to exit/close the tab on mobile
       if (typeof window !== "undefined") {
@@ -334,6 +803,7 @@ export const LiveAvatarDemo = () => {
   // it, clearing the token can race the auto-start effect and mint a NEW session
   // (real money) in the instant before awaitReturnTap applies.
   const handlePause = () => {
+    void postOpportunitySignal("terminal", { reason: "explicit_stop" });
     explicitExitRef.current = true;
     // NOT awaitReturnTap and NOT hasTappedToStart=false. G, 2026-08-21: "if
     // someone hits stop he stops completely, everything stops, but then the word
@@ -341,18 +811,14 @@ export const LiveAvatarDemo = () => {
     // back to the first-load gate would also be wrong: that gate exists to stop
     // a page LOAD from billing, and they are long past it.
     setPausedOnStage(true);
+    setStartMicGranted(false);
+    setStartMicPermissionState(null);
     setSessionToken("");
   };
 
   // START, from the stopped stage. A dead token cannot be revived, so this is a
   // brand-new paid session - the same mint the first tap makes.
-  const handleStartFromStopped = () => {
-    explicitExitRef.current = false;
-    sessionBootstrapRef.current = false;
-    setPausedOnStage(false);
-    setError(null);
-    void startSession();
-  };
+  const handleStartFromStopped = () => void beginSessionFromStart(true);
 
   // VOICE. Drops the avatar and keeps the conversation. Mints nothing - this is
   // the only control on the stage that SAVES money. If a session is up we tear
@@ -365,25 +831,24 @@ export const LiveAvatarDemo = () => {
     setMode("VOICE");
   };
 
+  const handleReturnToAvatar = () => {
+    explicitExitRef.current = false;
+    sessionBootstrapRef.current = true;
+    avatarReturnPendingRef.current = true;
+    setPausedOnStage(false);
+    setAwaitReturnTap(false);
+    setHasTappedToStart(true);
+    setError(null);
+    setMode("CUSTOM");
+  };
+
   if (awaitReturnTap && !sessionToken) {
     // Post-click return: mirror the NORMAL entry look (static 6 + wordmark), with
     // a tap-to-start. No email box, no auto-session. On tap, session 2 starts and
     // 6 opens with the hard-coded welcome-back greeting. (G 2026-06-03)
     return (
-      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
-        {/* Wordmark — VERBATIM from the live LiveAvatarSession view so it's identical */}
-        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
-          <div className="text-center px-4">
-            <div className="flex items-start justify-center">
-              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                aiASAP
-              </h1>
-            </div>
-            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-              <TaglineText />
-            </p>
-          </div>
-        </div>
+      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100dvh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
+        <StageBrandLockup />
         {/* Static 6 framed EXACTLY like the live avatar <video> (9:16 portrait
             centered + gold border on desktop, full-cover on mobile). */}
         <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
@@ -393,7 +858,7 @@ export const LiveAvatarDemo = () => {
           <img
             src="/startscreen-noband.png"
             alt=""
-            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+            className="six-primary-scene h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
           <div className="absolute left-1/2 -translate-x-1/2 bottom-[14svh] md:bottom-[16%] z-20 flex justify-center">
             <button
@@ -416,37 +881,30 @@ export const LiveAvatarDemo = () => {
             </button>
           </div>
         </div>
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
-          <Link
-            href="/terms"
-            className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
-          >
-            © 2026 aiASAP All Rights Reserved · Terms
-          </Link>
-        </div>
+        {!isLoading && (
+         <StageControls
+            running={false}
+            micOff
+            quiet={false}
+            onStopStart={() => {
+              explicitExitRef.current = false;
+              setAwaitReturnTap(false);
+              sessionBootstrapRef.current = true;
+              void startSession();
+            }}
+            onToggleMic={() => {}}
+            onToggleQuiet={() => {}}
+          />
+        )}
+        <StageLegalFooter phoneFlow placementClassName="md:absolute md:bottom-2 md:left-1/2 md:-translate-x-1/2" />
       </div>
     );
   }
 
   if (isExited) {
     return (
-      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
-        {/* Wordmark — VERBATIM from the start/live view so it's identical */}
-        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
-          <div className="text-center px-4">
-            <div className="flex items-start justify-center">
-              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                aiASAP
-              </h1>
-            </div>
-            {/* G 2026-08-21: "put Turbocharge Your Life under aiASAP at the top
-                just like it is when it's live." Verbatim from the live stage and
-                the return-tap twin, so all three screens read identically. */}
-            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-              <TaglineText />
-            </p>
-          </div>
-        </div>
+      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100dvh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
+        <StageBrandLockup />
         {/* Static 6 framed EXACTLY like the start screen + live avatar (9:16
             portrait centered, gold border on desktop, full-cover on mobile). */}
         <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
@@ -467,7 +925,7 @@ export const LiveAvatarDemo = () => {
           <img
             src="/startscreen-noband.png"
             alt="6, your a-i-buddy"
-            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+            className="six-primary-scene h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
           {/* Session-ended message + Restart, overlaid where the tap button sits
               on the start screen. Branded brown scrim (no raw black) for legibility. */}
@@ -493,14 +951,20 @@ export const LiveAvatarDemo = () => {
             </button>
           </div>
         </div>
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
-          <Link
-            href="/terms"
-            className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
-          >
-            © 2026 aiASAP All Rights Reserved · Terms
-          </Link>
-        </div>
+        <StageControls
+          running={false}
+          micOff
+          quiet={false}
+          onStopStart={() => {
+            explicitExitRef.current = false;
+            setIsExited(false);
+            sessionBootstrapRef.current = true;
+            void startSession();
+          }}
+          onToggleMic={() => {}}
+          onToggleQuiet={() => {}}
+        />
+        <StageLegalFooter phoneFlow placementClassName="md:absolute md:bottom-2 md:left-1/2 md:-translate-x-1/2" />
       </div>
     );
   }
@@ -558,14 +1022,7 @@ export const LiveAvatarDemo = () => {
             </button>
           </div>
         </div>
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-20 px-4">
-          <Link
-            href="/terms"
-            className="block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-2"
-          >
-            © 2026 aiASAP All Rights Reserved · Terms
-          </Link>
-        </div>
+        <StageLegalFooter placementClassName="md:fixed md:bottom-6 md:left-1/2 md:-translate-x-1/2" />
       </div>
     );
   }
@@ -573,9 +1030,8 @@ export const LiveAvatarDemo = () => {
 
   // "Loading" now means "your session is starting", not "nothing has happened
   // yet". Before 2026-08-21 the page auto-minted on load, so no-token and
-  // starting-up were the same moment. Now they are different: untapped shows the
-  // front door (6 stopped, tap anywhere), and this screen only appears after a
-  // person has actually asked for him.
+  // starting-up were the same moment. Now they are different: idle shows Six
+  // stopped with an explicit Start control, and this screen appears after Start.
   if (!sessionToken && hasTappedToStart && !pausedOnStage && mode !== "VOICE") {
     return (
       <div
@@ -585,6 +1041,20 @@ export const LiveAvatarDemo = () => {
             "radial-gradient(135% 110% at 50% 32%, #5a360f 0%, #3a220c 38%, #241608 70%, #190f05 100%)",
         }}
       >
+        {!error && (
+          <div
+            data-six-loading-continuity-scene="1"
+            aria-hidden="true"
+            className="fixed inset-0 z-[69] flex items-center justify-center overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)]"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/startscreen-noband.png"
+              alt=""
+              className="six-primary-scene absolute inset-0 h-full w-full object-cover object-top md:relative md:inset-auto md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+            />
+          </div>
+        )}
         {error && (
           <div className="max-w-xl rounded-xl bg-black/55 px-5 py-4 backdrop-blur-sm border border-white/10">
             <p className="text-center text-white text-lg font-semibold leading-snug">
@@ -602,177 +1072,107 @@ export const LiveAvatarDemo = () => {
           </div>
         )}
         {!error && (
-          // G 2026-06-01: the early (pre-session-token) loader must be the EXACT
-          // avatar-stage visual with 6 simply not there yet — not a separate
-          // card. So render an empty copy of the avatar's 9:16 stage frame plus
-          // the SAME wordmark overlay + LOADING surface the live stage uses, all
-          // anchored to the global --stage-* CSS vars. The wordmark keeps
-          // overflow-visible + px-5 so the skewed "P" never clips.
           <div
-            className="fixed inset-0 z-0 flex items-center justify-center overflow-hidden"
-            style={{
-              // G 2026-06-09: loading screen was raw black on open - brand it.
-              // Warm gold-amber-into-deep-brown glow so the gold wordmark +
-              // LOADING still pop. "Nice brand colors all the way through."
-              background:
-                "radial-gradient(135% 110% at 50% 32%, #5a360f 0%, #3a220c 38%, #241608 70%, #190f05 100%)",
-            }}
+            data-six-loading-only="1"
+            className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-transparent"
           >
-            {/* Empty avatar stage frame — identical styling to the <video>, no avatar yet */}
-            <div className="h-full w-full md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45)]" />
-            {/* Wordmark + tagline — verbatim from the live stage */}
-            <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
-              <div className="text-center px-4">
-                <div className="flex items-start justify-center">
-                  <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                    aiASAP
-                  </h1>
-                </div>
-                <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                  <TaglineText />
-                </p>
-              </div>
-            </div>
-            {/* LOADING surface — verbatim from the live stage, anchored to --stage 55% */}
-            <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none top-[calc(var(--stage-top)+var(--stage-height)*0.55)]">
-              <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
-                <p className="text-[1.35rem] sm:text-[1.6rem] font-black uppercase tracking-[0.16em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                  Loading
-                </p>
-                <div className="mx-auto mt-3 h-1.5 w-36 overflow-hidden rounded-full bg-white/10">
-                  <span className="block h-full w-1/2 animate-[loading-sweep_2.15s_ease-in-out_infinite] rounded-full bg-[#e0aa62]" />
-                </div>
-              </div>
-            </div>
+            <SixLoadingIndicator />
           </div>
         )}
-        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
-          <Link
-            href="/terms"
-            target="_blank"
-            className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
-          >
-            Terms
-          </Link>
-          <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">·</span>
-          <span className="text-center text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-            © 2026 aiASAP All Rights Reserved
-          </span>
-          <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">·</span>
-          <Link
-            href="/privacy"
-            target="_blank"
-            className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
-          >
-            Privacy
-          </Link>
-        </div>
+        {error && <StageLegalFooter phoneFlow onBeforeNavigate={stopPendingStartForLegal} />}
       </div>
     );
   }
 
-  // THE FRONT DOOR (2026-08-21, G). 6 is stopped, sitting in his still picture,
-  // exactly like the restart screen — "that picture is great". Over him, the
-  // line G loves: Tap/Click ANYWHERE To Talk To 6. Tapping anywhere on the page
-  // is what mints the session; loading the page does not. No credits burn until
-  // a person decides to talk.
-  if (!hasTappedToStart && !sessionToken && !isExited && mode !== "VOICE") {
+  // One literal idle render for both initial START and returned STOP. Loading
+  // the link never mints; after STOP the same pixels remain and only this
+  // START handler is swapped to authorize a fresh paid session.
+  if (showsSharedIdle) {
     return (
-      <div
-        role="button"
-        tabIndex={0}
-        aria-label="Tap or click anywhere to talk to 6"
-        onClick={() => setHasTappedToStart(true)}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setHasTappedToStart(true); }}
-        className="relative w-full h-full min-h-screen flex flex-col overflow-hidden cursor-pointer bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]"
-      >
-        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
-          <div className="text-center px-4">
-            <div className="flex items-start justify-center">
-              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                aiASAP
-              </h1>
-            </div>
-            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-              <TaglineText />
-            </p>
-          </div>
-        </div>
-        <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
+      <>
+        <div
+          data-six-initial-idle="1"
+          data-six-startup-readiness={isClientReady ? "ready" : "pending"}
+          className="aiasap-tablet-idle-stage relative w-full h-[100svh] min-h-0 flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:relative md:inset-auto md:h-full md:min-h-screen md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]"
+        >
+        <StageBrandLockup />
+        <div data-six-stage-media="1" className="aiasap-tablet-idle-media relative w-full flex-1 overflow-hidden md:flex md:items-center md:justify-center md:overflow-visible md:px-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/startscreen-noband.png"
             alt="6, your a-i-buddy"
-            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+            className="six-primary-scene absolute inset-0 h-full w-full object-cover object-top md:relative md:inset-auto md:m-0 md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
         </div>
-        {/* The line, verbatim from the live begin-surface so the two screens
-            read identically. G: "it's gorgeous the way it says that." */}
-        <div className="pointer-events-none fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4" style={{ top: "calc(var(--stage-top) + var(--stage-height) * 0.55)" }}>
-          <span className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]">
-            <span className="flex -translate-y-1.5 items-center text-[calc(var(--stage-width)*0.05)] font-bold italic tracking-[0.14em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#9e6a35] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
-              Tap/Click ANYWHERE
-            </span>
-            <span className="-translate-y-1 text-[calc(var(--stage-width)*0.10)] font-extrabold tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
-              To Talk To 6
-            </span>
-          </span>
-        </div>
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
-          <Link href="/terms" className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-            © 2026 aiASAP All Rights Reserved · Terms
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  // STOPPED ON STAGE (G, 2026-08-21). He hit STOP: the session is really gone
-  // and the meter is really off, but the screen does not change out from under
-  // him. Same still picture, same four buttons, and the top-left one now says
-  // START. G: "he stops completely, everything stops, but then the word start
-  // comes up in that stop button."
-  if (pausedOnStage && !sessionToken && mode !== "VOICE") {
-    return (
-      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
-        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
-          <div className="text-center px-4">
-            <div className="flex items-start justify-center">
-              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                aiASAP
-              </h1>
-            </div>
-            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-              <TaglineText />
-            </p>
-          </div>
-        </div>
-        <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/startscreen-noband.png"
-            alt="6, stopped"
-            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
-          />
-        </div>
-        {/* running={false} -> the top-left reads START, and MUTE/QUIET dim
-            because there is no session for them to act on. VOICE still works:
-            it costs nothing and needs no avatar. */}
         <StageControls
           running={false}
           micOff={false}
           quiet={false}
-          onStopStart={handleStartFromStopped}
-          onVoiceOnly={handleVoiceOnly}
+          mobileStartControls
+          startupStartReady={showsInitialIdle || isClientReady}
+          earlyStartBridge={showsInitialIdle}
+          onStopStart={
+            showsReturnedIdle
+              ? handleStartFromStopped
+              : () => void beginSessionFromStart()
+          }
           onToggleMic={() => {}}
-          onToggleQuiet={() => {}}
-        />
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
-          <Link href="/terms" className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-            &copy; 2026 aiASAP All Rights Reserved &middot; Terms
-          </Link>
-        </div>
-      </div>
+           onToggleQuiet={() => {}}
+         />
+         {/* The footer itself reserves the phone safe area. This 12px initial-idle
+            seam is the prior 8px seam plus the requested 4px upward bar move.
+            The bar's own extra height is phone/start-screen CSS in globals.css
+            (43px instead of 29px), never a prop, so every other stage that
+            shares this footer keeps the 29px bar it already has. */}
+        <StageLegalFooter phoneFlow phoneStackPaddingBottom="12px" placementClassName="aiasap-tablet-idle-legal md:absolute md:bottom-2 md:left-1/2 md:-translate-x-1/2" />
+        {/* Returned STOP holds these pixels while the browser's microphone
+            sheet is open. Initial START uses the existing loading surface as
+            its immediate acknowledgement; both paths keep this guidance state
+            for the idle/recovery render. Same anchor and z as the recovery card
+            below; they never co-exist. */}
+        {startMicAwaitingAnswer && startMicPermissionState === null && (
+          <section
+            data-microphone-awaiting-answer="1"
+            role="status"
+            className="fixed left-1/2 z-[70] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2 rounded-2xl border border-[#e0aa62]/70 bg-[#1d1108]/95 px-4 py-3 text-center shadow-[0_14px_36px_rgba(0,0,0,0.58)] bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.43)]"
+          >
+            <p className="text-sm font-black text-[#ffe9c2]">
+              Answer the microphone question
+            </p>
+            <p className="mt-1 text-xs leading-snug text-[#f1c477]">
+              Your browser is asking to use the microphone. Tap Allow. Do not tap
+              anywhere else on the screen — that cancels the question, and doing
+              it a few times makes the browser block this site on its own.
+            </p>
+          </section>
+        )}
+        {startMicPermissionState !== null && (
+          <MicrophoneRecoveryCard
+            state={startMicPermissionState}
+            busy={startMicRechecking}
+            stillBlocked={startMicStillBlocked}
+            onCheckAgain={
+              startMicPermissionState === "denied"
+                ? () => void recheckBlockedMicrophone()
+                : () => void beginSessionFromStart(showsReturnedIdle)
+            }
+          />
+         )}
+         {/* A dismissed START returns directly to this clean, retryable control.
+             Only the immediately preceding gesture-owned deny can render the
+             single card above; stale permission prose never overlays controls. */}
+         </div>
+         <PublicContactCard />
+         {showsInitialIdle && (
+          <div
+            data-six-early-start-loader="1"
+            aria-busy="true"
+            className="fixed inset-0 z-[70] items-center justify-center overflow-hidden bg-transparent"
+          >
+            <SixLoadingIndicator />
+          </div>
+        )}
+      </>
     );
   }
 
@@ -781,36 +1181,17 @@ export const LiveAvatarDemo = () => {
   // NOT mounted: no avatar, no session token, nothing that bills by the block.
   if (mode === "VOICE") {
     return (
-      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
-        <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
-          <div className="text-center px-4">
-            <div className="flex items-start justify-center">
-              <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-                aiASAP
-              </h1>
-            </div>
-            <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-semibold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_1px_6px_rgba(25,15,5,0.4)]">
-              <TaglineText />
-            </p>
-          </div>
-        </div>
+      <div className="relative w-full h-full min-h-screen flex flex-col overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] [--stage-width:100vw] [--stage-height:100dvh] [--stage-top:0px] [--stage-bottom:0px] md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]">
+        <StageBrandLockup />
         <div className="relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/startscreen-noband.png"
             alt="6, your a-i-buddy"
-            className="h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
+            className="six-primary-scene h-full w-full object-cover object-top md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           />
         </div>
-        <VoiceOnlyStage />
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20">
-          <Link
-            href="/terms"
-            className="text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent"
-          >
-            © 2026 aiASAP All Rights Reserved · Terms
-          </Link>
-        </div>
+        <VoiceOnlyStage onReturnAvatar={handleReturnToAvatar} />
       </div>
     );
   }
@@ -818,6 +1199,7 @@ export const LiveAvatarDemo = () => {
   return (
     <LiveAvatarSession
       mode={mode}
+      microphonePreflightGranted={startMicGranted}
       sessionAccessToken={sessionToken}
       onSessionStopped={onSessionStopped}
       onExit={handleExit}

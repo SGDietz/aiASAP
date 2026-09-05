@@ -20,9 +20,20 @@ describe("Six passion-first and audio-check prompt contract", () => {
     expect(SIX_SYSTEM_PROMPT).toContain(
       "do not ask for it on a fixed turn count either",
     );
+    // "At the next natural pause" was the 08-23 replacement wording and it
+    // drifted the other way: G's ride 2026-09-04, passion answer at 17:07,
+    // ask at 17:11 - twenty turns on, glued to the word "so". The rule now
+    // carries an edge you can count, and the route enforces it in code
+    // (src/lib/nameAskWhisper.ts, tests/lead/nameAskTiming.test.ts).
+    expect(SIX_SYSTEM_PROMPT).not.toContain("at the next natural pause");
     expect(SIX_SYSTEM_PROMPT).toContain(
-      'weave in "And what should I call you?" at the next natural pause',
+      "WITHIN YOUR NEXT TWO REPLIES AFTER THAT ANSWER - NOT LATER",
     );
+    expect(SIX_SYSTEM_PROMPT).toContain(
+      'weave in "And what should I call you?" inside your next two replies',
+    );
+    // And never on a scrap - that is how it went out last time.
+    expect(SIX_SYSTEM_PROMPT).toContain("ASK IT ON A WHOLE TURN, NEVER ON A SCRAP");
     expect(SIX_SYSTEM_PROMPT).not.toContain(
       "By your SECOND generated response after the opening",
     );
@@ -45,8 +56,15 @@ describe("Six passion-first and audio-check prompt contract", () => {
   });
 
   it("preserves the opening, send-link truth, and starting-price anchors", () => {
-    expect(SIX_SYSTEM_PROMPT).toContain(
-      "6 here. Tell me what you feel passionate about, and what you're good at. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. First, tell me what you love doing most in this world.",
+    // 2026-09-04: the opener text is DELIBERATELY NOT in the prompt any more.
+    // It was, and 6 copied it - twice as a "demo" on 09-03, then the whole
+    // line six minutes into a conversation on 09-04 (the transcript row carries
+    // an utterance_id, so it was a REPLY, not the app). Three prohibitions did
+    // not stop him while the words sat there to copy. A line he cannot see is a
+    // line he cannot repeat. The greeting is locked in the COMPONENT, which is
+    // where it is actually spoken from.
+    expect(SIX_SYSTEM_PROMPT).not.toContain(
+      "6 here. Tell me what you love doing",
     );
     expect(SIX_SYSTEM_PROMPT).not.toContain(
       "6 here, ready to Turbo Charge Your Life.",

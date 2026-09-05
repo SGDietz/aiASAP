@@ -5,6 +5,7 @@ import {
   speakThroughAvatar,
 } from "./customVoiceDelivery";
 import { logAppEvent } from "../lib/telemetry";
+import { formatSixSpeechForTts } from "../lib/voice/speechBrand";
 
 export const useTextChat = (
   mode: "FULL" | "CUSTOM",
@@ -26,6 +27,11 @@ export const useTextChat = (
   // r34 (G signed in, brain asked "first time signing up?"): signed-in
   // state rides too.
   getSignedInEmail?: () => string | null,
+  getBuildGateSatisfied?: () => boolean,
+  // The turn chain releases after dispatch, so a newer accepted user turn can
+  // reach the brain before an older request returns. Only the newest accepted
+  // turn may claim the single LiveAvatar speech pipe.
+  shouldDeliverAssistantTurn?: (utteranceId: string) => boolean,
 ) => {
   const { sessionRef, reportActivity } = useLiveAvatarContext();
 
@@ -92,9 +98,20 @@ export const useTextChat = (
             history: getHistory?.() ?? [],
             userName: getUserName?.() ?? null,
             signedInEmail: getSignedInEmail?.() ?? null,
+            buildGateSatisfied: getBuildGateSatisfied?.() ?? false,
           }),
         });
         const { response: chatResponseText } = await response.json();
+        if (
+          utteranceId &&
+          shouldDeliverAssistantTurn &&
+          !shouldDeliverAssistantTurn(utteranceId)
+        ) {
+          // The user has already taken the floor again. Do not feed a stale
+          // reply into HeyGen: it can ignore a burst of repeat commands and
+          // leave the newest, relevant answer silent.
+          return;
+        }
         if (utteranceId) {
           logAppEvent(
             "voice_brain_response_ready",
@@ -109,6 +126,17 @@ export const useTextChat = (
             },
           );
         }
+        // BRAND AT THE SPEECH BOUNDARY (2026-08-31). The scripted path has run
+        // through formatSixSpeechForTts since June (LiveAvatarSession's
+        // repeat()), but the brain reply — most of what 6 actually says —
+        // reached the avatar raw, so he mispronounced the brand all ride long
+        // no matter how many times the visitor corrected him. Written copy and
+        // the transcript keep `aiASAP`; only what goes to TTS changes. The
+        // formatter is idempotent, so passing through it twice is harmless.
+        const spokenResponseText =
+          typeof chatResponseText === "string"
+            ? formatSixSpeechForTts(chatResponseText)
+            : chatResponseText;
         if (typeof chatResponseText === "string" && chatResponseText) {
           onAssistantText?.(chatResponseText, { utteranceId });
           registerSixSpokenLine(chatResponseText); // echo firewall registry
@@ -123,7 +151,7 @@ export const useTextChat = (
           if (utteranceId) {
             logAppEvent(
               "voice_avatar_repeat_dispatched",
-              { stage: "avatar_repeat", mode },
+              { stage: "avatar_repeat", mode, length: chatResponseText.length },
               "low",
               {
                 eventId: `${utteranceId}:avatar-repeat-dispatched`,
@@ -160,9 +188,19 @@ export const useTextChat = (
           // that same AVATAR_SPEAK_STARTED watchdog here, runs it detached so
           // this call is not slowed, and refuses to rescue a line the user has
           // since interrupted.
-          return speakThroughAvatar(
+          // `repeat()` resolves only after the avatar finishes speaking on some
+          // SDK transports. Returning that promise made the single turn chain
+          // wait behind the *previous* complete reply: a normal follow-up could
+          // be recognized and accepted, then sit silent until the greeting or
+          // prior sentence ended. Dispatch is the turn boundary; completion is
+          // deliberately owned by the avatar/watchdog. A later accepted user
+          // turn already interrupts this speech before it reaches the brain.
+          //
+          // Do not `return`/`await` this call. That would adopt the SDK's
+          // speech-completion promise and reintroduce the queue dam.
+          speakThroughAvatar(
             sessionRef.current,
-            chatResponseText,
+            spokenResponseText,
             "textchat.reply",
             (reason) => {
               if (!utteranceId) return;
@@ -181,7 +219,37 @@ export const useTextChat = (
                 },
               );
             },
+            (presentation) => {
+              if (!utteranceId) return;
+              const outcome =
+                presentation.stage === "media_presented"
+                  ? "presented"
+                  : presentation.stage === "intentionally_silent"
+                    ? "suppressed"
+                    : presentation.stage.includes("recovery")
+                      ? "recovery"
+                      : "observed";
+              // Safe transport evidence only: booleans, counts, media state,
+              // and sample RMS. No reply text, audio, token, or stream ID.
+              logAppEvent(
+                "voice_avatar_media_presentation",
+                {
+                  stage: presentation.stage,
+                  reason: presentation.reason ?? null,
+                  evidence: presentation.evidence ?? null,
+                },
+                presentation.stage.includes("recovery") ? "medium" : "low",
+                {
+                  eventId: `${utteranceId}:avatar-media:${presentation.stage}`,
+                  utteranceId,
+                  provider: "heygen",
+                  durationMs: presentation.durationMs,
+                  outcome,
+                },
+              );
+            },
           );
+          return;
         } catch (e) {
           console.error("[textchat] speak path failed outright:", e);
           if (utteranceId) {
@@ -201,7 +269,7 @@ export const useTextChat = (
         }
       }
     },
-    [sessionRef, mode, reportActivity, onAssistantText, getHistory, getUserName, getSignedInEmail],
+    [sessionRef, mode, reportActivity, onAssistantText, getHistory, getUserName, getSignedInEmail, getBuildGateSatisfied, shouldDeliverAssistantTurn],
   );
 
   return {

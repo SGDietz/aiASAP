@@ -163,6 +163,13 @@ const IM_STATUS_WORDS = new Set([
   "fine.",
 ]);
 
+/** Occupations introduced by "I'm a/an ..." describe work, not identity. */
+function isOccupationIntroduction(text: string): boolean {
+  return /\b(?:i am|i'?m|im)\s+(?:a|an)\s+[\p{L}][\p{L}'-]*(?:\s+[\p{L}][\p{L}'-]*){0,3}(?:[.!?,;:]|$)/iu.test(
+    text.trim(),
+  );
+}
+
 /** Never treat as a person's name (whole value or word). */
 const INVALID_NAME_TOKENS = new Set([
   "email",
@@ -361,7 +368,7 @@ function extractFullNameFromPatterns(text: string): string | null {
       String.raw`(?:my name is|my name'?s)\s+${NAME_CHUNK}(?:[.,!?…]|$)`,
       "iu",
     ),
-    new RegExp(String.raw`(?:i am|i'?m|im)\s+${NAME_CHUNK}(?:[.,!?…]|$)`, "iu"),
+    new RegExp(String.raw`\b(?:i am|i'?m|im)\s+${NAME_CHUNK}(?:[.,!?…]|$)`, "iu"),
     new RegExp(
       String.raw`(?:you can )?call me\s+${NAME_CHUNK}(?:[.,!?…]|$)`,
       "iu",
@@ -454,6 +461,7 @@ function extractFullNameSingleWord(text: string): string | null {
 
 function extractFullName(text: string): string | null {
   if (looksLikeAssistantOrDemoPersona(text)) return null;
+  if (isOccupationIntroduction(text)) return null;
   const raw =
     extractLetterSpelledName(text) ??
     extractMyNameIsExplicit(text) ??

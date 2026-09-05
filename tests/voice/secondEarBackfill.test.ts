@@ -77,7 +77,17 @@ describe("the second ear", () => {
     // the hold must run the SAME dispatch the authority uses, so the held copy
     // goes through resolveSemanticTurn exactly like any other turn
     expect(source).toMatch(
-      /backfillTimersRef\.current\.delete\(timer\);[\s\S]{0,400}sdkUserTranscriptionDispatchRef\.current\(\{ text \}\)/,
+      /backfillTimersRef\.current\.delete\(timer\);[\s\S]{0,2000}sdkUserTranscriptionDispatchRef\.current\(\{ text \}\)/,
+    );
+    // G's ride 2026-09-04: resolveSemanticTurn alone was NOT enough here. It
+    // matches contiguous runs, and two engines hearing the same audio spell it
+    // differently ("no I'm 6:30 are you there buddy" vs "No, um, Six, are you
+    // there, buddy?"), so both were delivered and 6 answered both. The held
+    // copy now gets a fuzzy same-utterance check FIRST, and only this path.
+    expect(source).toContain("isSameUtteranceHeardTwice");
+    expect(source).toContain('reason: "second_ear_echo"');
+    expect(source).toMatch(
+      /isSameUtteranceHeardTwice\([\s\S]{0,600}sdkUserTranscriptionDispatchRef\.current\(\{ text \}\)/,
     );
     // a muted mic must not be re-opened by a timer that fired later
     expect(source).toMatch(

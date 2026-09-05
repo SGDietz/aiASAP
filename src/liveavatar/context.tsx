@@ -16,6 +16,10 @@ import {
   AgentEventsEnum,
 } from "@heygen/liveavatar-web-sdk";
 import { LiveAvatarSessionMessage } from "./types";
+import {
+  stopLiveAvatarSessionEverywhere,
+  type LiveAvatarStopOptions,
+} from "../lib/voice/sessionControls";
 
 type LiveAvatarContextProps = {
   sessionRef: React.RefObject<LiveAvatarSession>;
@@ -45,6 +49,8 @@ type LiveAvatarContextProps = {
   sessionEpoch: number;
   /** Replace the dead session with a fresh one (new token from /api/start-session). */
   renewSessionToken: (token: string) => void;
+  /** One shared server + SDK teardown for explicit, idle, hidden, and pagehide stops. */
+  stopCurrentSession: (options?: LiveAvatarStopOptions) => Promise<void>;
 };
 
 export const LiveAvatarContext = createContext<LiveAvatarContextProps>({
@@ -65,6 +71,7 @@ export const LiveAvatarContext = createContext<LiveAvatarContextProps>({
   wasStoppedDueToInactivity: () => false,
   sessionEpoch: 0,
   renewSessionToken: () => {},
+  stopCurrentSession: async () => {},
 });
 
 type LiveAvatarContextProviderProps = {
@@ -241,6 +248,7 @@ export const LiveAvatarContextProvider = ({
   // at the CURRENT session, not the original prop.
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const [activeToken, setActiveToken] = useState(sessionAccessToken);
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
   const configRef = useRef(config);
   configRef.current = config;
   const renewSessionToken = useCallback((token: string) => {
@@ -253,6 +261,24 @@ export const LiveAvatarContextProvider = ({
     setActiveToken(token);
     setSessionEpoch((e) => e + 1);
   }, []);
+
+  const stopCurrentSession = useCallback(
+    (options: LiveAvatarStopOptions = {}) => {
+      if (stopPromiseRef.current) return stopPromiseRef.current;
+      const session = sessionRef.current;
+      const stopping = stopLiveAvatarSessionEverywhere(
+        session,
+        activeToken,
+        fetch,
+        options,
+      ).finally(() => {
+        if (stopPromiseRef.current === stopping) stopPromiseRef.current = null;
+      });
+      stopPromiseRef.current = stopping;
+      return stopping;
+    },
+    [activeToken],
+  );
 
   const { sessionState, isStreamReady, connectionQuality } =
     useSessionState(sessionRef, sessionEpoch);
@@ -414,11 +440,11 @@ export const LiveAvatarContextProvider = ({
     const intervalId = setInterval(() => {
       if (Date.now() - lastActivityAtRef.current >= INACTIVITY_TIMEOUT_MS) {
         stoppedDueToInactivityRef.current = true;
-        sessionRef.current?.stop?.();
+        void stopCurrentSession({ reason: "INACTIVITY" });
       }
     }, INACTIVITY_CHECK_MS);
     return () => clearInterval(intervalId);
-  }, [sessionState]);
+  }, [sessionState, stopCurrentSession]);
 
   // CREDIT SAVER (G 2026-06-14: "users will keep him open on their phone
   // forever"): a HIDDEN tab — phone locked, app switched, window minimized,
@@ -438,7 +464,7 @@ export const LiveAvatarContextProvider = ({
         graceTimer = setTimeout(() => {
           if (document.hidden) {
             stoppedDueToInactivityRef.current = true;
-            sessionRef.current?.stop?.();
+            void stopCurrentSession({ reason: "PAGE_HIDDEN" });
           }
         }, HIDDEN_GRACE_MS);
       } else if (graceTimer) {
@@ -451,7 +477,18 @@ export const LiveAvatarContextProvider = ({
       document.removeEventListener("visibilitychange", onVisibility);
       if (graceTimer) clearTimeout(graceTimer);
     };
-  }, [sessionState]);
+  }, [sessionState, stopCurrentSession]);
+
+  // Match the proven WildWorks lifecycle: an active page that is being
+  // discarded sends a keepalive stop while also releasing the local SDK now.
+  useEffect(() => {
+    if (sessionState !== SessionState.CONNECTED) return;
+    const onPageHide = () => {
+      void stopCurrentSession({ keepalive: true, reason: "USER_CLOSED" });
+    };
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, [sessionState, stopCurrentSession]);
 
   return (
     <LiveAvatarContext.Provider
@@ -471,6 +508,7 @@ export const LiveAvatarContextProvider = ({
         wasStoppedDueToInactivity,
         sessionEpoch,
         renewSessionToken,
+        stopCurrentSession,
       }}
     >
       {children}

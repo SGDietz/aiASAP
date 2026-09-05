@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   arbitrateAvatarSpeechSource,
   selectAvatarSpeechSource,
+  shouldUseBrowserSpeechRecognition,
   type AvatarSpeechSource,
 } from "../../src/lib/speech/sourceAuthority";
 import { isDuplicateUtterance } from "../../src/lib/speech/dedupe";
@@ -16,14 +17,43 @@ describe("LiveAvatar account-turn dispatch authority", () => {
     expect(selectAvatarSpeechSource("FULL", false)).toBe("liveavatar_sdk");
   });
 
+  it("uses the stable SDK transcript on mobile and keeps desktop fallback intact", () => {
+    expect(
+      shouldUseBrowserSpeechRecognition(
+        "CUSTOM",
+        "Mozilla/5.0 (Linux; Android 10; K) Chrome/151 Mobile Safari/537.36",
+      ),
+    ).toBe(false);
+    expect(
+      shouldUseBrowserSpeechRecognition(
+        "CUSTOM",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/151 Safari/537.36",
+      ),
+    ).toBe(true);
+    expect(shouldUseBrowserSpeechRecognition("FULL", "desktop")).toBe(false);
+  });
+
   it("locks the session to one transcript source", () => {
     let authority: AvatarSpeechSource = selectAvatarSpeechSource("CUSTOM", true);
 
+    // The authority is still one source and the loser still never jumps the
+    // queue. What changed on 2026-09-04 (G's ride 48c99dfa): the loser is
+    // handed back as a BACKFILL CANDIDATE instead of being discarded. The
+    // browser recognizer turned only 14-39% of his speech into turns across
+    // five rides, and both of his answers - "yeah you may send that email off"
+    // and "Yes." - existed only on the SDK side. Dropping them is why nothing
+    // ever sent.
     const competing = arbitrateAvatarSpeechSource(authority, "liveavatar_sdk");
     expect(competing).toEqual({
       accepted: false,
       authoritativeSource: "app_browser",
+      backfillCandidate: true,
     });
+
+    // The winner is never a backfill - it goes straight through.
+    expect(
+      arbitrateAvatarSpeechSource(authority, "app_browser").backfillCandidate,
+    ).toBe(false);
 
     const sameSourceNextTurn = arbitrateAvatarSpeechSource(
       authority,

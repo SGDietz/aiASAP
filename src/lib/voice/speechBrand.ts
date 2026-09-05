@@ -32,6 +32,14 @@ export function formatSixSpeechForTts(text: string): string {
       // The retired six-letter spelling, in case it is sitting in a stored line
       // or a model reply. Longest pattern first so it cannot be half-matched.
       .replace(/\bA-I-A-S-A-P\b/gi, SPOKEN_BRAND)
+      // 6 WRITES THE DASHED FORM HIMSELF (G's ride 2026-09-04: the transcript
+      // is full of "a-i-ASAP" in his own replies). His prompt uses that form in
+      // its own example copy, so he emits it whatever the rule says. Without
+      // this line the formatter is a no-op on those replies and the brain's
+      // spelling reaches the voice engine unchanged - which is precisely how
+      // "AIA CP" got out. Normalise it to whatever SPOKEN_BRAND is; when they
+      // are identical this is a harmless no-op.
+      .replace(/\ba-i-ASAP\b/gi, SPOKEN_BRAND)
       // case-insensitive: the brain writes `aiASAP`, but a stored or model line
       // can carry `aiasap` or `AIASAP`, and all three sound the same out loud.
       .replace(/\baiasap\b/gi, SPOKEN_BRAND)

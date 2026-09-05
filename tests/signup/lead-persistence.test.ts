@@ -7,7 +7,10 @@ vi.mock("../../src/lib/supabaseAdmin", () => ({
   }),
 }));
 
-import { persistUserUtteranceLeadCapture } from "../../src/lib/leadCaptureFromUserText";
+import {
+  classifyObservedFollowUpIntent,
+  persistUserUtteranceLeadCapture,
+} from "../../src/lib/leadCaptureFromUserText";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -19,6 +22,18 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("observational lead persistence email authority", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("classifies the physical-smoke hand raise without accepting coaching or reported speech", () => {
+    expect(
+      classifyObservedFollowUpIntent("Okay, great. Have Scott reach out to me."),
+    ).toMatchObject({ interested: true, declined: false });
+    expect(
+      classifyObservedFollowUpIntent("Tell prospects you will reach out after the call."),
+    ).toMatchObject({ interested: false });
+    expect(
+      classifyObservedFollowUpIntent("She asked me to have Scott reach out to her."),
+    ).toMatchObject({ interested: false });
   });
 
   it("two concurrent first transcript emails remain evidence and never become canonical writes", async () => {

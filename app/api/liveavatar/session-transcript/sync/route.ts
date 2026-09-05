@@ -17,6 +17,12 @@ import {
   storeFacts,
 } from "../../../../../src/lib/memory";
 import { normalizeUtterance } from "../../../../../src/lib/speech/dedupe";
+import { isPostgrestMissingColumnError } from "../../../../../src/lib/appEventEnvelope";
+import {
+  FRAGMENT_SOURCE,
+  PARTIAL_SOURCE,
+  linkPiecesToTurns,
+} from "../../../../../src/lib/transcript/fragmentLink";
 
 // Per-session in-memory de-dup for the auto-magic-link trigger. Process-
 // scoped — restart clears it. Good enough for beta; the alternative is
@@ -366,6 +372,7 @@ type AppTranscriptRow = {
   source: string | null;
   created_at: string;
   la_absolute_timestamp: number | null;
+  utterance_id: string | null;
 };
 
 async function fetchAppTranscriptRows(
@@ -373,8 +380,14 @@ async function fetchAppTranscriptRows(
   serviceRoleKey: string,
   sessionId: string,
 ): Promise<AppTranscriptRow[]> {
+  // Every APP-BORN row (2026-08-21): still source='app', OR claimed by the
+  // merge below (source flipped to 'liveavatar_api') but carrying the app's
+  // event_id. The merge itself only ever looks at source='app' rows - the
+  // caller filters - so its behaviour is exactly as installed. The LINK pass
+  // needs the claimed ones too: a claimed line is still the line a provider
+  // piece belongs under.
   const res = await fetch(
-    `${url}/rest/v1/conversation_messages?session_id=eq.${encodeURIComponent(sessionId)}&source=eq.app&select=id,role,message,source,created_at,la_absolute_timestamp&order=created_at.desc&limit=200`,
+    `${url}/rest/v1/conversation_messages?session_id=eq.${encodeURIComponent(sessionId)}&or=(source.eq.app,event_id.not.is.null)&select=id,role,message,source,created_at,la_absolute_timestamp,utterance_id&order=created_at.desc&limit=200`,
     {
       method: "GET",
       headers: supabaseHeaders(serviceRoleKey),
@@ -408,6 +421,112 @@ function findMergeTarget(
     return app;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// KEEP EVERYTHING, MAKE IT HONEST (2026-08-21). The merge above fixed 6's
+// lines. The USER side never merged: the provider returns one row per STT
+// final - a PIECE of a turn ("Um, the mute" / "didn't work the first time..."
+// / "Um," = three rows for one breath, 03aef2a8) and a piece can never equal
+// the app's whole sentence, so every user breath was stored 1 + N times.
+//
+// Pieces are still stored - never dropped, never deleted; the provider's copy
+// is often the better transcription and in FULL mode it is the ONLY copy -
+// but they are labelled as pieces (source='liveavatar_api_fragment') and,
+// when the app's whole turn is in the table, stamped with that turn's
+// utterance_id so readers fold them under it. The other arrival order (pieces
+// land before the app row - the common one: provider batch 01:07:05.070, app
+// row 01:07:05.186) is linked by /api/voice-mode/log-turn the moment the app
+// row lands. See src/lib/transcript/fragmentLink.ts for the matching rule.
+//
+// What neither of those can catch: the app row commits between this route's
+// app-row GET and its piece POST, while log-turn's back-link GET runs before
+// that POST commits. Neither side sees the other, the pieces stay NULL, and
+// the cursor never re-fetches them. So EVERY sync - empty polls and the
+// disconnect sync included - looks back three minutes for un-linked user
+// pieces and links them against the app turns now in the table. Fills only
+// NULLs; non-fatal; the words were stored long before this runs.
+// ---------------------------------------------------------------------------
+const ORPHAN_RELINK_LOOKBACK_S = 180;
+
+type StoredPiece = {
+  id: string;
+  message: string | null;
+  la_absolute_timestamp: number | null;
+};
+
+async function fetchOrphanPieces(
+  url: string,
+  serviceRoleKey: string,
+  sessionId: string,
+): Promise<StoredPiece[]> {
+  const sinceLa = Math.floor(Date.now() / 1000) - ORPHAN_RELINK_LOOKBACK_S;
+  const res = await fetch(
+    `${url}/rest/v1/conversation_messages?session_id=eq.${encodeURIComponent(sessionId)}&role=eq.user&source=eq.${FRAGMENT_SOURCE}&utterance_id=is.null&la_absolute_timestamp=gte.${sinceLa}&select=id,message,la_absolute_timestamp&order=la_absolute_timestamp.asc&limit=100`,
+    {
+      method: "GET",
+      headers: supabaseHeaders(serviceRoleKey),
+    },
+  );
+  if (!res.ok) return [];
+  const json: unknown = await res.json().catch(() => []);
+  return Array.isArray(json) ? (json as StoredPiece[]) : [];
+}
+
+async function linkStoredPieces(
+  url: string,
+  serviceRoleKey: string,
+  pieces: StoredPiece[],
+  appTurns: AppTranscriptRow[],
+): Promise<number> {
+  const links = linkPiecesToTurns(
+    pieces
+      .filter(
+        (p) =>
+          typeof p.id === "string" &&
+          typeof p.la_absolute_timestamp === "number" &&
+          typeof p.message === "string" &&
+          p.message.trim(),
+      )
+      .map((p) => ({
+        key: p.id,
+        role: "user" as const,
+        message: p.message ?? "",
+        la_absolute_timestamp: p.la_absolute_timestamp ?? 0,
+      })),
+    appTurns,
+  );
+  const byUtterance = new Map<string, string[]>();
+  for (const link of links) {
+    byUtterance.set(link.utteranceId, [
+      ...(byUtterance.get(link.utteranceId) ?? []),
+      link.key,
+    ]);
+  }
+  let linked = 0;
+  for (const [utteranceId, ids] of byUtterance) {
+    // utterance_id=is.null in the filter makes this race-safe against the
+    // back-link that may have filled the same piece a moment ago: a filled
+    // id is never overwritten.
+    const patch = await fetch(
+      `${url}/rest/v1/conversation_messages?id=in.(${ids.map(encodeURIComponent).join(",")})&utterance_id=is.null`,
+      {
+        method: "PATCH",
+        headers: { ...supabaseHeaders(serviceRoleKey), Prefer: "return=minimal" },
+        body: JSON.stringify({ utterance_id: utteranceId }),
+      },
+    );
+    if (patch.ok) {
+      linked += ids.length;
+    } else {
+      console.error(
+        "[transcript-link] re-link patch failed",
+        patch.status,
+        (await patch.text()).slice(0, 200),
+      );
+    }
+  }
+  return linked;
 }
 
 function isTranscriptRow(value: unknown): value is TranscriptRow {
@@ -538,12 +657,17 @@ export async function POST(request: Request) {
     // memory writes happen — only links via /api/auth/link-session later.
     const userId = await getUserId();
 
-    const rows = parsed.transcriptData.map((row) => ({
+    // User rows are labelled as what they are - PIECES of a turn - from the
+    // moment they are built (see the KEEP EVERYTHING note above). `key` is
+    // in-memory only, for the link pass; it is stripped before the POST.
+    const rows = parsed.transcriptData.map((row, index) => ({
+      key: `${row.role}:${Math.floor(row.absolute_timestamp)}:${index}`,
       session_id: liveAvatarSessionId,
-      role: row.role === "avatar" ? "assistant" : "user",
+      role: (row.role === "avatar" ? "assistant" : "user") as "user" | "assistant",
       message: truncateUtf8String(row.transcript.trim(), MAX_TRANSCRIPTION_TEXT_CHARS),
       la_absolute_timestamp: Math.floor(row.absolute_timestamp),
-      source: "liveavatar_api",
+      source: (row.role === "avatar" ? "liveavatar_api" : FRAGMENT_SOURCE) as string,
+      utterance_id: null as string | null,
       user_id: userId,
       ...(testerLabel ? { tester_label: testerLabel } : {}),
     }));
@@ -551,12 +675,32 @@ export async function POST(request: Request) {
     const toInsert: typeof rows = [];
     let merged = 0;
     let skipped409 = 0;
+    let linked = 0;
+    let relinked = 0;
+    // The session's app-born rows, fetched once and shared by the three passes
+    // below (orphan re-link, equality merge, piece link).
+    let appBorn: AppTranscriptRow[] | null = null;
+    const loadAppBorn = async (): Promise<AppTranscriptRow[]> => {
+      const loaded =
+        appBorn ?? (await fetchAppTranscriptRows(url, serviceRoleKey, liveAvatarSessionId));
+      appBorn = loaded;
+      return loaded;
+    };
+
+    // Orphan re-link runs on EVERY sync, rows or no rows (ORPHAN_RELINK_LOOKBACK_S).
+    try {
+      const orphans = await fetchOrphanPieces(url, serviceRoleKey, liveAvatarSessionId);
+      if (orphans.length > 0) {
+        relinked = await linkStoredPieces(url, serviceRoleKey, orphans, await loadAppBorn());
+      }
+    } catch (e) {
+      console.error("[transcript-link] orphan re-link failed", e);
+    }
+
     if (rows.length > 0) {
-      const appRows = await fetchAppTranscriptRows(
-        url,
-        serviceRoleKey,
-        liveAvatarSessionId,
-      );
+      // The equality merge only ever claims a row still marked source='app' -
+      // exactly as installed. Claimed rows stay in appBorn for the link pass.
+      const appRows = (await loadAppBorn()).filter((r) => r.source === "app");
       const claimedIds = new Set<string>();
       for (const row of rows) {
         const hit = findMergeTarget(appRows, row, claimedIds);
@@ -600,18 +744,70 @@ export async function POST(request: Request) {
         toInsert.push(row);
       }
 
+      // Link what is left to the app's whole turns already in the table. The
+      // equality merge above took identical lines; this takes PIECES: a user
+      // fragment gets its sentence's utterance_id; an assistant row that is
+      // part of an app line but not the whole line (6 cut off: "So: a cool
+      // design for") is stored as a PARTIAL under that line - it records what
+      // 6 actually got out, which the app row cannot know. A link is a label,
+      // not a merge: the row is still inserted, word for word.
       if (toInsert.length > 0) {
-        const insertRes = await fetch(
+        const byKey = new Map(
+          linkPiecesToTurns(toInsert, await loadAppBorn()).map((l) => [l.key, l.utteranceId]),
+        );
+        for (const row of toInsert) {
+          const utteranceId = byKey.get(row.key);
+          if (!utteranceId) continue;
+          row.utterance_id = utteranceId;
+          if (row.role === "assistant") row.source = PARTIAL_SOURCE;
+          linked += 1;
+        }
+      }
+
+      if (toInsert.length > 0) {
+        // PostgREST requires every object in a bulk insert to expose the same
+        // keys. Unlinked rows therefore carry an explicit null. If the column
+        // is genuinely absent, the compatibility retry strips it from EVERY row.
+        type StoredRow = Omit<(typeof rows)[number], "key" | "utterance_id"> & {
+          utterance_id: string | null;
+        };
+        const insertBody: StoredRow[] = toInsert.map(({ key, utterance_id, ...stored }) => {
+          void key;
+          return { ...stored, utterance_id: utterance_id ?? null };
+        });
+        let insertRes = await fetch(
           `${url}/rest/v1/conversation_messages?on_conflict=session_id,role,la_absolute_timestamp`,
           {
             method: "POST",
             headers: supabaseHeaders(serviceRoleKey),
-            body: JSON.stringify(toInsert),
+            body: JSON.stringify(insertBody),
           },
         );
+        let detail = insertRes.ok ? "" : await insertRes.text();
+        if (
+          !insertRes.ok &&
+          isPostgrestMissingColumnError(insertRes.status, detail, ["utterance_id"])
+        ) {
+          // Backward-compatible only when the column is genuinely absent
+          // (the same fallback /api/voice-mode/log-turn has). The transcript
+          // must never stop being stored over a label.
+          insertRes = await fetch(
+            `${url}/rest/v1/conversation_messages?on_conflict=session_id,role,la_absolute_timestamp`,
+            {
+              method: "POST",
+              headers: supabaseHeaders(serviceRoleKey),
+              body: JSON.stringify(
+                insertBody.map(({ utterance_id, ...rest }) => {
+                  void utterance_id;
+                  return rest;
+                }),
+              ),
+            },
+          );
+          detail = insertRes.ok ? "" : await insertRes.text();
+        }
 
         if (!insertRes.ok) {
-          const detail = await insertRes.text();
           console.error("Supabase conversation_messages insert failed:", detail);
           return new Response(
             JSON.stringify({ error: "Failed to store transcript lines" }),
@@ -619,11 +815,16 @@ export async function POST(request: Request) {
           );
         }
       }
-      if (merged > 0 || skipped409 > 0) {
+      if (merged > 0 || skipped409 > 0 || linked > 0) {
         console.log(
-          `[transcript-merge] session ${liveAvatarSessionId}: merged ${merged}, inserted ${toInsert.length}, left-alone-409 ${skipped409}`,
+          `[transcript-merge] session ${liveAvatarSessionId}: merged ${merged}, linked ${linked}, inserted ${toInsert.length}, left-alone-409 ${skipped409}`,
         );
       }
+    }
+    if (relinked > 0) {
+      console.log(
+        `[transcript-link] session ${liveAvatarSessionId}: re-linked ${relinked} stored piece(s)`,
+      );
     }
 
     // The accepted app turn is the single authority for lead/profile capture.

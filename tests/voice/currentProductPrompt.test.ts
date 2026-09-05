@@ -52,12 +52,22 @@ describe("6 current product role", () => {
   it("locks G's exact one-line greeting, digit name, and four-word brand phrase", () => {
     const session = source("src/components/LiveAvatarSession.tsx");
     const greeting =
-      "6 here. Tell me what you feel passionate about, and what you're good at. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. First, tell me what you love doing most in this world.";
+      "6 here. Tell me what you love doing, and what you're good at, what you know. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. Start here, tell me what you love doing most in this world.";
     const oldGreeting =
       "6 here, ready to Turbo Charge Your Life. What do you love to do? What is your passion? Let's talk about that. Then we'll figure out how to make money from it and set you free to live the life that you want to live.";
 
     expect(session).toContain(JSON.stringify(greeting));
-    expect(SIX_SYSTEM_PROMPT).toContain(`app speaks this exact opening once: "${greeting}"`);
+    // 2026-09-04: the opener text is DELIBERATELY NOT in the prompt any more.
+    // It was, and 6 copied it - twice as a "demo" on 09-03, then the whole
+    // line six minutes into a conversation on 09-04 (the transcript row carries
+    // an utterance_id, so it was a REPLY, not the app). Three prohibitions did
+    // not stop him while the words sat there to copy. A line he cannot see is a
+    // line he cannot repeat. The greeting is locked in the COMPONENT, which is
+    // where it is actually spoken from.
+    expect(SIX_SYSTEM_PROMPT).not.toContain(greeting);
+    expect(SIX_SYSTEM_PROMPT).toContain("ITS EXACT WORDS ARE DELIBERATELY NOT WRITTEN HERE");
+    // and the specific trigger that set it off is answered
+    expect(SIX_SYSTEM_PROMPT).toContain('"go ahead", "carry on", or "what were you saying"');
     expect(session).not.toContain(oldGreeting);
     expect(SIX_SYSTEM_PROMPT).not.toContain(oldGreeting);
     expect(session.match(new RegExp(JSON.stringify(greeting).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(1);

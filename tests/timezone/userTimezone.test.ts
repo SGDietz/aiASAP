@@ -13,7 +13,7 @@ import {
 } from "../../src/lib/timezone/userTimezone";
 
 describe("zipToTimezone — the prefix table", () => {
-  it("G's home turf: Timonium MD 21093 is Eastern", () => {
+  it("Maryland 21093 is Eastern", () => {
     expect(zipToTimezone("21093")).toBe("America/New_York");
   });
   it("Chicago 60601 is Central", () => {

@@ -17,8 +17,15 @@ const section = (start: string, end: string) => {
 describe("6 individualized money-diagnosis brain", () => {
   it("keeps the exact greeting once and puts passion before capability", () => {
     const greeting =
-      "6 here. Tell me what you feel passionate about, and what you're good at. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. First, tell me what you love doing most in this world.";
-    expect(SIX_SYSTEM_PROMPT.split(greeting)).toHaveLength(2);
+      "6 here. Tell me what you love doing, and what you're good at, what you know. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. Start here, tell me what you love doing most in this world.";
+    // 2026-09-04: the opener text is DELIBERATELY NOT in the prompt any more.
+    // It was, and 6 copied it - twice as a "demo" on 09-03, then the whole
+    // line six minutes into a conversation on 09-04 (the transcript row carries
+    // an utterance_id, so it was a REPLY, not the app). Three prohibitions did
+    // not stop him while the words sat there to copy. A line he cannot see is a
+    // line he cannot repeat. The greeting is locked in the COMPONENT, which is
+    // where it is actually spoken from.
+    expect(SIX_SYSTEM_PROMPT).not.toContain(greeting);
 
     const opening = section("## OPENING DIRECTION", "## ONE JOB");
     const passion = opening.indexOf("what they love and are passionate about");

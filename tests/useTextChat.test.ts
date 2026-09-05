@@ -86,6 +86,62 @@ describe("useTextChat assistant-turn correlation", () => {
     expect(mocks.sessionRepeat).toHaveBeenNthCalledWith(2, "first reply");
   });
 
+  it("releases the CUSTOM turn after speech dispatch rather than avatar speech completion", async () => {
+    let finishSpeech: (() => void) | undefined;
+    mocks.sessionRepeat.mockImplementation(
+      () => new Promise<void>((resolve) => {
+        finishSpeech = resolve;
+      }),
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      json: async () => ({ response: "Right here." }),
+    })));
+
+    const { sendMessage } = useTextChat("CUSTOM");
+    let completed = false;
+    const turn = sendMessage("What do you mean by that?", null, "utt-normal")
+      .then(() => {
+        completed = true;
+      });
+
+    // Yield one task: the request/JSON path is async, while the deliberately
+    // unresolved avatar speech promise must not control `turn`.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mocks.sessionRepeat).toHaveBeenCalledWith("Right here.");
+    expect(completed).toBe(true);
+
+    finishSpeech?.();
+    await turn;
+  });
+
+  it("does not dispatch an older brain reply after the user has started a newer turn", async () => {
+    const pending = new Map<string, (value: { json: () => Promise<{ response: string }> }) => void>();
+    vi.stubGlobal("fetch", vi.fn((_: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { message?: string };
+      return new Promise<{ json: () => Promise<{ response: string }> }>((resolve) => {
+        pending.set(body.message ?? "", resolve);
+      });
+    }));
+    const current = { id: "utt-new" };
+    const onAssistantText = vi.fn();
+    const { sendMessage } = useTextChat(
+      "CUSTOM",
+      onAssistantText,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (utteranceId) => utteranceId === current.id,
+    );
+
+    const oldTurn = sendMessage("old question", null, "utt-old");
+    pending.get("old question")?.({ json: async () => ({ response: "old reply" }) });
+    await oldTurn;
+
+    expect(onAssistantText).not.toHaveBeenCalled();
+    expect(mocks.sessionRepeat).not.toHaveBeenCalled();
+  });
+
   it("passes accepted utterance IDs through the LiveAvatarSession call path", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/LiveAvatarSession.tsx"),

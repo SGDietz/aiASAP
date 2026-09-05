@@ -23,6 +23,10 @@ import {
 // mode. The old 8-line mini-prompt is gone; 6 is 6 everywhere, and his
 // personality survives avatar stops and returns because WE hold the brain.
 import { SIX_SYSTEM_PROMPT } from "../../../src/lib/brain/sixSystemPrompt";
+import {
+  shouldAskForNameNow,
+  NAME_ASK_WHISPER,
+} from "../../../src/lib/nameAskWhisper";
 import { buildConversationMessages } from "../../../src/lib/brain/conversationMessages";
 
 // THE INTERVIEW LEDGER (wired 2026-08-21). It records what somebody has
@@ -38,6 +42,10 @@ import { applySlots } from "../../../src/lib/interview/applySlots";
 import { hasVoiceConsent, recordVoiceConsent } from "../../../src/lib/interview/consent";
 import { generateBuildCard } from "../../../src/lib/interview/buildCardFromLedger";
 import { notifyTeam } from "../../../src/lib/teamNotify";
+import {
+  hasDirectContactFollowUpRequest,
+  hasExplicitPersonalConnectionRequest,
+} from "../../../src/lib/buildInterestFlow";
 
 const SYSTEM_PROMPT = SIX_SYSTEM_PROMPT;
 
@@ -64,6 +72,7 @@ export async function POST(request: Request) {
       history: rawHistory,
       userName: rawUserName,
       signedInEmail: rawSignedInEmail,
+      buildGateSatisfied: rawBuildGateSatisfied,
     } = body;
 
     if (typeof rawMessage !== "string" || !rawMessage.trim()) {
@@ -219,6 +228,79 @@ export async function POST(request: Request) {
       systemSections.push(
         "CONVERSATION SO FAR: the turns below already happened in THIS session. Do NOT introduce yourself again - you already did. Continue the conversation naturally.",
       );
+    }
+
+    // Conversion hard gate. Only an explicit prospect request to personally
+    // connect with G may enter the existing consent-gated contact flow. Build
+    // talk, sales coaching, and handoff rehearsal remain ordinary brain turns.
+    const buildInterestSeen = [
+      ...history.filter((turn) => turn.role === "user").map((turn) => turn.content),
+      message,
+    ].some(
+      (turn) =>
+        hasExplicitPersonalConnectionRequest(turn) ||
+        hasDirectContactFollowUpRequest(turn),
+    );
+    const buildGateSatisfied = Boolean(signedInEmail) || rawBuildGateSatisfied === true;
+    // MEASURED 2026-09-04. `buildInterestSeen` scans the ENTIRE history, so once
+    // any past turn tripped the contact detector this gate short-circuited
+    // EVERY later turn - returning the identical canned line and never calling
+    // the brain at all. In the recorded conversations it is the third most
+    // repeated thing 6 says (+6 beyond the first).
+    //
+    // It compounded with the "call me 6" bug fixed the same day: G saying his
+    // own name tripped the detector, and from that moment every single thing he
+    // said came back as this demand.
+    //
+    // The gate still holds - it is what stops the interview advancing without a
+    // contact - but a question asked twice and ignored has stopped being a
+    // question. Counted from the history itself, so the route stays stateless.
+    // (This count only became reliable today: assistant lines used to be
+    // dropped from history during a capture, which is part of why it repeated.)
+    const alreadyAskedForContact = history.filter(
+      (turn) =>
+        turn.role === "assistant" &&
+        typeof turn.content === "string" &&
+        turn.content.includes("so the team can follow up"),
+    ).length;
+    if (buildInterestSeen && !buildGateSatisfied && alreadyAskedForContact < 2) {
+      // G, ride 2026-09-03 19:42, word for word: "don't mention the account...
+      // yet. That'll be later on or a different time." The gate still holds -
+      // the interview does not advance without a confirmed contact - but the
+      // WORDS never name the account or "Part 1"; 6 just asks for the contact.
+      return Response.json({
+        response: "Real quick so the team can follow up - what's your name, and what's your email address?",
+        conversionGate: "required",
+      });
+    }
+
+    // THE NAME WHISPER (G, 2026-09-04: "fix the call you name thing").
+    //
+    // The prompt already said to ask once a real passion answer lands, "at the
+    // next natural pause". That has no edge, and it drifted: on his ride he
+    // said "I love building things" at 17:07:12 and "I build stone walls with
+    // boulders" at 17:08:48, and the ask did not go out until 17:11:07 -
+    // roughly twenty turns later, mid-way through scoping his website, glued
+    // to the single word "so". Asked that late it reads as never having
+    // listened, which is the complaint he has repeated most on this project.
+    //
+    // Prompt wording alone has already failed this rule twice, so the route
+    // enforces it the way it enforces the opposite case above: a one-line
+    // whisper, counted from history, stateless. Note the symmetry - when a
+    // name IS known we push "NEVER ask for their name"; this is that rule's
+    // missing other half.
+    // Decision lives in src/lib/nameAskWhisper.ts so it can be tested against
+    // G's real 2026-09-04 transcript instead of only grepped for.
+    if (
+      shouldAskForNameNow({
+        history,
+        message,
+        knownName: resolvedUserName.name,
+        signedInEmail,
+        listMode: listMode === true,
+      })
+    ) {
+      systemSections.push(NAME_ASK_WHISPER);
     }
 
     // Tracer: history=0 on a turn that should have context means the PAGE is

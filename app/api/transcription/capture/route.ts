@@ -3,8 +3,11 @@ import {
   isSafeTranscriptionSessionId,
 } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
-import { persistUserUtteranceLeadCapture } from "../../../../src/lib/leadCaptureFromUserText";
-import { normalizeTesterLabel } from "../../../../src/lib/testerAttribution";
+
+// Compatibility endpoint only. Accepted application turns are persisted by
+// /api/voice-mode/log-turn, whose event-id insert representation is the proof
+// that lead extraction may run exactly once. This endpoint cannot supply that
+// proof, so it must never write transcript, lead, contact, or prompt state.
 
 export async function POST(request: Request) {
   const originErr = assertAllowedOrigin(request);
@@ -30,19 +33,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const sessionId = rawSessionId.trim();
-    const testerLabel = normalizeTesterLabel(body.testerLabel);
-    const result = await persistUserUtteranceLeadCapture(
-      sessionId,
-      rawText,
-      testerLabel,
-    );
+    void rawSessionId;
+    void rawText;
 
     return new Response(
       JSON.stringify({
-        extracted: result.extracted,
-        assistantPrompt: result.assistantPrompt,
-        shouldSkipVision: result.shouldSkipVision,
+        extracted: {
+          email: null,
+          phone: null,
+          full_name: null,
+          consent_status: "unknown",
+        },
+        assistantPrompt: null,
+        shouldSkipVision: false,
+        deprecated: true,
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );

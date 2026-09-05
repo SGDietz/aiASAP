@@ -348,8 +348,33 @@ const SPOKEN_UNDERSCORE = "\u0003";
 const SPOKEN_DASH = "\u0004";
 const SENTENCE_TAIL_TLD = /\.(?:so|and|but|then|now|because|however|also|though|instead|which|that)$/i;
 
+/**
+ * Join letters a visitor SPELLED OUT.
+ *
+ * 6's own script asks for exactly this: "What's your email? Spell it slowly,
+ * one letter at a time." When they comply the transcript arrives as single
+ * characters - "s g d i e t z at p m dot m e" - and before this the extractor
+ * returned NULL on it. The one format 6 asks for was the one format that could
+ * not be read.
+ *
+ * G also spells with dashes ("s-g-d-i-e-t-z"), the locked spoken style, so
+ * hyphen-separated runs collapse too.
+ *
+ * SAFE BECAUSE IT ONLY JOINS RUNS THAT ARE **ALL** SINGLE CHARACTERS. A real
+ * hyphenated local part like "mary-jane@x.com" has multi-character segments
+ * and is left alone. And extractFollowUpEmail tries the RAW text first, so a
+ * collapse can only ever add a reading, never override a literal address.
+ */
+export function collapseSpelledRuns(text: string): string {
+  // two or more single chars in a row, separated by spaces or hyphens
+  return text.replace(
+    /\b[a-z0-9](?:[ \t-]+[a-z0-9]){1,}\b/gi,
+    (run) => run.replace(/[ \t-]+/g, ""),
+  );
+}
+
 export function normalizeSpokenEmail(text: string): string {
-  const marked = text.toLowerCase()
+  const marked = collapseSpelledRuns(text.toLowerCase())
     .replace(/\b(?:at sign|at)\b/g, SPOKEN_AT)
     .replace(/\b(?:dot|period)\b/g, SPOKEN_DOT)
     .replace(/\bunderscore\b/g, SPOKEN_UNDERSCORE)

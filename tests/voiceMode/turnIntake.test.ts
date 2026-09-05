@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   bindSessionListener,
+  flushPendingSpeechFragment,
   isLikelyIncompleteSpeechFragment,
   mergeSpeechFragments,
   resolveTurnIntake,
@@ -19,6 +20,8 @@ describe("voice turn intake — latest aiASAP SUP fragments", () => {
     "Can you?",
     "What do you",
     "take the",
+    "I love to, um,",
+    "build your",
     "You know, people don't",
     "they need to be",
   ])("holds incomplete fragment: %s", (text) => {
@@ -42,6 +45,10 @@ describe("voice turn intake — latest aiASAP SUP fragments", () => {
     "turn it on",
     "tell me what you need",
     "what is this",
+    "What do you mean by that?",
+    "What do you mean by that",
+    "What do you mean by that...",
+    "Why is that?",
   ])("dispatches complete turn: %s", (text) => {
     expect(isLikelyIncompleteSpeechFragment(text)).toBe(false);
   });
@@ -113,6 +120,14 @@ describe("voice turn intake — latest aiASAP SUP fragments", () => {
       pending: null,
       stitched: false,
     });
+  });
+
+  it("flushes a lone provider final instead of silently losing it", () => {
+    const pending = { text: "email is fine", at: 1_000 };
+
+    expect(flushPendingSpeechFragment(pending, 2_399)).toBeNull();
+    expect(flushPendingSpeechFragment(pending, 2_400)).toBe("email is fine");
+    expect(flushPendingSpeechFragment(null, 2_400)).toBeNull();
   });
 
   it("does not stitch a fresh conversational shard into a direct command", () => {

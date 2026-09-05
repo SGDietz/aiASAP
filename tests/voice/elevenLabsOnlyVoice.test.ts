@@ -59,7 +59,7 @@ function fakeSession() {
 
 const AUDIO = "A".repeat(400);
 
-describe("the one-voice switch, now on", () => {
+describe("the one-voice switch, currently OFF", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -80,20 +80,29 @@ describe("the one-voice switch, now on", () => {
     vi.stubGlobal("fetch", undefined);
   });
 
-  it("is ON: every line is generated once by ElevenLabs, never by the provider", async () => {
+  it("is OFF: the provider speaks, with no ElevenLabs round trip in front", async () => {
+    // TRIED AGAIN AND TURNED BACK OFF, 2026-09-04 17:07, on G's live ride.
+    // The theory was sound and the voice-id check was right - both engines
+    // really are "6-20251218-Nailed" - but he rode it and said "the Avatar did
+    // not speak at all your mouth did not move". His ears beat the telemetry,
+    // for the second time on this same switch.
+    //
+    // HONEST NOTE FOR WHOEVER TRIES THIS THIRD: the same ride showed the avatar
+    // VIDEO TRACK never went live in that session (no live_track, no
+    // first_presented_frame, repeat failures with reason
+    // media_probe_unavailable, then session_ended: connection_lost). The very
+    // next session, on this reverted path, had the mouth moving. So the switch
+    // was probably NOT the cause - it was reverted because it was the fastest
+    // thing to rule out while G was live and paying. Rule the video path out
+    // first next time, then try the switch again on a healthy session.
     const mod = await import("../../src/liveavatar/customVoiceDelivery");
     const session = fakeSession();
     mod.speakThroughAvatar(session as never, "Can I send that to Scott?", "test.line");
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    const [url, init] = fetchMock.mock.calls[0] as [string, { body: string }];
-    expect(url).toBe("/api/elevenlabs-text-to-speech");
-    expect(JSON.parse(init.body).text).toBe("Can I send that to Scott?");
-    // No voice_id override: the route uses ELEVENLABS_VOICE_ID, which is the
-    // same "6-20251218-Nailed" voice the provider speaks with.
-    expect(JSON.parse(init.body).voice_id).toBeUndefined();
-    // The provider's own TTS is retired while the switch is on - one engine,
-    // so a conversation can never come out in two voices.
-    expect(session.repeat).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(session.repeat).toHaveBeenCalledWith("Can I send that to Scott?"));
+    // no ElevenLabs round trip in front of every line
+    expect(fetchMock.mock.calls.filter(
+      (c) => String(c[0]).includes("/api/elevenlabs-text-to-speech"),
+    )).toHaveLength(0);
   });
 
   it("falls back to the provider voice if ElevenLabs cannot be reached", async () => {
@@ -112,7 +121,7 @@ describe("the one-voice switch, now on", () => {
       resolve(process.cwd(), "src/liveavatar/customVoiceDelivery.ts"),
       "utf8",
     );
-    expect(src).toContain("const ELEVENLABS_ONLY_VOICE = true;");
+    expect(src).toContain("const ELEVENLABS_ONLY_VOICE = false;");
     // the whole mechanism is still there, behind that one word
     expect(src).toContain("deliverCustomTtsAudio(session, audio, where)");
     expect(src).toContain("elevenlabs_unavailable");

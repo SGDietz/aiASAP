@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useLiveAvatarContext } from "./context";
+import { settleStopCommand } from "./stopCommand";
 import {
   cutCustomVoiceFallback,
   registerSixSpokenLine,
@@ -9,12 +10,16 @@ import {
 export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
   const { sessionRef } = useLiveAvatarContext();
 
-  const interrupt = useCallback(() => {
+  const interrupt = useCallback(async () => {
     // copilot 2026-06-12: barge-in must also silence the WebAudio fallback
     // voice (the avatar pipe can't carry CUSTOM audio; see customVoiceDelivery).
+    // This local half runs FIRST and always, so a barge-in still silences 6
+    // even when the provider socket is already dead.
     cutCustomVoiceFallback();
-    return sessionRef.current.interrupt();
+    await settleStopCommand(() => sessionRef.current.interrupt(), "interrupt");
   }, [sessionRef]);
+
+
 
   const repeat = useCallback(
     async (message: string) => {
@@ -46,8 +51,10 @@ export const useAvatarActions = (mode: "FULL" | "CUSTOM") => {
     return sessionRef.current.startListening();
   }, [sessionRef]);
 
-  const stopListening = useCallback(() => {
-    return sessionRef.current.stopListening();
+  // Same teardown race as interrupt: stopping a session that is already gone
+  // is the outcome we wanted, not an error worth rejecting over.
+  const stopListening = useCallback(async () => {
+    await settleStopCommand(() => sessionRef.current.stopListening(), "stopListening");
   }, [sessionRef]);
 
   return {

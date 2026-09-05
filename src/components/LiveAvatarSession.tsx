@@ -2,6 +2,9 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { StageControls } from "./StageControls";
+import { MicrophoneRecoveryCard } from "./MicrophoneRecoveryCard";
+import { SendLinkFallbackCard } from "./SendLinkFallbackCard";
+import { ContactStatusCard } from "./ContactStatusCard";
 import {
   LiveAvatarContextProvider,
   useSession,
@@ -9,19 +12,31 @@ import {
   useVoiceChat,
   useLiveAvatarContext,
 } from "../liveavatar";
-import Link from "next/link";
-import { TaglineText } from "./TaglineText";
+import { StageLegalFooter } from "./StageLegalFooter";
+import { StageBrandLockup } from "./StageBrandLockup";
+import { SixLoadingIndicator } from "./SixLoadingIndicator";
+import { WildWorksLinkButton } from "./WildWorksLinkButton";
+import { PublicContactCard } from "./PublicContactCard";
 import { SessionState, AgentEventsEnum } from "@heygen/liveavatar-web-sdk";
 import { useAvatarActions } from "../liveavatar/useAvatarActions";
 import {
   cutCustomVoiceFallback,
+  bindAvatarAudioPresentationProbe,
   isCustomVoiceFallbackBusy,
   primeCustomVoiceFallback,
+  primeSpeechAudio,
   registerSixSpokenLine,
   reportCustomVoiceDiag,
   setCustomVoiceMuted,
+  subscribeAvatarSpeechFailure,
+  subscribeAvatarSpeechGap,
+  isCustomVoiceMuted,
   wasRecentlySpokenBySix,
 } from "../liveavatar/customVoiceDelivery";
+import {
+  createBrowserAvatarAudioPresentationProbe,
+  type AvatarAudioPresentationProbe,
+} from "../liveavatar/avatarAudioPresentation";
 import { captureMedia } from "../lib/captureMedia";
 import { captureTesterLabelFromUrl } from "../lib/testerAttribution";
 import { rememberAnonymousSessionId } from "../lib/auth/AuthProvider";
@@ -34,9 +49,14 @@ import {
   type SignupPorts,
 } from "../lib/signup/machine";
 import {
+  resolveSendLinkFallbackStatus,
+  type SendLinkFallbackStatus,
+} from "../lib/signup/sendLinkFallback";
+import {
   captureClientError,
   captureClientWarn,
 } from "../lib/observability/clientLogger";
+import { fetchBrainWithRetry } from "../lib/brainFetch";
 import {
   createClientEventId,
   logAppEvent,
@@ -50,6 +70,39 @@ import {
   consumePendingSpeechUtteranceId,
   recordAssistantTurn,
 } from "../lib/voice/speechTurnCorrelation";
+import {
+  claimSessionGreeting,
+  micPressAction,
+  syncSpeakerMute,
+} from "../lib/voice/sessionControls";
+import {
+  inspectMicrophonePermission,
+  microphonePermissionMessage,
+  requestMicrophonePermission,
+  type MicrophonePermissionState,
+} from "../lib/voice/microphonePermission";
+import {
+  getStartupTimingSnapshot,
+  markStartupTiming,
+} from "../lib/voice/startupTiming";
+import {
+  EMPTY_BUILD_INTEREST_STATE,
+  canAdvanceBuildInterview,
+  resolveContactSave,
+  stepBuildInterest,
+  type BuildInterestState,
+  type BuildInterestStep,
+} from "../lib/buildInterestFlow";
+import { consumePendingBuildAccountSetup, postOpportunitySignal } from "../lib/opportunityClient";
+import {
+  resolveAvatarSiteIntent,
+  resolveWildWorksLinkTurn,
+  type WildWorksOfferState,
+} from "../lib/wildWorksLinkIntent";
+import {
+  isPublicContactRequest,
+  PUBLIC_CONTACT_SPOKEN_RESPONSE,
+} from "../lib/publicContact";
 
 // r30 (G 2026-06-12: "how do we know when I am on my account... Can I log
 // out, and then log in from another account? Let's set up that system"):
@@ -131,8 +184,12 @@ import {
 import { pcm16Base64ToAudioBuffer } from "../lib/voiceMode/pcm";
 import {
   bindSessionListener,
+  flushPendingSpeechFragment,
   isLikelyIncompleteSpeechFragment,
+  isSameUtteranceHeardTwice,
+  resolveSemanticTurn,
   resolveTurnIntake,
+  type AcceptedTurn,
   type PendingSpeechFragment,
 } from "../lib/voiceMode/turnIntake";
 import {
@@ -141,8 +198,11 @@ import {
 import {
   arbitrateAvatarSpeechSource,
   selectAvatarSpeechSource,
+  shouldUseBrowserSpeechRecognition,
   type AvatarSpeechSource,
 } from "../lib/speech/sourceAuthority";
+import { allowsOnlineLookup } from "../lib/onlineLookupPolicy";
+import { formatSixSpeechForTts } from "../lib/voice/speechBrand";
 import {
   LIST_INDEX_RE,
   buildListIndexReply,
@@ -161,6 +221,7 @@ import {
   ONLINE_LOOKUP_CLOSE_RE,
   SHOPPING_MODE_CLOSE_RE,
   isInternalSignal,
+  isDirectAvatarStopCommand,
   hasEndSessionIntent,
   hasExplicitAccountSendOnCloseIntent,
   confirmsEndSession,
@@ -206,22 +267,16 @@ function getLiveAvatarSessionId(session: unknown): string | null {
 const INITIAL_URL_HASH =
   typeof window !== "undefined" ? window.location.hash : "";
 
+/**
+ * How long the opener may wait for a real painted frame of 6 before it speaks
+ * anyway. G, 2026-09-04: "the avatar should only be speaking with the avatar is
+ * on screen." Measured margin today is 90 ms (frame 9,378 ms, greeting
+ * 9,467 ms), so this is head-room for a slow phone, not a routine delay.
+ */
+const AVATAR_ON_SCREEN_WAIT_MS = 3000;
+
 const VOICE_START_GREETING =
-  "Hi, I'm 6, your a-i-buddy. You know why they call me 6? 'Cuz I got your back. So how can I make your life a little bit better today?";
-
-// G spec 2026-05-27: if user interrupts the hard-coded intro before 6 finishes,
-// fire one of these as 6's 2nd utterance after the interruption so the intro
-// always lands. Random pick = chaos preference + variety on retest.
-const GREETING_COMPLETION_POOL = [
-  "They call me 6 'cuz I got your back. So how can I make your life a little bit better today?",
-  "Oh and real quick — they call me 6 'cuz I got your back. So how can I make your life a little bit better today?",
-  "Oh and I was saying, they call me 6 'cuz I got your back. So how can I make your life a little bit better today?",
-];
-
-const pickGreetingCompletion = (): string =>
-  GREETING_COMPLETION_POOL[
-    Math.floor(Math.random() * GREETING_COMPLETION_POOL.length)
-  ];
+  "6 here. Tell me what you love doing, and what you're good at, what you know. Together, we're gonna build a money-making machine that's gonna set you free to live the life you want to live. Start here, tell me what you love doing most in this world.";
 
 // G (2026-06-01): close should say ONE short line then close — no two-step
 // confirm dance, no re-prompt, no silence wait. Eager-close is fine because the
@@ -2064,14 +2119,24 @@ function speakEmailAddress(email: string): string {
 
 const LiveAvatarSessionComponent: React.FC<{
   mode: "FULL" | "CUSTOM";
+  microphonePreflightGranted?: boolean;
   onSessionStopped: (opts?: SessionStoppedReason) => void;
   onExit?: (completeExit?: boolean) => void;
   /** STOP: tear the session down but land on tap-to-return, not Session Ended. */
   onPause?: () => void;
   /** Top-right button: drop the avatar, keep talking. Mints nothing. */
   onVoiceOnly?: () => void;
-}> = ({ mode, onSessionStopped, onExit, onPause, onVoiceOnly }) => {
+}> = ({
+  mode,
+  microphonePreflightGranted = false,
+  onSessionStopped,
+  onExit,
+  onPause,
+  onVoiceOnly,
+}) => {
   const [message, setMessage] = useState("");
+  const [wildWorksOfferState, setWildWorksOfferState] = useState<WildWorksOfferState>("idle");
+  const wildWorksOfferStateRef = useRef<WildWorksOfferState>("idle");
   const {
     sessionState,
     isStreamReady,
@@ -2130,6 +2195,8 @@ const LiveAvatarSessionComponent: React.FC<{
     () => deviceProfileRef.current?.name ?? null,
     // r34: and the signed-in state, for the same reason.
     () => accountEmailRef.current,
+    () => canAdvanceBuildInterview(buildInterestStateRef.current, Boolean(accountEmailRef.current)),
+    (utteranceId) => currentUtteranceIdRef.current === utteranceId,
   );
   const { sessionRef, sessionEpoch, renewSessionToken } = useLiveAvatarContext();
 
@@ -2194,6 +2261,53 @@ const LiveAvatarSessionComponent: React.FC<{
   // stay on, the conversation keeps logging, he just stops talking out loud.
   const [voiceMuted, setVoiceMuted] = useState(false);
   const voiceMutedRef = useRef(false);
+  // 2026-08-21 ride, G said it out loud: "the mute didn't work the first time".
+  // MUTE is the MIRROR IMAGE of the speaker mute above — QUIET owns 6's mouth,
+  // MUTE owns the user's microphone. Before this, MUTE had no variable of its
+  // own: the button ran handleVoiceStartStop, whose off-branch is a full voice
+  // loop teardown (stop() destroys the mic track), and whose on-branch is a
+  // cold start WITH the greeting. So MUTE was a second STOP wearing a mic icon,
+  // and un-muting made 6 introduce himself again — three times in 85 seconds.
+  // This flag touches NOTHING that keeps the session alive. STOP is one button
+  // away and STOP is the only control allowed to end anything.
+  //
+  // Ref AND state on purpose: the ref is read from inside long-lived closures
+  // (the speech dispatcher, the barge-in poll, the browser recognizer) that
+  // must NOT re-subscribe when the flag flips; the state only paints the button.
+  const [micMuted, setMicMuted] = useState(false);
+  const micMutedRef = useRef(false);
+  // Separate from UI mute: this marks the one explicit gesture-owned preflight
+  // that is allowed to arm CUSTOM's independent barge-in capture.
+  const [hasExplicitMicStartGrant, setHasExplicitMicStartGrant] = useState(false);
+  const [microphonePermissionNotice, setMicrophonePermissionNotice] = useState<string | null>(null);
+  const [microphonePermissionState, setMicrophonePermissionState] =
+    useState<MicrophonePermissionState | null>(null);
+  // The live browser SpeechRecognition instance, so MUTE can stop and restart
+  // it IMPERATIVELY. Putting micMuted in that effect's dep array instead would
+  // destroy and rebuild the recognizer on every toggle — and a rebuild that
+  // races the old instance's stop() throws InvalidStateError, whose only
+  // handler hands authority to the SDK forever with no re-arm. That is 6 going
+  // permanently deaf on a double-tap, which is worse than the bug we are here
+  // to fix.
+  //
+  // The handle also carries clearRestart(), because the recognizer effect owns
+  // a 350ms restart timer that applyMicMute could not see. The sequence that
+  // deafened 6 for a whole session with no throw anywhere applyMicMute could
+  // catch: silent user -> "no-speech" -> onend arms the timer; MUTE inside that
+  // window (stop() on an inactive recognizer is a no-op); UNMUTE inside the
+  // same window (start() succeeds, so no rebuild); the timer fires, passes the
+  // un-muted guard, and start() on the now-running instance throws
+  // InvalidStateError INSIDE THE TIMER -> fatal flag set, authority handed to
+  // the SDK, onend returns early forever, MUTE paints a live mic. So every tap
+  // kills the pending timer first.
+  const speechRecognitionRef = useRef<{
+    recognition: any;
+    clearRestart: () => void;
+  } | null>(null);
+  // Bumped ONLY when un-muting fails to restart the recognizer. That is the one
+  // path in this design that could leave 6 silently deaf, so it gets a real
+  // rebuild instead of a console.warn.
+  const [recognizerEpoch, setRecognizerEpoch] = useState(0);
   const voiceEarsRef = useRef<{
     stream: MediaStream;
     ctx: AudioContext;
@@ -2215,7 +2329,12 @@ const LiveAvatarSessionComponent: React.FC<{
   // can route a real session-close to the SAME end path the avatar handler uses.
   // (G 2026-06-14: "Close this session" while a list was up wrongly brought the
   // avatar back instead of ending — list mode had no end-session branch.)
-  const handleEndSessionRef = useRef<((opts?: { pause?: boolean; toVoice?: boolean }) => void) | null>(null);
+  const handleEndSessionRef = useRef<((opts?: {
+    pause?: boolean;
+    toVoice?: boolean;
+    awaitProviderStop?: boolean;
+  }) => Promise<void>) | null>(null);
+  const avatarSpeechFailureReportedRef = useRef(false);
   const voiceEnteredAtRef = useRef(0);
   const voiceCurrentSourceRef = useRef<AudioBufferSourceNode | null>(null);
   // Durable correlation id for the accepted user turn currently being handled.
@@ -2392,7 +2511,11 @@ const LiveAvatarSessionComponent: React.FC<{
   }, []);
 
   const voiceSay = useCallback(
-    async (text: string) => {
+    // F5 2026-08-21: utteranceIdOverride is threaded straight through to
+    // voiceLogTurn, which already treats `undefined` as "use the current turn"
+    // — so every existing caller is byte-identical. Pass null for SCRIPTED
+    // speech (see repeat() below).
+    async (text: string, utteranceIdOverride?: string | null) => {
       const t = (text ?? "").trim();
       if (!t) return;
       if (shouldSkipDuplicateSpeech(t)) return; // never voice the same line twice
@@ -2401,7 +2524,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // unregistered voiceSay line echoed into the mic, dispatched as the
       // user, and re-opened the grocery list G never asked for (02:03:04).
       registerSixSpokenLine(t);
-      voiceLogTurn("assistant", t);
+      voiceLogTurn("assistant", t, utteranceIdOverride);
       if (voiceMutedRef.current) return; // muted: logged, not spoken
       voiceTtsQueueRef.current.push(t);
       void voicePlayNext();
@@ -2433,12 +2556,33 @@ const LiveAvatarSessionComponent: React.FC<{
   // interrupt() call sites keeps working in voice mode — speech reroutes to
   // the ElevenLabs mouth, session-only calls become safe no-ops.
   const repeat = useCallback(
-    async (text: string) => {
-      if (voicePresenceRef.current !== "avatar") return voiceSay(text);
-      if (shouldSkipDuplicateSpeech(text)) return; // never voice the same line twice
+    async (text: string, utteranceIdOverride?: string | null) => {
+      // G, 2026-09-04, standing order: the spoken brand is "a-i-ASAP" on ALL
+      // sites, "no deviation." This was gated to CUSTOM, so every SCRIPTED line
+      // - the opener included - went out unformatted in FULL mode (reachable at
+      // ?mode=full) and 6 said the brand wrong there. The brain-reply path in
+      // useTextChat has always formatted unconditionally; this is the last
+      // inconsistent boundary. The formatter is idempotent and only ever
+      // rewrites the brand, so running it in every mode is safe.
+      const spokenText = formatSixSpeechForTts(text);
+      if (voicePresenceRef.current !== "avatar")
+        return voiceSay(spokenText, utteranceIdOverride);
+      if (shouldSkipDuplicateSpeech(spokenText)) return; // never voice the same line twice
       // r25: CUSTOM avatar-mode machine lines also land in the transcript
       // (no official LiveAvatar transcript exists for these sessions).
-      if (mode === "CUSTOM") voiceLogTurn("assistant", text);
+      //
+      // F5 2026-08-21: pass null here for SCRIPTED speech — a greeting is not
+      // an answer to any user turn. With no override, voiceLogTurn falls back
+      // to currentUtteranceIdRef, which is written ONLY on an accepted user
+      // turn and is never cleared, so the 21:07:10 greeting was filed under the
+      // 21:06:45 user turn COMPLAINING about the greeting. Worse than a wrong
+      // label: /api/voice-mode/log-turn upserts on_conflict=event_id with
+      // resolution=ignore-duplicates, and the assistant event id is
+      // `${utteranceId}:transcript:assistant:${fingerprint(text)}` — so two
+      // identical greetings under one stale id collide and the SECOND IS
+      // SILENTLY DROPPED. The sup transcript under-reports the exact repeat we
+      // use it to find.
+      if (mode === "CUSTOM") voiceLogTurn("assistant", spokenText, utteranceIdOverride);
       // G 2026-06-13 SILENT-IN-LIST ROOT CAUSE: when a list opens, the dispatcher
       // speaks "I started the X..." via sessionRepeat WHILE enterVoiceListMode is
       // concurrently stopping the avatar session. sessionRepeat then awaits a
@@ -2450,7 +2594,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // the queue. (Tracers proved it: ht_list_enter fired for the open turn, then
       // never again, while vu_post_dispatch timed out at 7s.)
       await Promise.race([
-        Promise.resolve(sessionRepeat(text)),
+        Promise.resolve(sessionRepeat(spokenText)),
         new Promise<void>((resolve) => setTimeout(resolve, 4000)),
       ]);
     },
@@ -2461,6 +2605,10 @@ const LiveAvatarSessionComponent: React.FC<{
       voiceCutSpeech();
       return;
     }
+    // A real avatar-mode barge-in must also invalidate the detached repeat
+    // watchdog. Otherwise its stale timeout can fire after the interruption
+    // and falsely classify the session as a silent speech failure.
+    cutCustomVoiceFallback();
     return sessionInterrupt();
   }, [sessionInterrupt, voiceCutSpeech]);
 
@@ -2479,6 +2627,11 @@ const LiveAvatarSessionComponent: React.FC<{
   useEffect(() => {
     if (mode !== "CUSTOM") return;
     if (sessionState !== SessionState.CONNECTED || !isStreamReady) return;
+    // This is an independent capture stream. It must never be the thing that
+    // asks Android for microphone permission during provider loading: only the
+    // live-stage gesture may do that. Once the explicit preflight and SDK start
+    // succeed, this effect re-runs and can safely arm barge-in.
+    if (!hasExplicitMicStartGrant) return;
     let cancelled = false;
     let stream: MediaStream | null = null;
     let ctx: AudioContext | null = null;
@@ -2503,9 +2656,24 @@ const LiveAvatarSessionComponent: React.FC<{
         src.connect(analyser);
         const data = new Uint8Array(analyser.fftSize);
         poll = setInterval(() => {
+          // MUTE 2026-08-21: a muted mic cannot cut 6 off either. This poll owns
+          // an INDEPENDENT getUserMedia stream that no SDK mute can reach, so
+          // without this a "muted" user who turns and talks to someone in the
+          // room still stops 6 mid-sentence — a mute that visibly does not
+          // work, which is the exact complaint. If he cannot hear you, you
+          // cannot interrupt him.
+          //
+          // Gated by REF inside the poll, deliberately NOT by adding micMuted to
+          // this effect's deps: a dep change tears the stream down and
+          // re-acquires it on every toggle, and the catch below is a bare
+          // comment — a failed re-acquire is silent and permanent.
+          //
           // Only watch while 6 is actually speaking (WebAudio fallback queue or
           // the voiceSay TTS path). Idle -> reset the hold so nothing lingers.
-          if (!(isCustomVoiceFallbackBusy() || voiceTtsBusyRef.current)) {
+          if (
+            micMutedRef.current ||
+            !(isCustomVoiceFallbackBusy() || voiceTtsBusyRef.current)
+          ) {
             bargeMs = 0;
             return;
           }
@@ -2520,9 +2688,20 @@ const LiveAvatarSessionComponent: React.FC<{
             bargeMs += POLL_MS;
             if (bargeMs >= BARGE_HOLD_MS) {
               bargeMs = 0;
-              voiceCutSpeech();
-              void sessionInterrupt();
-              logAppEvent("barge_in", { where: "avatar", rms: Number(rms.toFixed(3)) });
+              if (openerInFlightRef.current) {
+                // A cough, a door, a "hi" over the top - none of them get to
+                // truncate the one line that has to land whole. Recorded so
+                // "did something try to cut the intro" is a Supabase query.
+                logAppEvent("barge_in", {
+                  where: "avatar",
+                  rms: Number(rms.toFixed(3)),
+                  suppressed: "opener_in_flight",
+                });
+              } else {
+                voiceCutSpeech();
+                void sessionInterrupt();
+                logAppEvent("barge_in", { where: "avatar", rms: Number(rms.toFixed(3)) });
+              }
             }
           } else {
             bargeMs = 0;
@@ -2536,9 +2715,17 @@ const LiveAvatarSessionComponent: React.FC<{
       cancelled = true;
       if (poll) clearInterval(poll);
       if (stream) stream.getTracks().forEach((t) => t.stop());
-      if (ctx) void ctx.close();
+      // close() rejects (not throws) on an already-closed context.
+      if (ctx) void ctx.close().catch(() => {});
     };
-  }, [mode, sessionState, isStreamReady, voiceCutSpeech, sessionInterrupt]);
+  }, [
+    mode,
+    sessionState,
+    isStreamReady,
+    hasExplicitMicStartGrant,
+    voiceCutSpeech,
+    sessionInterrupt,
+  ]);
   const startListening = useCallback(() => {
     if (voicePresenceRef.current !== "avatar") return;
     return sessionStartListening();
@@ -2557,7 +2744,7 @@ const LiveAvatarSessionComponent: React.FC<{
       if (voicePresenceRef.current !== "avatar") {
         try {
           rememberLineRef.current("user", text);
-          const r = await fetch("/api/openai-chat-complete", {
+          const r = await fetchBrainWithRetry("/api/openai-chat-complete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -2567,6 +2754,11 @@ const LiveAvatarSessionComponent: React.FC<{
               userName: deviceProfileRef.current?.name ?? null,
               signedInEmail: accountEmailRef.current,
             }),
+          }, {
+            // G's ride 2026-09-04 17:07:23: one "Failed to fetch" made him
+            // repeat himself mid-conversation. Recorded so a retry that
+            // becomes common stays visible instead of papering over a fault.
+            onRetry: () => logAppEvent("brain_fetch_retried", { where: "voice" }),
           });
           if (r.ok) {
             const data = (await r.json()) as { response?: string };
@@ -2608,7 +2800,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // already released
     }
     try {
-      void ears.ctx.close();
+      void ears.ctx.close().catch(() => {});
     } catch {
       // already closed
     }
@@ -2664,6 +2856,26 @@ const LiveAvatarSessionComponent: React.FC<{
             { outcome: "dropped" },
           );
           return;
+        }
+        // Cumulative-restatement guard, same as the avatar path (2026-08-31).
+        {
+          const listSemanticNow = Date.now();
+          const listSemantic = resolveSemanticTurn({
+            incoming: heard,
+            accepted: acceptedTurnsRef.current,
+            now: listSemanticNow,
+          });
+          if (listSemantic.kind === "drop") {
+            logAppEvent(
+              "user_turn_dropped",
+              { where: "list", reason: listSemantic.reason },
+              "low",
+              { outcome: "dropped" },
+            );
+            return;
+          }
+          rememberAcceptedTurn(heard, listSemanticNow);
+          heard = listSemantic.text;
         }
         // Snapshot the prior fragment BEFORE overwriting, so the close-stitch
         // below can join STT chunks of the same utterance (G 2026-06-14).
@@ -2734,6 +2946,30 @@ const LiveAvatarSessionComponent: React.FC<{
           performSignOut();
           return;
         }
+        if (isPublicContactRequest(heard)) {
+          rememberLineRef.current("assistant", PUBLIC_CONTACT_SPOKEN_RESPONSE);
+          voiceLogTurn("assistant", PUBLIC_CONTACT_SPOKEN_RESPONSE);
+          void voiceSay(PUBLIC_CONTACT_SPOKEN_RESPONSE);
+          return;
+        }
+        const wildWorks = resolveWildWorksLinkTurn(heard, wildWorksOfferStateRef.current);
+        if (wildWorks) {
+          wildWorksOfferStateRef.current = wildWorks.nextState;
+          setWildWorksOfferState(wildWorks.nextState);
+          if (wildWorks.handled && wildWorks.spoken) {
+            rememberLineRef.current("assistant", wildWorks.spoken);
+            voiceLogTurn("assistant", wildWorks.spoken);
+            void voiceSay(wildWorks.spoken);
+            return;
+          }
+        }
+        const avatarSite = resolveAvatarSiteIntent(heard);
+        if (avatarSite) {
+          rememberLineRef.current("assistant", avatarSite);
+          voiceLogTurn("assistant", avatarSite);
+          void voiceSay(avatarSite);
+          return;
+        }
         // SESSION-CLOSE wins over avatar-return in list mode (G 2026-06-14):
         // "close the session" / "close this session" / "end session" must END the
         // experience (Session Ended screen), not bring 6 back. hasEndSessionIntent
@@ -2752,7 +2988,9 @@ const LiveAvatarSessionComponent: React.FC<{
           return;
         }
         if (hasEndSessionIntent(heard) && !END_SESSION_BLOCK_RE.test(heard)) {
-          void handleEndSessionRef.current?.();
+          void handleEndSessionRef.current?.(
+            isDirectAvatarStopCommand(heard) ? { pause: true } : undefined,
+          );
           return;
         }
         if (wantsAvatarBack(heard)) {
@@ -2799,7 +3037,7 @@ const LiveAvatarSessionComponent: React.FC<{
           logAppEvent("t6", { p: "vu_brain_call" });
           let replyText = "";
           try {
-            const r = await fetch("/api/openai-chat-complete", {
+            const r = await fetchBrainWithRetry("/api/openai-chat-complete", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -2809,6 +3047,11 @@ const LiveAvatarSessionComponent: React.FC<{
                 userName: deviceProfileRef.current?.name ?? null,
                 signedInEmail: accountEmailRef.current,
               }),
+            }, {
+              // G's ride 2026-09-04 17:07:23: one "Failed to fetch" made him
+              // repeat himself mid-conversation. Recorded so a retry that
+              // becomes common stays visible instead of papering over a fault.
+              onRetry: () => logAppEvent("brain_fetch_retried", { where: "list" }),
             });
             if (r.ok) {
               const data = (await r.json()) as { response?: string };
@@ -3198,7 +3441,7 @@ const LiveAvatarSessionComponent: React.FC<{
     return () => {
       stopVoiceEars();
       try {
-        void voiceAudioCtxRef.current?.close();
+        void voiceAudioCtxRef.current?.close().catch(() => {});
       } catch {
         // already closed
       }
@@ -3206,6 +3449,20 @@ const LiveAvatarSessionComponent: React.FC<{
   }, [stopVoiceEars]);
   // ═══════════ end voice-list mode block ═══════════
   const videoRef = useRef<HTMLVideoElement>(null);
+  // SDK stream readiness can precede the first frame painted by Android's
+  // video element. Keep phone lifecycle UI behind the loading badge until the
+  // media element itself proves that it has renderable current data.
+  const [hasRenderableAvatarFrame, setHasRenderableAvatarFrame] = useState(false);
+  const avatarFrameProvenRef = useRef(false);
+  const avatarFrameRequestRef = useRef<{
+    video: HTMLVideoElement;
+    id: number;
+  } | null>(null);
+  const [isPhoneLifecycleViewport, setIsPhoneLifecycleViewport] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(max-width: 599px)").matches,
+  );
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraPreviewRef = useRef<HTMLVideoElement>(null);
@@ -3230,22 +3487,42 @@ const LiveAvatarSessionComponent: React.FC<{
   const lastAvatarResponseRef = useRef<string>("");
   // Partial STT finals are held and stitched before any name/list/brain intent.
   const pendingSpeechFragmentRef = useRef<PendingSpeechFragment | null>(null);
+  const pendingSpeechFlushTimerRef = useRef<number | null>(null);
   const prevUserSpeechRef = useRef<{ text: string; at: number }>({
     text: "",
     at: 0,
   });
+  // CUMULATIVE PROVIDER FINALS (2026-08-31). The provider re-states everything
+  // it already sent and appends the new words, so the exact-equality guard
+  // above never fires and one hand raise reached the brain and the contact
+  // machine over and over. This ring is what resolveSemanticTurn compares
+  // against; it holds the RAW accepted text, because the raw text is what the
+  // next cumulative final restates. Nothing here touches what is persisted.
+  const acceptedTurnsRef = useRef<AcceptedTurn[]>([]);
+  const ACCEPTED_TURN_MEMORY = 8;
+  const rememberAcceptedTurn = useCallback((text: string, at: number) => {
+    acceptedTurnsRef.current = [
+      ...acceptedTurnsRef.current,
+      { text, at },
+    ].slice(-ACCEPTED_TURN_MEMORY);
+  }, []);
 
   const authoritativeAvatarSpeechSourceRef = useRef<AvatarSpeechSource>(
-    selectAvatarSpeechSource(mode, mode === "CUSTOM"),
+    selectAvatarSpeechSource(mode, false),
   );
   const sessionEpochRef = useRef(sessionEpoch);
   sessionEpochRef.current = sessionEpoch;
   useEffect(() => {
+    if (pendingSpeechFlushTimerRef.current !== null) {
+      window.clearTimeout(pendingSpeechFlushTimerRef.current);
+      pendingSpeechFlushTimerRef.current = null;
+    }
     pendingSpeechFragmentRef.current = null;
     prevUserSpeechRef.current = { text: "", at: 0 };
+    acceptedTurnsRef.current = [];
     authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
       mode,
-      mode === "CUSTOM",
+      false,
     );
   }, [mode, sessionEpoch]);
   // Stable bridges keep SDK and browser listeners attached only for their real
@@ -3253,17 +3530,92 @@ const LiveAvatarSessionComponent: React.FC<{
   const sdkUserTranscriptionDispatchRef = useRef<
     (event: { text: string }) => unknown
   >(() => undefined);
+  // Long enough for the authoritative ear to land and register the same
+  // utterance first; short enough that a rescued answer still feels like a
+  // reply rather than an echo from the last question.
+  const SECOND_EAR_HOLD_MS = 1200;
+  const backfillTimersRef = useRef<Set<number>>(new Set());
   const dispatchAuthoritativeAvatarSpeech = useCallback(
     (source: AvatarSpeechSource, event: { text: string }) => {
       const text = event.text.trim();
       if (!text || isInternalSignal(text)) return;
+      // MUTE 2026-08-21: THIS is the mute. Both live ears funnel through here —
+      // the SDK's USER_TRANSCRIPTION forwarder and the browser recognizer — so
+      // this is the one place the gate cannot be routed around. Gating only the
+      // recognizer would not hold: its onerror deliberately falls authority back
+      // to "liveavatar_sdk" on any network/device/permission failure, and the
+      // SDK forwarder would then be accepted with nothing standing in front of
+      // it. Gating only the LiveKit track would not hold either — in CUSTOM
+      // that track is not the transcript transport at all (sourceAuthority
+      // elects "app_browser" and the SDK's transcripts are dropped), AND
+      // customVoiceDelivery's echo gate re-opens the track ~300ms after every
+      // fallback line without consulting any user flag.
+      //
+      // Dropped BEFORE the arbitration on purpose: muted input must have zero
+      // effect on any state. (arbitrateAvatarSpeechSource is a pure accept/
+      // reject — it never changes authority — so nothing is lost by returning
+      // early here.) Logged so "he heard me while I was muted" has a row.
+      if (micMutedRef.current) {
+        logAppEvent(
+          "user_turn_dropped",
+          { where: "avatar", reason: "mic_muted", source },
+          "low",
+          { outcome: "dropped" },
+        );
+        return;
+      }
       const decision = arbitrateAvatarSpeechSource(
         authoritativeAvatarSpeechSourceRef.current,
         source,
       );
       authoritativeAvatarSpeechSourceRef.current =
         decision.authoritativeSource;
-      if (!decision.accepted) return;
+      if (!decision.accepted) {
+        // THE SECOND EAR. This final lost the authority race, but it is real
+        // speech and the winner misses most of it (14-39% capture across five
+        // of G's rides). Hold it, and hand it over only if the authority never
+        // produced that utterance. `resolveSemanticTurn` inside the dispatch
+        // compares against the accepted-turn ring, so an utterance both ears
+        // heard is dropped there as a duplicate - which is exactly the job it
+        // already does for the provider's cumulative restatements.
+        if (!decision.backfillCandidate) return;
+        const timer = window.setTimeout(() => {
+          backfillTimersRef.current.delete(timer);
+          if (micMutedRef.current) return;
+          // G's ride 2026-09-04: resolveSemanticTurn was the judge here, and it
+          // matches a CONTIGUOUS RUN of identical words. Two engines hearing
+          // the same audio do not agree word for word -
+          //   "no I'm 6:30 are you there buddy"
+          //   "No, um, Six, are you there, buddy?"
+          // - so neither contained the other, both were delivered, and 6
+          // answered BOTH. 30 backfills against 46 user turns, and four
+          // assistant lines inside two seconds. Same speech heard twice needs a
+          // fuzzy judge; ordinary turns keep the strict rule.
+          if (
+            isSameUtteranceHeardTwice({
+              incoming: text,
+              accepted: acceptedTurnsRef.current,
+              now: Date.now(),
+            })
+          ) {
+            logAppEvent(
+              "user_turn_dropped",
+              { where: "avatar", reason: "second_ear_echo", source, length: text.length },
+              "low",
+              { outcome: "dropped" },
+            );
+            return;
+          }
+          logAppEvent(
+            "user_turn_backfilled",
+            { where: "avatar", source, length: text.length },
+            "low",
+          );
+          void sdkUserTranscriptionDispatchRef.current({ text });
+        }, SECOND_EAR_HOLD_MS);
+        backfillTimersRef.current.add(timer);
+        return;
+      }
       void sdkUserTranscriptionDispatchRef.current({ text });
     },
     [],
@@ -3312,11 +3664,6 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const isAttachedRef = useRef<boolean>(false);
   const greetingTriggeredRef = useRef<boolean>(false);
-  // Greeting-interrupt completion (G spec 2026-05-27): force 6 to complete the
-  // intro by his 2nd utterance after the interruption.
-  const greetingInFlightRef = useRef<boolean>(false);
-  const greetingInterruptedRef = useRef<boolean>(false);
-  const greetingCompletionPendingRef = useRef<boolean>(false);
   // G 2026-06-14 DOUBLE-GREET FIX: the live begin surface (shouldShowBeginSurface)
   // has NO disabled attribute, so a second tap during the ~2.5s
   // ensureAudioOutputReady() await re-enters handleVoiceStartStop before the
@@ -3325,11 +3672,20 @@ const LiveAvatarSessionComponent: React.FC<{
   // ref blocks re-entry into the start+greeting sequence until the first tap
   // finishes.
   const voiceStartInProgressRef = useRef<boolean>(false);
+  /**
+   * True only for the ~250ms between an audio-output failure and the retry
+   * that follows it. While it is set, the loading surface stays up: the
+   * session is NOT ready during that gap, so painting 6 would be a lie.
+   * See the flicker note in handleVoiceStartStop.
+   */
+  const voiceStartRetryPendingRef = useRef<boolean>(false);
   // Latest spoken text from 6 (AVATAR_TRANSCRIPTION). Used to skip the
   // completion injection when the LLM already re-delivered the greeting on
   // its own (e.g., user said "What did you just say?" and LLM repeats it).
   const lastAvatarTranscriptionRef = useRef<string>("");
   const audioUnlockedRef = useRef<boolean>(false);
+  const avatarAudioPresentationProbeRef =
+    useRef<AvatarAudioPresentationProbe | null>(null);
   const wasMutedBeforeRecordingRef = useRef<boolean>(false);
   /** LiveAvatar server session id — used for DB + official transcript API (set when CONNECTED). */
   const dbSessionIdRef = useRef<string | null>(null);
@@ -3342,6 +3698,25 @@ const LiveAvatarSessionComponent: React.FC<{
   const voiceHeldUntilUserStartRef = useRef(false);
   const [hasUserPressedVoiceStart, setHasUserPressedVoiceStart] = useState(false);
   const [voiceStartAwaitingReady, setVoiceStartAwaitingReady] = useState(false);
+
+  useEffect(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    const probe = createBrowserAvatarAudioPresentationProbe({
+      session,
+      getElement: () => videoRef.current,
+      isAudioUnlocked: () => audioUnlockedRef.current,
+      isIntentionallyMuted: () => voiceMutedRef.current,
+    });
+    const unbind = bindAvatarAudioPresentationProbe(session, probe);
+    avatarAudioPresentationProbeRef.current = probe;
+    return () => {
+      if (avatarAudioPresentationProbeRef.current === probe) {
+        avatarAudioPresentationProbeRef.current = null;
+      }
+      unbind();
+    };
+  }, [sessionEpoch, sessionRef]);
   const [thoughtPrompts, setThoughtPrompts] = useState(
     normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS),
   );
@@ -3417,6 +3792,9 @@ const LiveAvatarSessionComponent: React.FC<{
   // FIX (2026-06-01): when set, the on-chest box shows this status text
   // (e.g. "Account Link Sent") in place of the email label + address, then fades.
   const [chestEmailStatus, setChestEmailStatus] = useState<string | null>(null);
+  const [sendLinkFallbackStatus, setSendLinkFallbackStatus] =
+    useState<SendLinkFallbackStatus>("hidden");
+  const [sendLinkFallbackEmail, setSendLinkFallbackEmail] = useState<string | null>(null);
   const [onlineLookupNotice, setOnlineLookupNotice] = useState<string | null>(
     null,
   );
@@ -3533,6 +3911,16 @@ const LiveAvatarSessionComponent: React.FC<{
   const accountMemorySnapshotRef = useRef<AccountMemorySnapshot | null>(null);
   const accountMemoryContextInjectedRef = useRef(false);
   const postVerifyGreetingSpokenRef = useRef(false);
+  // Anonymous users get the opening line once per real provider session. Voice
+  // loop stops/restarts are not session boundaries and must not clear this.
+  const anonymousGreetingSpokenRef = useRef(false);
+  // THE OPENER ALWAYS FINISHES. G, 2026-09-03: "You should also always finish
+  // the intro line just like iScott. You can pause if people interrupt him or
+  // if there's a noise, but then he should just keep going." On ride cf79a533
+  // he watched it get cut and restarted: "the avatar jumps in, jumps back out,
+  // and then jumps in." While this is true, the barge-in watcher will not cut
+  // him off - it is the one line in the session that has to land whole.
+  const openerInFlightRef = useRef(false);
   // Audio is muted until the user unlocks it (gesture). Greetings MUST wait for
   // this or 6 mouths them silently during the muted-load window. (G 2026-06-03)
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -3570,6 +3958,11 @@ const LiveAvatarSessionComponent: React.FC<{
   const lastAccountLinkSendRef = useRef<{ email: string; at: number } | null>(null);
   const accountSetupOfferMadeRef = useRef(false);
   const accountSetupDeclinedAtRef = useRef(0);
+  const [buildInterestState, setBuildInterestState] = useState<BuildInterestState>(
+    EMPTY_BUILD_INTEREST_STATE,
+  );
+  const buildInterestStateRef = useRef<BuildInterestState>(EMPTY_BUILD_INTEREST_STATE);
+  const pendingBuildAccountConsumedRef = useRef(false);
   const accountSetupEmailMissCountRef = useRef(0);
   // Voice data-deletion (G 2026-06-07): when 6 asks "are you sure?" before
   // erasing a user's data, the next utterance is the yes/no — these track that
@@ -3590,6 +3983,7 @@ const LiveAvatarSessionComponent: React.FC<{
   const chestRevealActiveRef = useRef(false);
   const tickAudioCtxRef = useRef<AudioContext | null>(null);
   const chestStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendLinkFallbackDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // CHANGE 1 (2026-06-01): the address last parsed out of 6's spoken readback
   // (AVATAR_TRANSCRIPTION). Used to dedupe so the box only re-reveals when 6
   // confirms a DIFFERENT address, never on every line he speaks.
@@ -3825,11 +4219,30 @@ const LiveAvatarSessionComponent: React.FC<{
       // (G 2026-06-07, hit on every return test). Skip those turns; the real
       // conversation before and after signup is what we keep. The 30-line
       // window alone didn't help — a long email-spell still buried the topic.
+      // G's ride, 2026-09-04 12:41-12:42. 6 introduced himself THREE times
+      // ("I'm 6 - the number. 'Cuz I got your back") and asked "what kind of
+      // things do you love building" FIVE times in ninety seconds, while G told
+      // him "Twice now, and you shouldn't do that."
+      //
+      // This guard was the cause. It dropped EVERY line - his as well as the
+      // visitor's - for the whole of a capture, so the brain's history froze
+      // the moment the email ask began and every call after it re-read the same
+      // stale window. 6 could not see what he had just said, so of course he
+      // said it again. The brain already carries three separate never-repeat
+      // rules; it was obeying them against a history that had no repeats in it.
+      //
+      // The 2026-06-07 flood this guard was written for was the VISITOR
+      // spelling an address out ("s... g... d..."), which buried the real topic
+      // in the resume snapshot. That is a user-side problem. So user turns are
+      // still skipped during a capture, and 6's OWN lines always land - a
+      // handful of short questions, which is precisely what stops him repeating
+      // them.
       if (
-        accountSetupAwaitingEmailRef.current ||
-        accountSetupAwaitingNameRef.current ||
-        accountSetupAwaitingSendRef.current ||
-        accountSetupPendingEmailRef.current !== null
+        role === "user" &&
+        (accountSetupAwaitingEmailRef.current ||
+          accountSetupAwaitingNameRef.current ||
+          accountSetupAwaitingSendRef.current ||
+          accountSetupPendingEmailRef.current !== null)
       ) {
         return;
       }
@@ -5189,9 +5602,19 @@ const LiveAvatarSessionComponent: React.FC<{
         lastAvatarResponseRef.current = spoken;
         rememberConversationLine("assistant", spoken);
         lastVisionResponseTimeRef.current = Date.now();
+        setSendLinkFallbackEmail(normalizedEmail);
+        setSendLinkFallbackStatus(
+          resolveSendLinkFallbackStatus({ alreadySentRecently: true }),
+        );
+        if (sendLinkFallbackDismissTimerRef.current) {
+          clearTimeout(sendLinkFallbackDismissTimerRef.current);
+        }
+        sendLinkFallbackDismissTimerRef.current = setTimeout(() => {
+          setSendLinkFallbackStatus("hidden");
+          sendLinkFallbackDismissTimerRef.current = null;
+        }, 2200);
         return true;
       }
-      lastAccountLinkSendRef.current = { email: normalizedEmail, at: Date.now() };
       setAccountNotice("Sending Account Link");
       // G 2026-06-10 (Roger session): the pillbox sat unchanged through the
       // send round-trip and he read the dead air as "nothing happened". Show
@@ -5200,6 +5623,12 @@ const LiveAvatarSessionComponent: React.FC<{
       setChestEmailStatus("Sending Email...");
       setShowChestEmail(true);
       setAccountVerificationUrl(null);
+      setSendLinkFallbackEmail(normalizedEmail);
+      setSendLinkFallbackStatus("sending");
+      if (sendLinkFallbackDismissTimerRef.current) {
+        clearTimeout(sendLinkFallbackDismissTimerRef.current);
+        sendLinkFallbackDismissTimerRef.current = null;
+      }
       try {
         const response = await fetch("/api/account/start", {
           method: "POST",
@@ -5276,6 +5705,13 @@ const LiveAvatarSessionComponent: React.FC<{
         }
         chestRevealActiveRef.current = false;
         if (data?.emailSent) {
+          // Only confirmed delivery enters the recent-send dedupe. Recording
+          // the attempt before the response made a failed retry falsely say
+          // the link had already been sent.
+          lastAccountLinkSendRef.current = {
+            email: normalizedEmail,
+            at: Date.now(),
+          };
           // FIX (2026-06-01): show the confirmation IN the chest box, not the top
           // banner. 1) clear the address, 2) show "Account Link Sent", 3) fade.
           // CHANGE 1: forget 6's last parsed readback now the address is sent.
@@ -5284,6 +5720,9 @@ const LiveAvatarSessionComponent: React.FC<{
           setChestEmailText("");
           setChestEmailStatus("Email Link Sent");
           setShowChestEmail(true);
+          setSendLinkFallbackStatus(
+            resolveSendLinkFallbackStatus({ emailSent: data?.emailSent === true }),
+          );
           if (chestStatusTimerRef.current) {
             clearTimeout(chestStatusTimerRef.current);
           }
@@ -5304,11 +5743,18 @@ const LiveAvatarSessionComponent: React.FC<{
             setThoughtPrompts(normalizeThoughtPrompts(DEFAULT_THOUGHT_PROMPTS));
             chestStatusTimerRef.current = null;
           }, 2200);
+          sendLinkFallbackDismissTimerRef.current = setTimeout(() => {
+            setSendLinkFallbackStatus("hidden");
+            sendLinkFallbackDismissTimerRef.current = null;
+          }, 2200);
         } else {
           // Non-success: the top banner carries the message; clear the box.
           setChestEmailText("");
           setChestEmailStatus(null);
           setShowChestEmail(false);
+          setSendLinkFallbackStatus(
+            resolveSendLinkFallbackStatus({ emailSent: false }),
+          );
         }
         return true;
       } catch (error) {
@@ -5316,6 +5762,7 @@ const LiveAvatarSessionComponent: React.FC<{
         // Never leave "Sending Email..." stuck on the chest after a failure.
         setChestEmailStatus(null);
         setShowChestEmail(false);
+        setSendLinkFallbackStatus(resolveSendLinkFallbackStatus({}));
         const spoken =
           "I had trouble setting up that email link. I made a note for G to fix account setup.";
         setAccountNotice("Account setup needs attention");
@@ -5369,6 +5816,9 @@ const LiveAvatarSessionComponent: React.FC<{
       clearTimeout(chestStatusTimerRef.current);
       chestStatusTimerRef.current = null;
     }
+    setSendLinkFallbackStatus((current) =>
+      current === "pending" ? "hidden" : current,
+    );
   }, []);
 
   const offerAccountSetupForMemory = useCallback(async (customSpoken?: string) => {
@@ -5616,9 +6066,13 @@ const LiveAvatarSessionComponent: React.FC<{
         clearTimeout(chestStatusTimerRef.current);
         chestStatusTimerRef.current = null;
       }
+      if (sendLinkFallbackDismissTimerRef.current) {
+        clearTimeout(sendLinkFallbackDismissTimerRef.current);
+        sendLinkFallbackDismissTimerRef.current = null;
+      }
       if (tickAudioCtxRef.current) {
         try {
-          void tickAudioCtxRef.current.close();
+          void tickAudioCtxRef.current.close().catch(() => {});
         } catch {
           // ignore audio teardown errors
         }
@@ -5647,7 +6101,17 @@ const LiveAvatarSessionComponent: React.FC<{
       get awaitingName() { return accountSetupAwaitingNameRef.current; },
       set awaitingName(v: boolean) { accountSetupAwaitingNameRef.current = v; },
       get awaitingSend() { return accountSetupAwaitingSendRef.current; },
-      set awaitingSend(v: boolean) { accountSetupAwaitingSendRef.current = v; },
+      set awaitingSend(v: boolean) {
+        accountSetupAwaitingSendRef.current = v;
+        if (v && accountSetupSendEmailRef.current) {
+          setSendLinkFallbackEmail(accountSetupSendEmailRef.current);
+          setSendLinkFallbackStatus("pending");
+        } else if (!v) {
+          setSendLinkFallbackStatus((current) =>
+            current === "pending" ? "hidden" : current,
+          );
+        }
+      },
       get pendingEmail() { return accountSetupPendingEmailRef.current; },
       set pendingEmail(v: string | null) { accountSetupPendingEmailRef.current = v; },
       get rejectedEmail() { return accountSetupRejectedEmailRef.current; },
@@ -5727,6 +6191,11 @@ const LiveAvatarSessionComponent: React.FC<{
     [signupPorts, typedAccountEmail],
   );
 
+  const handleSendLinkFallbackClick = useCallback(() => {
+    if (!sendLinkFallbackEmail) return;
+    void startAccountSetup(sendLinkFallbackEmail);
+  }, [sendLinkFallbackEmail, startAccountSetup]);
+
   const handleAccountSetupSpeech = useCallback(
     (userText: string) => {
       // r34 (G live 2026-06-12 21:45: signed in, said "okay", got "first
@@ -5740,6 +6209,102 @@ const LiveAvatarSessionComponent: React.FC<{
     },
     [signupPorts, signupFlags],
   );
+
+  // One place applies a BuildInterestStep, whether it came from speech or from
+  // the on-screen box (2026-08-31). The typed control MUST NOT get its own
+  // save path: same states, same submit_opportunity_contact RPC, same spoken
+  // readback, so a visitor can start by voice and finish by thumb.
+  const applyBuildInterestStep = useCallback(
+    async (step: BuildInterestStep, userText: string): Promise<boolean> => {
+      if (!step.handled) return false;
+      buildInterestStateRef.current = step.state;
+      setBuildInterestState(step.state);
+      if (step.state.stage === "confirming" && step.state.method) {
+        void postOpportunitySignal("contact_captured", {
+          conversation_session_id: dbSessionIdRef.current,
+          method: step.state.method,
+          value: step.state.value,
+          send_consent: step.state.sendConsent === true,
+        });
+      }
+
+      if (step.spoken) {
+        await repeat(step.spoken);
+        lastAvatarResponseRef.current = step.spoken;
+        rememberConversationLine("assistant", step.spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+      }
+
+      if (step.effect.kind === "start_account") {
+        accountSetupAwaitingReadyRef.current = true;
+        accountSetupOfferMadeRef.current = true;
+        return await handleAccountSetupSpeech(userText);
+      }
+
+      if (step.effect.kind === "save_contact") {
+        const result = await postOpportunitySignal("submit_contact", {
+          conversation_session_id: dbSessionIdRef.current,
+          method: step.effect.method,
+          value: step.effect.value,
+          // The name he SAID beats any device-profile guess. G said "my
+          // name is Scott" twice on ride cb2dde76 and the owner email would
+          // have carried whatever the device thought instead.
+          full_name: step.state.fullName ?? deviceProfileRef.current.name,
+          exact_package_consent: step.state.packageConsent === true,
+          contact_readback_confirmed: Boolean(step.state.readbackConfirmedAt),
+          readback_confirmed_at: step.state.readbackConfirmedAt ? new Date(step.state.readbackConfirmedAt).toISOString() : null,
+          follow_up_authorized_at: step.state.followUpAuthorizedAt ? new Date(step.state.followUpAuthorizedAt).toISOString() : null,
+        });
+        const resolved = resolveContactSave(step.state, result.ok && result.submitted);
+        buildInterestStateRef.current = resolved.state;
+        setBuildInterestState(resolved.state);
+        await repeat(resolved.spoken);
+        lastAvatarResponseRef.current = resolved.spoken;
+        rememberConversationLine("assistant", resolved.spoken);
+        lastVisionResponseTimeRef.current = Date.now();
+      }
+      return true;
+    },
+    [handleAccountSetupSpeech, rememberConversationLine, repeat],
+  );
+
+  const handleBuildInterestSpeech = useCallback(
+    async (userText: string): Promise<boolean> =>
+      applyBuildInterestStep(
+        stepBuildInterest(buildInterestStateRef.current, userText),
+        userText,
+      ),
+    [applyBuildInterestStep],
+  );
+
+  const handleContactCardStep = useCallback(
+    async (step: BuildInterestStep) => {
+      await applyBuildInterestStep(step, "");
+    },
+    [applyBuildInterestStep],
+  );
+
+  useEffect(() => {
+    if (
+      pendingBuildAccountConsumedRef.current ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady
+    ) return;
+    pendingBuildAccountConsumedRef.current = true;
+    if (!consumePendingBuildAccountSetup()) return;
+    const next: BuildInterestState = { stage: "account_setup", method: null, value: null };
+    buildInterestStateRef.current = next;
+    setBuildInterestState(next);
+    accountSetupAwaitingReadyRef.current = false;
+    accountSetupAwaitingEmailRef.current = true;
+    accountSetupPendingEmailRef.current = null;
+    setShowChestEmail(true);
+    const spoken = "Great. Spell your email slowly, one letter at a time. It will show on my chest as you go.";
+    void repeat(spoken).then(() => {
+      lastAvatarResponseRef.current = spoken;
+      rememberConversationLine("assistant", spoken);
+    });
+  }, [isStreamReady, rememberConversationLine, repeat, sessionState]);
 
   // Voice-driven data deletion (G 2026-06-07): 6 walks a signed-in user through
   // erasing everything he remembers — either a memory wipe (keep the account) or
@@ -6397,17 +6962,11 @@ const LiveAvatarSessionComponent: React.FC<{
         setSessionStartError(sessionStartErrorRef.current);
         sessionStartErrorRef.current = null;
         greetingTriggeredRef.current = false;
-        greetingInFlightRef.current = false;
-        greetingInterruptedRef.current = false;
-        greetingCompletionPendingRef.current = false;
         return;
       }
       if (explicitEndSessionRef.current) {
         onExit?.(false);
         greetingTriggeredRef.current = false;
-        greetingInFlightRef.current = false;
-        greetingInterruptedRef.current = false;
-        greetingCompletionPendingRef.current = false;
         return;
       }
       const opts: SessionStoppedReason | undefined = wasStoppedDueToInactivity()
@@ -6416,56 +6975,8 @@ const LiveAvatarSessionComponent: React.FC<{
       onSessionStopped(opts);
       // Reset greeting trigger when session disconnects
       greetingTriggeredRef.current = false;
-      greetingInFlightRef.current = false;
-      greetingInterruptedRef.current = false;
-      greetingCompletionPendingRef.current = false;
     }
   }, [sessionState, onSessionStopped, wasStoppedDueToInactivity]);
-
-  // Greeting interrupt → completion injection (G spec 2026-05-27).
-  // If user interrupts the hard-coded intro before 6 finishes, fire a random
-  // pool line as 6's 2nd utterance after the interruption so the intro lands.
-  useEffect(() => {
-    if (isUserTalking && greetingInFlightRef.current) {
-      greetingInterruptedRef.current = true;
-    }
-  }, [isUserTalking]);
-
-  useEffect(() => {
-    if (isAvatarTalking) return;
-    if (greetingInFlightRef.current) {
-      greetingInFlightRef.current = false;
-      if (greetingInterruptedRef.current) {
-        greetingCompletionPendingRef.current = true;
-      }
-      return;
-    }
-    if (greetingCompletionPendingRef.current) {
-      greetingCompletionPendingRef.current = false;
-      greetingInterruptedRef.current = false;
-      // Redundancy guard: when the LLM's first response post-interrupt already
-      // re-delivered the greeting on its own (common when the user said "What
-      // did you just say?" style), skip our injection so 6 doesn't sound like
-      // a broken record. Match against 6's latest spoken text.
-      const lastSpoken = lastAvatarTranscriptionRef.current ?? "";
-      const greetingMarkerRe =
-        /(your back|a[-\s]?i[-\s]?buddy|make your life|call me (?:6|six)|i['']?m (?:6|six))/i;
-      if (greetingMarkerRe.test(lastSpoken)) {
-        return;
-      }
-      const line = pickGreetingCompletion();
-      window.setTimeout(() => {
-        void Promise.resolve(repeat(line))
-          .then(() => {
-            lastAvatarResponseRef.current = line;
-            rememberConversationLine("assistant", line);
-          })
-          .catch((err) => {
-            console.warn("Greeting completion injection failed:", err);
-          });
-      }, 600);
-    }
-  }, [isAvatarTalking, repeat, rememberConversationLine]);
 
   // CHANGE 1/2 (2026-06-01): keep refs in lockstep with state so the stable
   // AVATAR_TRANSCRIPTION handler + email callbacks read live values, not stale
@@ -6656,7 +7167,13 @@ const LiveAvatarSessionComponent: React.FC<{
       setSessionStartError(null);
       startSession().catch((err: Error) => {
         const message = err?.message ?? "Session start failed";
+        // A rejected SDK start is not guaranteed to emit DISCONNECTED. On the
+        // physical-phone failure it stayed INACTIVE, so the ref-only handoff
+        // below never reached the error surface and the UI remained on Loading.
+        // Commit the error immediately; keep the ref for SDKs that do emit a
+        // later disconnect so both paths converge on the same honest state.
         sessionStartErrorRef.current = message;
+        setSessionStartError(message);
       });
     }
   }, [startSession, sessionState, voicePresence]);
@@ -6743,6 +7260,7 @@ const LiveAvatarSessionComponent: React.FC<{
     const activeSessionId = getLiveAvatarSessionId(sessionRef.current);
     if (sessionState === SessionState.CONNECTED && activeSessionId) {
       const sid = activeSessionId;
+      markStartupTiming("connected");
       if (lastSyncedLaSessionIdRef.current !== sid) {
         transcriptCursorRef.current = null;
         lastSyncedLaSessionIdRef.current = sid;
@@ -6879,10 +7397,8 @@ const LiveAvatarSessionComponent: React.FC<{
       // auto-restart a fresh session. Marking explicitEndSessionRef routes the
       // DISCONNECTED handler through onExit(false) (Restart) not onSessionStopped.
       explicitEndSessionRef.current = true;
+      anonymousGreetingSpokenRef.current = false;
       greetingTriggeredRef.current = false; // Reset greeting trigger
-      greetingInFlightRef.current = false;
-      greetingInterruptedRef.current = false;
-      greetingCompletionPendingRef.current = false;
       stopSession();
     } else {
       // Not on home screen: reset to home screen (keep session)
@@ -6949,13 +7465,20 @@ const LiveAvatarSessionComponent: React.FC<{
   // him back — instead of the final-sounding Session Ended card. The teardown
   // itself is untouched: duplicating it is how a session gets left running, and
   // a session left running bills G by the block.
-  const handleEndSession = useCallback(async (opts?: { pause?: boolean; toVoice?: boolean }) => {
+  const handleEndSession = useCallback(async (opts?: {
+    pause?: boolean;
+    toVoice?: boolean;
+    awaitProviderStop?: boolean;
+  }) => {
     const pause = opts?.pause === true;
+    wildWorksOfferStateRef.current = "idle";
+    setWildWorksOfferState("idle");
     // toVoice: same teardown, different landing. The VOICE button MUST come
     // through here - dropping the avatar without this leaves the provider
     // session billing until its own timeout.
     const toVoice = opts?.toVoice === true;
     explicitEndSessionRef.current = true;
+    anonymousGreetingSpokenRef.current = false;
     const lifecycle = telemetrySessionLifecycleRef.current;
     if (lifecycle) {
       setTelemetrySessionId(lifecycle.sessionId);
@@ -6976,9 +7499,6 @@ const LiveAvatarSessionComponent: React.FC<{
     flushPendingAccountSend();
     endSessionConfirmationPendingRef.current = false;
     greetingTriggeredRef.current = false;
-    greetingInFlightRef.current = false;
-    greetingInterruptedRef.current = false;
-    greetingCompletionPendingRef.current = false;
     try {
       stopListening();
     } catch {
@@ -7007,7 +7527,12 @@ const LiveAvatarSessionComponent: React.FC<{
     if (pause) {
       if (toVoice) onVoiceOnly?.(); else onPause?.();
     } else onExit?.(false);
-    void Promise.resolve(stopSession()).catch(() => {});
+    const providerStop = Promise.resolve(stopSession());
+    if (opts?.awaitProviderStop) {
+      await providerStop;
+    } else {
+      void providerStop.catch(() => {});
+    }
   }, [
     flushPendingAccountSend,
     interrupt,
@@ -7028,6 +7553,113 @@ const LiveAvatarSessionComponent: React.FC<{
     handleEndSessionRef.current = handleEndSession;
   }, [handleEndSession]);
 
+  const stopAvatarForLegal = useCallback(
+    () => handleEndSession({ pause: true, awaitProviderStop: true }),
+    [handleEndSession],
+  );
+
+
+  // ---------------------------------------------------------------------------
+  // ONE SMALL BREATH INSTEAD OF DEAD AIR.
+  //
+  // 8.9% of 6's lines are accepted by the provider and never spoken. The
+  // watchdog cannot call it before 5 s without cutting off a genuinely slow
+  // start (a real 4.005 s start has been recorded), so those seconds are
+  // silence, and silence reads as 6 freezing.
+  //
+  // G's call, 2026-09-04, choosing between shortening the wait and filling it:
+  // "Fill the gap instead." So at 1.4 s of nothing, he takes a breath. It is
+  // deliberately almost inaudible - filtered noise sliding down like an exhale,
+  // never a beep or a chime - and it is skipped entirely when the speaker is
+  // muted or he is already talking. If the provider then starts, this is all
+  // that ever happened; the recovery at 5 s is untouched.
+  // ---------------------------------------------------------------------------
+  const lastBreathAtRef = useRef(0);
+  const playThinkingBreath = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (isCustomVoiceMuted()) return;
+    // Never twice in a row for the same stall, and never on top of himself.
+    const now = Date.now();
+    if (now - lastBreathAtRef.current < 3000) return;
+    lastBreathAtRef.current = now;
+    try {
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!Ctor) return;
+      if (!tickAudioCtxRef.current) tickAudioCtxRef.current = new Ctor();
+      const ctx = tickAudioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
+      const t0 = ctx.currentTime;
+      const dur = 0.34;
+      const frames = Math.max(1, Math.floor(ctx.sampleRate * dur));
+      const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < frames; i += 1) {
+        const v = Math.sin(i * 12.9898) * 43758.5453;
+        data[i] = (v - Math.floor(v)) * 2 - 1;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      // An exhale, not static: the filter slides down as it fades.
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(900, t0);
+      filter.frequency.exponentialRampToValueAtTime(420, t0 + dur);
+      filter.Q.value = 0.6;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.05, t0 + 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      noise.start(t0);
+      noise.stop(t0 + dur);
+    } catch {
+      // a comfort sound must never break anything
+    }
+  }, []);
+
+  useEffect(
+    () =>
+      subscribeAvatarSpeechGap((gap) => {
+        if (gap.session !== sessionRef.current) return;
+        playThinkingBreath();
+        logAppEvent(
+          "avatar_speech_gap_filled",
+          { where: gap.where, afterMs: 1400 },
+          "low",
+        );
+      }),
+    [playThinkingBreath, sessionRef],
+  );
+
+  useEffect(
+    () =>
+      subscribeAvatarSpeechFailure((failure) => {
+        if (failure.session !== sessionRef.current) return;
+        if (avatarSpeechFailureReportedRef.current) return;
+        avatarSpeechFailureReportedRef.current = true;
+        logAppEvent(
+          "avatar_speech_stalled",
+          {
+            mode,
+            where: failure.where,
+            reason: failure.reason,
+            // Recorded so the next rides answer "does the provider choke on
+            // long lines" from data instead of a hunch.
+            length: failure.textLength ?? null,
+          },
+          "high",
+          { provider: "heygen", outcome: "failed" },
+        );
+      }),
+    [mode, sessionRef],
+  );
+
   // FIX #2 (2026-06-01): close THIS session because a NEWER one took over (the
   // magic-link return / another tab). 6 says a short goodbye FIRST, THEN stops —
   // "only after 6 says take care" per G. Guarded so it runs at most once.
@@ -7035,6 +7667,7 @@ const LiveAvatarSessionComponent: React.FC<{
     if (supersedeStoppingRef.current) return;
     supersedeStoppingRef.current = true;
     explicitEndSessionRef.current = true;
+    anonymousGreetingSpokenRef.current = false;
     const lifecycle = telemetrySessionLifecycleRef.current;
     if (lifecycle) {
       setTelemetrySessionId(lifecycle.sessionId);
@@ -7051,7 +7684,6 @@ const LiveAvatarSessionComponent: React.FC<{
       );
       telemetrySessionLifecycleRef.current = null;
     }
-    greetingInFlightRef.current = false;
     try {
       stopListening();
     } catch {
@@ -7145,6 +7777,22 @@ const LiveAvatarSessionComponent: React.FC<{
       voiceHeldUntilUserStartRef.current = false;
       setIsCustomVoiceActive(false);
       setHasUserPressedVoiceStart(false);
+      // F2 2026-08-21: the explicit ends (STOP, VOICE, supersede) already
+      // release anonymousGreetingSpokenRef on their way in — handleStopSession,
+      // handleEndSession, gracefulSupersedeStop. This effect is the one point
+      // every OTHER session death passes through too: the inactivity watchdog,
+      // a provider-side drop, enterVoiceListMode's stopSession — none of which
+      // run those three. Without this clear the next START after such a death
+      // would come up on a freshly-paid mint with 6 silent and nameless in
+      // front of a first-time visitor, which is worse for them than hearing the
+      // line twice. Idempotent with the three above. postVerifyGreetingSpokenRef
+      // is deliberately NOT cleared here: resetAnonymousSessionState() already
+      // owns it for the signed-in path.
+      anonymousGreetingSpokenRef.current = false;
+      // MUTE 2026-08-21: the session that was muted is gone. Do not carry a
+      // mute into the next one, where the button would be the only tell.
+      micMutedRef.current = false;
+      setMicMuted(false);
       return;
     }
     if (sessionState !== SessionState.CONNECTED || !isStreamReady) {
@@ -7164,6 +7812,21 @@ const LiveAvatarSessionComponent: React.FC<{
       return;
     }
     const onAvatarSpeakStarted = () => {
+      const before = getStartupTimingSnapshot();
+      if (before.marks.greeting_dispatch && !before.marks.greeting_speak) {
+        const timing = markStartupTiming("greeting_speak");
+        const sid = getLiveAvatarSessionId(sessionRef.current);
+        logAppEvent(
+          "startup_timing",
+          { checkpoint: "greeting_speak", ...timing },
+          "low",
+          {
+            eventId: sid ? `session:${sid}:startup:greeting-speak` : undefined,
+            idempotencyKey: sid ? `session:${sid}:startup:greeting-speak` : undefined,
+            outcome: "observed",
+          },
+        );
+      }
       const utteranceId = consumePendingSpeechUtteranceId(
         pendingSpeechUtteranceIdRef,
       );
@@ -7199,25 +7862,25 @@ const LiveAvatarSessionComponent: React.FC<{
       return false;
     }
     const video = videoRef.current;
+    const presentationPrime = avatarAudioPresentationProbeRef.current?.prime();
     try {
       // 2026-08-21: the speaker-mute button owns the final say — a gesture
       // unlock must not un-mute 6 behind G's back.
-      video.volume = voiceMutedRef.current ? 0 : 1.0;
-      video.muted = voiceMutedRef.current;
+      syncSpeakerMute(video, voiceMutedRef.current, true);
       if (video.srcObject && video.srcObject instanceof MediaStream) {
         video.srcObject.getAudioTracks().forEach((track) => {
           track.enabled = true;
         });
       }
       await video.play();
+      avatarAudioPresentationProbeRef.current?.notePlayResult("resolved");
+      await presentationPrime;
       audioUnlockedRef.current = true;
       setAudioUnlocked(true);
       setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.volume = 1.0;
-          videoRef.current.muted = false;
-          videoRef.current.play().catch(() => {});
-        }
+        const currentVideo = videoRef.current;
+        syncSpeakerMute(currentVideo, voiceMutedRef.current, true);
+        currentVideo?.play().catch(() => {});
       }, 100);
       await new Promise<void>((resolve) => {
         const done = () => resolve();
@@ -7230,6 +7893,7 @@ const LiveAvatarSessionComponent: React.FC<{
       });
       return true;
     } catch (error) {
+      avatarAudioPresentationProbeRef.current?.notePlayResult("rejected");
       console.warn("Audio output not ready:", error);
       return false;
     }
@@ -7245,6 +7909,7 @@ const LiveAvatarSessionComponent: React.FC<{
 
   const performOnlineLookup = useCallback(
     async (query: string, location: string) => {
+      if (!allowsOnlineLookup(mode)) return false;
       if (isOnlineLookupLoading) return true;
       // G 2026-06-13 critic #3 (a late waterfall search said "3 ideas" OVER his
       // next, unrelated turn): remember which user turn asked for this search.
@@ -7324,6 +7989,7 @@ const LiveAvatarSessionComponent: React.FC<{
   );
 
   const requestSharedLocation = useCallback(async () => {
+    if (!allowsOnlineLookup(mode)) return;
     const fallbackQuery =
       lastUserTextRef.current && isOnlineLookupIntent(lastUserTextRef.current)
         ? lastUserTextRef.current
@@ -7343,10 +8009,15 @@ const LiveAvatarSessionComponent: React.FC<{
     lastAvatarResponseRef.current = spoken;
     rememberConversationLine("assistant", spoken);
     lastVisionResponseTimeRef.current = Date.now();
-  }, [rememberConversationLine, repeat]);
+  }, [mode, rememberConversationLine, repeat]);
 
   const handleOnlineLookupSpeech = useCallback(
     async (userText: string) => {
+      if (!allowsOnlineLookup(mode)) {
+        onlineLookupPendingQueryRef.current = null;
+        onlineLookupLocationRef.current = null;
+        return false;
+      }
       const text = userText.trim();
       const pendingQuery = onlineLookupPendingQueryRef.current;
       if (LOCATION_SHARE_CHOICE_RE.test(text) && (pendingQuery || onlineLookupNotice)) {
@@ -7516,7 +8187,7 @@ const LiveAvatarSessionComponent: React.FC<{
       );
       return true;
     },
-    [onlineLookupNotice, performOnlineLookup, repeat, requestSharedLocation],
+    [mode, onlineLookupNotice, performOnlineLookup, repeat, requestSharedLocation],
   );
 
   const handleThoughtPromptTap = useCallback(
@@ -7712,6 +8383,9 @@ const LiveAvatarSessionComponent: React.FC<{
     accountSetupAwaitingSendRef.current = false;
     accountSetupSendEmailRef.current = null;
     accountSetupEmailMissCountRef.current = 0;
+    setSendLinkFallbackStatus((current) =>
+      current === "pending" ? "hidden" : current,
+    );
 
     try {
       window.localStorage.removeItem(ASSISTANT_LISTS_STORAGE_KEY);
@@ -7750,11 +8424,7 @@ const LiveAvatarSessionComponent: React.FC<{
       setVoiceMuted(muted);
       setCustomVoiceMuted(muted);
       const video = videoRef.current;
-      if (video) {
-        const unlocked = audioUnlockedRef.current;
-        video.muted = muted || !unlocked;
-        video.volume = muted || !unlocked ? 0 : 1.0;
-      }
+      syncSpeakerMute(video, muted, audioUnlockedRef.current);
       if (muted) voiceCutSpeech();
       logAppEvent("stage_control", { control: "speaker", to: muted ? "muted" : "on" });
     },
@@ -7764,26 +8434,104 @@ const LiveAvatarSessionComponent: React.FC<{
     applySpeakerMute(!voiceMutedRef.current);
   }, [applySpeakerMute]);
 
-  const handleVoiceStartStop = useCallback(async () => {
-    // G 2026-06-13: this tap is a user gesture — unlock the WebAudio fallback
-    // context NOW so list-mode replies (which use WebAudio after the avatar
-    // session stops) are never silent no-ops on a suspended context.
-    primeCustomVoiceFallback();
-    // G 2026-06-13 ("we lost six when we went to the list"): the HARDCODED list
-    // lines (list-open, add/remove confirms) play through voiceAudioCtxRef — a
-    // SEPARATE context that's created lazily and starts SUSPENDED. The fallback
-    // prime above does NOT unlock it, so the first list line was a silent
-    // no-op. Create + resume it now while we still hold the user gesture.
-    if (!voiceAudioCtxRef.current) {
-      try {
-        voiceAudioCtxRef.current = new AudioContext();
-      } catch {
-        // AudioContext unavailable here — voicePlayNext will retry on first use
+  // 2026-08-21 ride, G: "the mute didn't work the first time". The MIRROR IMAGE
+  // of applySpeakerMute above, on the microphone instead of the speaker.
+  // Everything that can carry a user turn to the brain goes quiet; NOTHING that
+  // keeps the session alive is touched — no stop(), no stopSession(), no
+  // renewSessionToken, no setHasUserPressedVoiceStart, no greeting, no
+  // resetAnonymousSessionState. The old MUTE ran the same
+  // stop()/stopListening()/interrupt() teardown STOP runs, minus the cleanup,
+  // so the two buttons collapsed into each other and the way back up re-spoke
+  // the opening line.
+  //
+  // 6 KEEPS TALKING if he was talking. Muting your own microphone has never
+  // gagged the other person on any phone ever made — that is QUIET's job, and
+  // QUIET is the button directly to the right.
+  //
+  // Say this plainly to G rather than letting him find it: this is a SOFTWARE
+  // mute, like every phone and video call. The browser mic indicator stays lit.
+  // Truly extinguishing capture means .stop() on all three microphones — the
+  // LiveKit track, the recognizer's internal capture, and the independent
+  // barge-in stream — and .stop() on the LiveKit track IS the bug we are
+  // fixing. STOP is the hardware one.
+  const applyMicMute = useCallback(
+    (muted: boolean) => {
+      micMutedRef.current = muted;
+      setMicMuted(muted);
+      // A half-heard phrase dies with the tap: an utterance still being stitched
+      // must never fire the moment the mic comes back.
+      pendingSpeechFragmentRef.current = null;
+
+      // Layer 2: the browser recognizer. THE capture that actually carries the
+      // user's words in CUSTOM, and the one that streams audio off-device.
+      const rec = speechRecognitionRef.current;
+      if (rec) {
+        // Kill any 350ms restart armed BEFORE this tap, on both branches. This
+        // runs synchronously in the tap's own task, and a timer callback can
+        // only run as its own task — so there is no interleaving in which the
+        // stale timer still fires after this line. Cleared on BOTH branches
+        // because the deafening sequence (see speechRecognitionRef) needs the
+        // timer to outlive an un-mute, not a mute.
+        rec.clearRestart();
+        try {
+          if (muted) rec.recognition.stop();
+          else rec.recognition.start();
+        } catch (error) {
+          // start() on an already-running recognizer throws and is exactly the
+          // state we wanted, so a failure only matters when UN-muting — and
+          // there it matters enormously: onend/onerror never fire for a
+          // recognizer that never started, so nothing else would ever re-arm it
+          // and 6 would be deaf for the rest of the session behind a button
+          // that says he can hear you. Rebuild rather than warn.
+          if (!muted) {
+            logAppEvent(
+              "mic_unmute_recognizer_failed",
+              { error: error instanceof Error ? error.name : String(error) },
+              "high",
+              { outcome: "rebuilding" },
+            );
+            setRecognizerEpoch((n) => n + 1);
+          }
+        }
       }
-    }
-    if (voiceAudioCtxRef.current?.state === "suspended") {
-      void voiceAudioCtxRef.current.resume().catch(() => {});
-    }
+
+      // Layer 3: the SDK's own mic track. Best effort, and honestly labelled as
+      // such — in CUSTOM this track is not the transcript transport, and
+      // customVoiceDelivery's echo gate re-opens it on a 300ms tail after every
+      // fallback line without consulting any user flag. We do NOT fight that
+      // with a re-assert effect: the only other caller of this mute is the
+      // FULL-mode video-record path, which saves and restores its own state, and
+      // an effect keyed on isMuted would rip that mute out from under it one
+      // render later. In FULL this layer IS the whole mute. The permanent fix is
+      // a held-flag inside setMicGate; that file belongs to another lane.
+      void (async () => {
+        try {
+          if (muted) await mute();
+          else await unmute();
+        } catch {
+          // Not ACTIVE, or the track is gone. Layers 1 and 2 still hold.
+        }
+      })();
+
+      // `to` keeps its existing vocabulary so old sup queries still work; `how`
+      // is additive and is what tells a reader six weeks from now whether a
+      // `control=mic to=on` row was a cold start or an un-mute. Reading exactly
+      // that row out of Supabase mid-ride is how this bug was found.
+      logAppEvent("stage_control", {
+        control: "mic",
+        to: muted ? "off" : "on",
+        how: "mute",
+      });
+    },
+    [mute, unmute],
+  );
+  const toggleMicMute = useCallback(() => {
+    // Read the REF, not the state, so two fast taps cannot both see a stale
+    // value and cancel each other out.
+    applyMicMute(!micMutedRef.current);
+  }, [applyMicMute]);
+
+  const handleVoiceStartStop = useCallback(async (opts?: { retryMicrophone?: boolean; permissionAlreadyGranted?: boolean }) => {
     if (voiceIsActive && hasUserPressedVoiceStart) {
       void interrupt();
       // r21 (G's phone, CUSTOM maiden flight: "He did not know I was there"):
@@ -7796,6 +8544,7 @@ const LiveAvatarSessionComponent: React.FC<{
         setIsCustomVoiceActive(false);
       }
       setHasUserPressedVoiceStart(false);
+      setHasExplicitMicStartGrant(false);
       return;
     }
     if (
@@ -7811,6 +8560,41 @@ const LiveAvatarSessionComponent: React.FC<{
       return;
     }
     voiceStartInProgressRef.current = true;
+    if (!opts?.permissionAlreadyGranted && (!opts?.retryMicrophone || typeof navigator === "undefined")) {
+      voiceStartInProgressRef.current = false;
+      return;
+    }
+    if (!opts?.permissionAlreadyGranted) {
+      const permission = await requestMicrophonePermission(navigator);
+      const notice = microphonePermissionMessage(permission);
+      if (notice) {
+        micMutedRef.current = true;
+        setMicMuted(true);
+        setHasExplicitMicStartGrant(false);
+        setMicrophonePermissionNotice(notice);
+        setMicrophonePermissionState(permission);
+        logAppEvent("microphone_permission", { state: permission, source: "mic_retry" }, "high");
+        voiceStartInProgressRef.current = false;
+        return;
+      }
+    }
+    setHasExplicitMicStartGrant(true);
+    setMicrophonePermissionNotice(null);
+    setMicrophonePermissionState(null);
+    // Permission is now granted by the live-stage gesture. Only after that
+    // request may auxiliary WebAudio unlock work run; doing it first can spend
+    // Android's transient activation before getUserMedia sees the gesture.
+    primeCustomVoiceFallback();
+    if (!voiceAudioCtxRef.current) {
+      try {
+        voiceAudioCtxRef.current = new AudioContext();
+      } catch {
+        // AudioContext unavailable here — voicePlayNext will retry on first use
+      }
+    }
+    if (voiceAudioCtxRef.current?.state === "suspended") {
+      void voiceAudioCtxRef.current.resume().catch(() => {});
+    }
     // G 2026-06-01: a returning, signed-in user must NEVER get the first-timer
     // hard-coded intro. resetAnonymousSessionState() wipes the returning state
     // (name, memory snapshot, postVerifyGreeting), so only run it for genuinely
@@ -7823,10 +8607,88 @@ const LiveAvatarSessionComponent: React.FC<{
     try {
       const ok = await ensureAudioOutputReady();
       if (!ok) {
+        // The permission sheet can temporarily interrupt Android autoplay. The
+        // microphone preflight is still proven, so retry startup without asking
+        // for permission again rather than leaving a stale granted START deaf.
+        //
+        // HOLD THE LOADING SURFACE ACROSS THE GAP (G, 2026-09-04). The `finally`
+        // below runs on the way out of this `return` and drops
+        // voiceStartAwaitingReady, so for the ~250ms until the retry raised it
+        // again the avatar was painted and then covered straight back up. G
+        // watched it happen on a restart: "the avatar flashed, then the six
+        // flashed on again, loading six, and then the avatar came on." The
+        // session is not ready in that gap - showing him is a lie, and the
+        // flash is worse than simply waiting.
+        voiceStartRetryPendingRef.current = true;
+        logAppEvent("voice_start_retry_scheduled", {
+          reason: "audio_output_not_ready",
+        });
+        window.setTimeout(() => {
+          voiceStartRetryPendingRef.current = false;
+          void (async () => {
+            try {
+              await handleVoiceStartStop({ permissionAlreadyGranted: true });
+            } finally {
+              // The retry has early returns ABOVE its own try/finally, so it
+              // can bail before it ever owns the surface. Never leave a
+              // visitor on a loading screen that nothing will take down.
+              if (!voiceStartInProgressRef.current) {
+                setVoiceStartAwaitingReady(false);
+              }
+            }
+          })();
+        }, 250);
         return;
       }
+      // SPEED (2026-09-04, measured). The opener is 14.4 seconds of speech and
+      // our TTS route takes 3.0 seconds to generate it - and today none of that
+      // begins until the provider session is already up. Measured on G's ride:
+      // connected 8.4s, greeting dispatched 9.5s, 6 finally audible at
+      // 10.6-11.9s. Three of those seconds are us waiting for audio we could
+      // already be holding.
+      //
+      // The opener is a CONSTANT and depends on nothing in the session, so
+      // generate it NOW, in parallel with `await start()` below - which is pure
+      // waiting on the provider. No trade: same audio, same voice, same socket
+      // push, same lip-sync. It only stops the fetch happening late.
+      if (!isReturningKnownUser) primeSpeechAudio(VOICE_START_GREETING);
       // r21: start the MIC in both modes (CUSTOM previously never did — deaf).
       await start();
+      // On browsers exposing Permissions, never paint an active/unmuted mic
+      // after the SDK start silently left the permission request unresolved.
+      if (!opts?.permissionAlreadyGranted && typeof navigator !== "undefined") {
+        const permission = await inspectMicrophonePermission(navigator);
+        const notice = microphonePermissionMessage(permission);
+        // A browser with Permissions still saying prompt after the SDK start
+        // has not granted capture. Do not enter a fake active/unmuted state;
+        // wait for the user to tap the mic and make the recoverable request.
+        const permissionApiAvailable =
+          typeof (navigator as unknown as { permissions?: { query?: unknown } })
+            .permissions?.query === "function";
+        if (notice && permissionApiAvailable) {
+          micMutedRef.current = true;
+          setMicMuted(true);
+          setMicrophonePermissionNotice(notice);
+          setMicrophonePermissionState(permission);
+          stop();
+          return;
+        }
+      }
+      setMicrophonePermissionNotice(null);
+      setMicrophonePermissionState(null);
+      // MUTE 2026-08-21: a cold start publishes a brand-new, unmuted track and
+      // mounts a brand-new recognizer, so keep OUR flag honest with the hardware
+      // — otherwise the button could paint a red MUTE over a mic that works
+      // fine, or hold a stale mute across a mid-mount reconnect. Starting a
+      // conversation means you want to be heard. Assigned directly rather than
+      // through applyMicMute so this callback's dep array does not change and no
+      // spurious stage_control row is emitted for something the user did not tap.
+      micMutedRef.current = false;
+      setMicMuted(false);
+      // Permission has resolved and the microphone is live. Commit the tap
+      // before awaiting the greeting so the prompt disappears, MUTE is already
+      // a mute, and the active transcript authority can hear the next turn.
+      setHasUserPressedVoiceStart(true);
       stopListening();
       if (mode === "CUSTOM") {
         setIsCustomVoiceActive(true);
@@ -7851,25 +8713,107 @@ const LiveAvatarSessionComponent: React.FC<{
           setPostVerifyGreeting(null);
         }
       } else {
-        greeting = VOICE_START_GREETING;
+        // F2 2026-08-21: one first-timer intro per provider session. The old
+        // code had NO latch here — only voiceStartInProgressRef (blocks a
+        // double-tap inside one await) and the 3.5s duplicate-line guard, which
+        // 31s and 40s gaps sail straight past — so every re-entry into this
+        // cold start spoke the intro again: three times in 85s on the
+        // 2026-08-21 ride. claimSessionGreeting is a synchronous test-and-set,
+        // so even a re-entry that slipped past voiceStartInProgressRef can only
+        // win it once. The ref is mount-scoped and deliberately NOT cleared by
+        // resetAnonymousSessionState() (~35 lines up, runs on every anonymous
+        // press). Logged so "did he greet twice" is a sup query, not a ride.
+        const claimedGreeting = claimSessionGreeting(anonymousGreetingSpokenRef);
+        greeting = claimedGreeting ? VOICE_START_GREETING : null;
+        logAppEvent("greeting_claim", {
+          path: "anonymous",
+          granted: claimedGreeting,
+        });
       }
-      resumeListeningAfterAvatarSpeech(9000);
-      greetingInFlightRef.current = true;
-      greetingInterruptedRef.current = false;
-      greetingCompletionPendingRef.current = false;
       if (greeting) {
-        await repeat(greeting);
+        // G's rule, 2026-09-04: "the avatar should only be speaking with the
+        // avatar is on screen."
+        //
+        // Nothing enforced that. It worked by luck and a 90 ms margin: on his
+        // ride the first real frame landed at 9,378 ms and the greeting fired
+        // at 9,467 ms. On a slower phone or a worse network the order flips and
+        // 6 talks to an empty screen.
+        //
+        // avatarFrameProvenRef is already set the moment a real frame is
+        // presented (readyState, non-zero video dimensions, a laid-out box and
+        // presentedFrames > 0 - a genuine painted frame, not just a live
+        // track). It was only being read by a phone-lifecycle check. Now it
+        // gates the opener too.
+        //
+        // Bounded on purpose. Silence is worse than an unseen voice, so if the
+        // frame never proves within the budget he speaks anyway and we log it
+        // instead of hiding it. This can only ever DELAY the line, never
+        // advance it.
+        if (voicePresenceRef.current === "avatar" && !avatarFrameProvenRef.current) {
+          const frameDeadline = Date.now() + AVATAR_ON_SCREEN_WAIT_MS;
+          while (!avatarFrameProvenRef.current && Date.now() < frameDeadline) {
+            await new Promise((resolve) => window.setTimeout(resolve, 60));
+          }
+          if (!avatarFrameProvenRef.current) {
+            logAppEvent(
+              "greeting_before_frame",
+              { waitedMs: AVATAR_ON_SCREEN_WAIT_MS },
+              "medium",
+              { outcome: "spoke_unseen" },
+            );
+          }
+        }
+        markStartupTiming("greeting_dispatch");
+        // Roughly 14 characters a second of speech, plus a second of slack,
+        // capped so a stuck opener can never mute barge-in for a whole ride.
+        const openerMs = Math.min(16000, 1000 + (greeting.length / 14) * 1000);
+        openerInFlightRef.current = true;
+        window.setTimeout(() => {
+          openerInFlightRef.current = false;
+        }, openerMs);
+        resumeListeningAfterAvatarSpeech(9000);
+        // F5 2026-08-21: explicit null — a scripted greeting answers no user
+        // turn. Without it the line inherits currentUtteranceIdRef, the id of
+        // whatever the user last said, which is how the 21:07:10 intro got
+        // filed under the 21:06:45 turn complaining about the intro. See the
+        // full note in repeat().
+        await repeat(greeting, null);
         lastAvatarResponseRef.current = greeting;
         rememberConversationLine("assistant", greeting);
         lastVisionResponseTimeRef.current = Date.now();
+        // repeat() resolved, so the line is out. Hand the floor back at once
+        // rather than waiting out the estimate.
+        openerInFlightRef.current = false;
       }
       window.setTimeout(() => {
         startListening();
       }, 900);
-      setHasUserPressedVoiceStart(true);
+    } catch (error) {
+      const permission = typeof navigator === "undefined"
+        ? "unavailable"
+        : await inspectMicrophonePermission(navigator);
+      micMutedRef.current = true;
+      setMicMuted(true);
+      setHasExplicitMicStartGrant(false);
+      // This catch is downstream of a successful gesture-owned preflight. A
+      // later SDK/audio failure is not evidence that Chrome permanently blocked
+      // the site, so it must not render the Chrome-settings recovery card.
+      setMicrophonePermissionNotice("Microphone could not start. Tap the mic button to try again.");
+      setMicrophonePermissionState(null);
+      logAppEvent("microphone_permission", {
+        state: permission,
+        source: "voice_start",
+        error: error instanceof Error ? error.name : String(error),
+        rendered_as: "retryable",
+      }, "high");
     } finally {
       voiceStartInProgressRef.current = false;
-      setVoiceStartAwaitingReady(false);
+      // A retry is already scheduled: keep the loading surface up rather than
+      // flashing 6 on screen for a quarter second. The retry's own finally -
+      // and the guard beside it - are what bring it back down.
+      if (!voiceStartRetryPendingRef.current) {
+        setVoiceStartAwaitingReady(false);
+      }
     }
   }, [
     voiceIsActive,
@@ -7891,11 +8835,34 @@ const LiveAvatarSessionComponent: React.FC<{
     accountEmail,
   ]);
 
+  // The original START tap already completed the only microphone request.
+  // Once the provider is ready, continue with that proven grant without a
+  // second stage overlay or another getUserMedia call.
+  const preflightStartAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !microphonePreflightGranted ||
+      preflightStartAttemptedRef.current ||
+      sessionState !== SessionState.CONNECTED ||
+      !isStreamReady ||
+      !accountAuthChecked
+    ) return;
+    preflightStartAttemptedRef.current = true;
+    void handleVoiceStartStop({ permissionAlreadyGranted: true });
+  }, [
+    microphonePreflightGranted,
+    sessionState,
+    isStreamReady,
+    accountAuthChecked,
+    handleVoiceStartStop,
+  ]);
+
   // r22: keyed on hasUserPressedVoiceStart (OUR truth) instead of the SDK's
   // voice-active state — in CUSTOM the SDK reported voice active before any
   // tap, which hid the tap gate while audio was still locked ("he looked
   // alive but he wasn't there").
   const shouldShowBeginSurface =
+    false &&
     visionMode !== "streaming" &&
     !isCameraActive &&
     !hasUserPressedVoiceStart &&
@@ -7908,15 +8875,209 @@ const LiveAvatarSessionComponent: React.FC<{
     !voiceStartAwaitingReady;
 
   const shouldShowLoadingSurface =
+    !sessionStartError &&
     visionMode !== "streaming" &&
     !isCameraActive &&
-    !voiceIsActive &&
-    !isAvatarTalking &&
     !shouldShowBeginSurface &&
     (sessionState !== SessionState.CONNECTED ||
       !isStreamReady ||
       !accountAuthChecked ||
-      voiceIsLoading);
+      (!isPhoneLifecycleViewport && voiceIsLoading) ||
+      (isPhoneLifecycleViewport && !hasRenderableAvatarFrame));
+
+  // THE FLICKER, MEASURED INSTEAD OF GUESSED (G, 2026-09-04, describing his
+  // restart): "loading six ... came up, and then it flashed on. Then six, the
+  // avatar flashed, then it... the six flashed on again, loading six, and then
+  // the avatar came on." Loading -> avatar -> loading -> avatar.
+  //
+  // Five separate conditions can raise this surface, so reading the code cannot
+  // say WHICH one went back to true after the avatar was already up. A ride can
+  // - if it is recorded. This logs every transition with the state of all five,
+  // so the next ride names the flag instead of costing another one.
+  const loadingSurfaceRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (loadingSurfaceRef.current === shouldShowLoadingSurface) return;
+    const was = loadingSurfaceRef.current;
+    loadingSurfaceRef.current = shouldShowLoadingSurface;
+    if (was === null) return; // first paint is not a transition
+    logAppEvent(
+      "loading_surface_toggled",
+      {
+        to: shouldShowLoadingSurface ? "loading" : "avatar",
+        connected: sessionState === SessionState.CONNECTED,
+        isStreamReady,
+        accountAuthChecked,
+        voiceIsLoading,
+        hasRenderableAvatarFrame,
+        isPhoneLifecycleViewport,
+      },
+      // Going BACK to loading after the avatar was up is the fault G saw.
+      shouldShowLoadingSurface ? "medium" : "low",
+      { outcome: shouldShowLoadingSurface ? "regressed" : "presented" },
+    );
+  }, [
+    shouldShowLoadingSurface,
+    sessionState,
+    isStreamReady,
+    accountAuthChecked,
+    voiceIsLoading,
+    hasRenderableAvatarFrame,
+    isPhoneLifecycleViewport,
+  ]);
+
+  // On phones, the dedicated recovery card contains the complete blocked-site
+  // guidance and retry action. Do not stack the older stage warning above it.
+  // Desktop keeps the existing warning because the card is intentionally mobile-only.
+  const shouldShowBlockedMicrophoneRecovery =
+    microphonePermissionState === "denied" && !shouldShowLoadingSurface;
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 599px)");
+    const sync = () => setIsPhoneLifecycleViewport(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  useEffect(() => {
+    if (!isStreamReady || sessionState !== SessionState.CONNECTED) {
+      const pending = avatarFrameRequestRef.current;
+      if (pending) {
+        pending.video.cancelVideoFrameCallback?.(pending.id);
+        avatarFrameRequestRef.current = null;
+      }
+      avatarFrameProvenRef.current = false;
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        video.srcObject = null;
+      }
+      setHasRenderableAvatarFrame(false);
+    }
+  }, [isStreamReady, sessionState]);
+
+  const requestRenderableAvatarFrame = useCallback(
+    (video: HTMLVideoElement) => {
+      // 2026-09-04: this used to bail on anything wider than a phone, so on
+      // desktop the frame was NEVER proven - avatarFrameProvenRef stayed false
+      // for the whole session. Two costs: first_presented_frame timing was
+      // missing from every desktop ride, and the greeting guard could not be
+      // satisfied, so 6 waited the full 3s and logged spoke_unseen every time.
+      // The proof itself is viewport-independent. Only the LOADING SURFACE is
+      // phone-only, and that gate lives at its own use site - untouched.
+      if (avatarFrameProvenRef.current) return;
+
+      // Fail closed when the engine cannot prove a frame was presented on this
+      // exact visible node. Decoded/playback counters are weaker evidence and
+      // must never clear the opaque loading surface.
+      if (typeof video.requestVideoFrameCallback !== "function") {
+        return;
+      }
+
+      if (avatarFrameRequestRef.current) return;
+      const currentStream = video.srcObject;
+      const currentLiveVideoTrack =
+        currentStream instanceof MediaStream &&
+        currentStream
+          .getVideoTracks()
+          .some((track) => track.readyState === "live" && track.enabled);
+      const currentLayoutBox = video.getBoundingClientRect();
+      if (
+        videoRef.current === video &&
+        currentLiveVideoTrack &&
+        currentLayoutBox.width >= 2 &&
+        currentLayoutBox.height >= 2
+      ) {
+        markStartupTiming("live_track");
+      }
+      const id = video.requestVideoFrameCallback((_now, metadata) => {
+        avatarFrameRequestRef.current = null;
+        const presentedStream = video.srcObject;
+        const presentedLiveVideoTrack =
+          presentedStream instanceof MediaStream &&
+          presentedStream
+            .getVideoTracks()
+            .some((track) => track.readyState === "live" && track.enabled);
+        const presentedLayoutBox = video.getBoundingClientRect();
+        if (
+          videoRef.current === video &&
+          presentedLiveVideoTrack &&
+          presentedLayoutBox.width >= 2 &&
+          presentedLayoutBox.height >= 2
+        ) {
+          // The track may become live after callback registration. First-write
+          // timing keeps this idempotent with the pre-registration observation.
+          markStartupTiming("live_track");
+        }
+        if (
+          videoRef.current === video &&
+          presentedLiveVideoTrack &&
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth >= 2 &&
+          video.videoHeight >= 2 &&
+          presentedLayoutBox.width >= 2 &&
+          presentedLayoutBox.height >= 2 &&
+          metadata.width >= 2 &&
+          metadata.height >= 2 &&
+          metadata.presentedFrames > 0
+        ) {
+          const timing = markStartupTiming("first_presented_frame");
+          const sid = getLiveAvatarSessionId(sessionRef.current);
+          logAppEvent(
+            "startup_timing",
+            { checkpoint: "first_presented_frame", ...timing },
+            "low",
+            {
+              eventId: sid ? `session:${sid}:startup:first-frame` : undefined,
+              idempotencyKey: sid ? `session:${sid}:startup:first-frame` : undefined,
+              outcome: "presented",
+            },
+          );
+          avatarFrameProvenRef.current = true;
+          setHasRenderableAvatarFrame(true);
+          return;
+        }
+        requestRenderableAvatarFrame(video);
+      });
+      avatarFrameRequestRef.current = { video, id };
+    },
+    [],
+  );
+
+  const attemptAvatarVideoPlayback = useCallback(
+    (video: HTMLVideoElement) => {
+      void video
+        .play()
+        .then(() => {
+          avatarAudioPresentationProbeRef.current?.notePlayResult("resolved");
+          requestRenderableAvatarFrame(video);
+        })
+        .catch((error) => {
+          avatarAudioPresentationProbeRef.current?.notePlayResult("rejected");
+          // Android may revoke the original START gesture while its microphone
+          // permission prompt is open. A rejected play never proves paint and
+          // therefore must leave the opaque loading badge in authority.
+          console.warn("Avatar video play rejected; keeping loading badge:", error);
+        });
+    },
+    [requestRenderableAvatarFrame],
+  );
+
+  useEffect(() => {
+    return () => {
+      const pending = avatarFrameRequestRef.current;
+      if (pending) {
+        pending.video.cancelVideoFrameCallback?.(pending.id);
+        avatarFrameRequestRef.current = null;
+      }
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        video.srcObject = null;
+      }
+      avatarFrameProvenRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     // console.log("isStreamReady: ", isStreamReady);
@@ -7924,22 +9085,42 @@ const LiveAvatarSessionComponent: React.FC<{
     if (isStreamReady && videoRef.current) {
       const video = videoRef.current;
       // Muted autoplay is allowed without user gesture - avatar displays automatically
-      video.muted = true;
-      video.volume = 0;
+      syncSpeakerMute(video, voiceMutedRef.current, false);
 
       attachElement(videoRef.current);
 
       // Start playback immediately so avatar displays without user click/touch
-      video.play().catch((err) => {
-        console.warn("Autoplay (muted) failed:", err);
-      });
+      attemptAvatarVideoPlayback(video);
 
       // If user already unlocked audio earlier (e.g. re-attach), restore sound
       if (audioUnlockedRef.current) {
         void ensureAudioOutputReady();
       }
     }
-  }, [attachElement, isStreamReady, ensureAudioOutputReady]);
+  }, [attachElement, isStreamReady, ensureAudioOutputReady, attemptAvatarVideoPlayback]);
+
+  // Mic permission can consume the original START activation on Android. When
+  // voice startup/account readiness settles, retry playback on the same final
+  // video node. Rejection is honest: the badge remains until frame proof.
+  useEffect(() => {
+    if (
+      !isPhoneLifecycleViewport ||
+      !isStreamReady ||
+      hasRenderableAvatarFrame ||
+      !videoRef.current
+    ) {
+      return;
+    }
+    attemptAvatarVideoPlayback(videoRef.current);
+  }, [
+    accountAuthChecked,
+    attemptAvatarVideoPlayback,
+    hasRenderableAvatarFrame,
+    isPhoneLifecycleViewport,
+    isStreamReady,
+    voiceIsLoading,
+    voiceStartAwaitingReady,
+  ]);
 
   // Ensure video has volume and is not muted whenever video element is available
   // Only unmute after user interaction (audio unlock) - CRITICAL to prevent mouth movement during loading
@@ -7947,8 +9128,7 @@ const LiveAvatarSessionComponent: React.FC<{
     if (videoRef.current && isStreamReady && audioUnlockedRef.current) {
       const video = videoRef.current;
       // 2026-08-21: respect the speaker-mute button (see applySpeakerMute).
-      video.volume = voiceMutedRef.current ? 0 : 1.0;
-      video.muted = voiceMutedRef.current;
+      syncSpeakerMute(video, voiceMutedRef.current, true);
       // Also ensure audio tracks are enabled if available
       if (video.srcObject && video.srcObject instanceof MediaStream) {
         video.srcObject.getAudioTracks().forEach((track) => {
@@ -7958,8 +9138,7 @@ const LiveAvatarSessionComponent: React.FC<{
     } else if (videoRef.current && isStreamReady && !audioUnlockedRef.current) {
       // Ensure video stays muted if audio is not unlocked yet
       const video = videoRef.current;
-      video.muted = true;
-      video.volume = 0;
+      syncSpeakerMute(video, voiceMutedRef.current, false);
     }
   }, [isStreamReady, audioUnlockedRef]);
 
@@ -8642,7 +9821,7 @@ const LiveAvatarSessionComponent: React.FC<{
     // delivering two utterances a beat apart used to race both through the
     // handler stack — two responders, overlapping audio through two
     // different voice pipes, double memory writes.
-    const handleUserTranscription = (event: { text: string }) => {
+    const handleUserTranscription = (event: { text: string; flushHeld?: boolean }) => {
       const acceptedEpoch = sessionEpochRef.current;
       turnChainRef.current = turnChainRef.current
         .then(() => {
@@ -8680,18 +9859,25 @@ const LiveAvatarSessionComponent: React.FC<{
         });
       return turnChainRef.current;
     };
-    const processUserTurn = async (event: { text: string }) => {
+    const processUserTurn = async (event: { text: string; flushHeld?: boolean }) => {
       const rawUserText = event.text.trim();
       logAppEvent("t6", { p: "ht_pu_start", pres: voicePresenceRef.current, len: rawUserText.length });
       if (isInternalSignal(rawUserText)) {
         return;
       }
       const intakeNow = Date.now();
-      const intake = resolveTurnIntake({
-        incoming: rawUserText,
-        pending: pendingSpeechFragmentRef.current,
-        now: intakeNow,
-      });
+      const intake = event.flushHeld
+        ? {
+            kind: "dispatch" as const,
+            pending: null,
+            text: rawUserText,
+            stitched: false,
+          }
+        : resolveTurnIntake({
+            incoming: rawUserText,
+            pending: pendingSpeechFragmentRef.current,
+            now: intakeNow,
+          });
       pendingSpeechFragmentRef.current = intake.pending;
       if (intake.kind === "hold") {
         logAppEvent(
@@ -8700,9 +9886,32 @@ const LiveAvatarSessionComponent: React.FC<{
           "low",
           { outcome: "held" },
         );
+        if (pendingSpeechFlushTimerRef.current !== null) {
+          window.clearTimeout(pendingSpeechFlushTimerRef.current);
+        }
+        const heldAt = intake.pending.at;
+        pendingSpeechFlushTimerRef.current = window.setTimeout(() => {
+          pendingSpeechFlushTimerRef.current = null;
+          const pending = pendingSpeechFragmentRef.current;
+          if (!pending || pending.at !== heldAt) return;
+          const text = flushPendingSpeechFragment(pending, Date.now());
+          if (!text) return;
+          pendingSpeechFragmentRef.current = null;
+          logAppEvent(
+            "user_turn_flushed",
+            { where: "avatar", length: text.length },
+            "low",
+            { outcome: "accepted" },
+          );
+          void handleUserTranscription({ text, flushHeld: true });
+        }, 1_400);
         return;
       }
-      const userText = intake.text;
+      if (pendingSpeechFlushTimerRef.current !== null) {
+        window.clearTimeout(pendingSpeechFlushTimerRef.current);
+        pendingSpeechFlushTimerRef.current = null;
+      }
+      const acceptedText = intake.text;
       // STT ECHO DEDUPE (2026-06-11): the pipeline delivers the same utterance
       // twice within a beat. Each echo dispatched twice — one "make it bigger"
       // stepped sizing twice (G's runaway pills), and a duplicated "Perfect."
@@ -8715,7 +9924,7 @@ const LiveAvatarSessionComponent: React.FC<{
       const isExactEcho = isDuplicateUtterance(
         previousSpeech?.text ?? null,
         previousSpeech?.at ?? 0,
-        userText,
+        acceptedText,
         speechNow,
       );
       if (isExactEcho) {
@@ -8727,13 +9936,58 @@ const LiveAvatarSessionComponent: React.FC<{
         );
         return;
       }
+      // CUMULATIVE RESTATEMENT (2026-08-31, session 79317698). The guard above
+      // only catches EQUALITY inside 2.5 s. The provider also ships a final
+      // that repeats every earlier shard and appends the new words, so one
+      // "have Scott reach out to me" reached the brain and the contact machine
+      // again and again and 6 kept re-asking. Hand the consumer only the part
+      // that is genuinely new. The provider's own rows are written by the
+      // server-side transcript sync and are not touched by any of this.
+      const semantic = resolveSemanticTurn({
+        incoming: acceptedText,
+        accepted: acceptedTurnsRef.current,
+        now: speechNow,
+      });
+      if (semantic.kind === "drop") {
+        logAppEvent(
+          "user_turn_dropped",
+          { where: "avatar", reason: semantic.reason },
+          "low",
+          { outcome: "dropped" },
+        );
+        return;
+      }
+      // Remember the RAW accepted text: that is what the next cumulative final
+      // restates, so that is what the next comparison has to trim against.
+      rememberAcceptedTurn(acceptedText, speechNow);
+      const userText = semantic.text;
+      if (semantic.reason === "cumulative_remainder") {
+        logAppEvent(
+          "user_turn_trimmed",
+          {
+            where: "avatar",
+            rawLength: acceptedText.length,
+            deliveredLength: userText.length,
+          },
+          "low",
+          { outcome: "trimmed" },
+        );
+      }
       // ECHO FIREWALL (copilot 2026-06-12): when the WebAudio fallback voice
       // plays through speakers, the mic can hear 6 and transcribe HIM as the
       // user — the brain then answers itself in a loop (G's "multiple
       // voices"; transcript showed his greeting tail logged as user turns).
       // If this line matches something 6 just said, it is his own voice
       // coming back — drop it before anything can act on it.
-      if (mode === "CUSTOM" && wasRecentlySpokenBySix(userText)) {
+      const isFreeAccountValueQuestion =
+        /^(?:why|what|how)\b[\s\S]{0,80}\bfree account\b|\bwhat(?:'s| is) (?:the )?(?:point|benefit|value)\b[\s\S]{0,40}\baccount\b/i.test(
+          userText,
+        );
+      if (
+        mode === "CUSTOM" &&
+        wasRecentlySpokenBySix(userText) &&
+        !isFreeAccountValueQuestion
+      ) {
         reportCustomVoiceDiag(`[echo-dropped] ${userText.slice(0, 80)}`);
         logAppEvent(
           "user_turn_dropped",
@@ -8778,6 +10032,10 @@ const LiveAvatarSessionComponent: React.FC<{
       if (mode === "CUSTOM" && voicePresenceRef.current === "avatar") {
         voiceLogTurn("user", userText);
       }
+      void postOpportunitySignal("turn", {
+        conversation_session_id: dbSessionIdRef.current,
+        text: userText,
+      });
       // r29 telemetry (G 2026-06-12): complaints ARE bug reports — file
       // silently, keep the conversation flowing. Frustration counter too.
       noteUserTurnForFrustration(userText);
@@ -8850,7 +10108,7 @@ const LiveAvatarSessionComponent: React.FC<{
       // this on non-backchannel, so 6 kept talking through the user's words;
       // that's the extra interrupting G felt. Matching v1: the moment a user
       // transcription arrives while 6 is mid-speech, 6 stops.
-      if (isAvatarTalking) {
+      if (isAvatarTalking || isCustomVoiceFallbackBusy()) {
         void interrupt();
       }
 
@@ -9146,9 +10404,44 @@ const LiveAvatarSessionComponent: React.FC<{
           endSessionConfirmationPendingRef.current = false;
           endSessionConfirmationAskedAtRef.current = 0;
           await interrupt();
-          void handleEndSession();
+          void handleEndSession(
+            isDirectAvatarStopCommand(userText) ? { pause: true } : undefined,
+          );
           return;
         }
+      }
+
+      if (isPublicContactRequest(userText)) {
+        await repeat(PUBLIC_CONTACT_SPOKEN_RESPONSE);
+        lastAvatarResponseRef.current = PUBLIC_CONTACT_SPOKEN_RESPONSE;
+        rememberConversationLine("assistant", PUBLIC_CONTACT_SPOKEN_RESPONSE);
+        return;
+      }
+      if (await handleBuildInterestSpeech(userText)) {
+        schedulePromptBrain(userText);
+        return;
+      }
+
+      const wildWorks = resolveWildWorksLinkTurn(userText, wildWorksOfferStateRef.current);
+      if (wildWorks) {
+        wildWorksOfferStateRef.current = wildWorks.nextState;
+        setWildWorksOfferState(wildWorks.nextState);
+        if (wildWorks.handled && wildWorks.spoken) {
+          await repeat(wildWorks.spoken);
+          lastAvatarResponseRef.current = wildWorks.spoken;
+          rememberConversationLine("assistant", wildWorks.spoken);
+          lastVisionResponseTimeRef.current = Date.now();
+          return;
+        }
+      }
+
+      const avatarSite = resolveAvatarSiteIntent(userText);
+      if (avatarSite) {
+        await repeat(avatarSite);
+        lastAvatarResponseRef.current = avatarSite;
+        rememberConversationLine("assistant", avatarSite);
+        lastVisionResponseTimeRef.current = Date.now();
+        return;
       }
 
       let setupHandled = false;
@@ -10193,46 +11486,6 @@ const LiveAvatarSessionComponent: React.FC<{
         return;
       }
 
-      // Persist transcript and drive contact info collection prompts (email/phone/name)
-      const captureSessionId = dbSessionIdRef.current;
-      try {
-        const captureResponse =
-          captureSessionId != null
-            ? await fetch("/api/transcription/capture", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  sessionId: captureSessionId,
-                  text: userText,
-                  testerLabel: testerLabelRef.current,
-                }),
-              })
-            : null;
-
-        if (captureResponse?.ok) {
-          const captureData = await captureResponse.json();
-          if (
-            captureData?.assistantPrompt &&
-            typeof captureData.assistantPrompt === "string"
-          ) {
-            await repeat(captureData.assistantPrompt);
-            lastAvatarResponseRef.current = captureData.assistantPrompt;
-            lastVisionResponseTimeRef.current = Date.now();
-          }
-
-          if (captureData?.shouldSkipVision) {
-            return;
-          }
-        } else if (captureResponse) {
-          const captureError = await captureResponse.text();
-          console.error("Failed to capture transcription:", captureError);
-        }
-      } catch (captureError) {
-        console.error("Error calling transcription capture route:", captureError);
-      }
-
       // If user asks about video and videoAnalysis exists, re-send video context
       const userTextLower = userText.toLowerCase();
       const videoKeywords = ["video", "recording", "clip", "footage", "film"];
@@ -10342,6 +11595,13 @@ const LiveAvatarSessionComponent: React.FC<{
       dispatchAuthoritativeAvatarSpeech("liveavatar_sdk", event);
     };
     const handleUserSpeakStarted = () => {
+      // MUTE 2026-08-21: the SECOND barge-in door. The app's own RMS poll is
+      // gated in the barge-in effect, but HeyGen's VAD rides the LiveKit track
+      // and fires this independently — and on the healthy-avatar path (where
+      // isAvatarTalking is actually true) nothing else stops it. Without this a
+      // muted user clearing their throat still cuts 6 off mid-sentence while
+      // the button shows a red MicOff.
+      if (micMutedRef.current) return;
       if (isAvatarTalkingRef.current) {
         void latestInterruptRef.current();
       }
@@ -10380,6 +11640,14 @@ const LiveAvatarSessionComponent: React.FC<{
     const SpeechRecognitionCtor =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
+    if (!shouldUseBrowserSpeechRecognition(mode, navigator.userAgent)) {
+      authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
+        mode,
+        false,
+      );
+      speechRecognitionRef.current = null;
+      return;
+    }
     if (!SpeechRecognitionCtor) {
       authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
         mode,
@@ -10397,17 +11665,40 @@ const LiveAvatarSessionComponent: React.FC<{
     let cancelled = false;
     let fatalRecognitionError = false;
     let restartTimeout: ReturnType<typeof setTimeout> | null = null;
+    // The ONE owner of the restart timer. Used by applyMicMute on every tap and
+    // by the cleanup below on every rebuild, so a timer armed before either
+    // can never call start() on an instance that is already running.
+    const clearRestart = () => {
+      if (restartTimeout) {
+        clearTimeout(restartTimeout);
+        restartTimeout = null;
+      }
+    };
+    // MUTE 2026-08-21: hand the live instance to applyMicMute so it can stop
+    // and restart capture directly. Stopping the recognizer (rather than only
+    // discarding what it produces) is the honest half of the mute — this is the
+    // capture that streams the user's audio off-device.
+    speechRecognitionRef.current = { recognition, clearRestart };
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = navigator.language || "en-US";
     recognition.onresult = (event: any) => {
-      if (isAvatarTalkingRef.current) return;
+      // Race guard: a final result already queued when the mute landed.
+      if (micMutedRef.current) return;
       const transcript = Array.from(event.results ?? [])
         .slice(event.resultIndex ?? 0)
         .map((result: any) => result?.[0]?.transcript ?? "")
         .join(" ")
         .trim();
       if (transcript) {
+        // A completed browser final is evidence that the user has the floor,
+        // not an echo to discard. The old early return here lost ordinary
+        // follow-ups spoken over a greeting, forcing the user to wait for the
+        // whole line (or speak again). Keep source arbitration and downstream
+        // duplicate/echo guards intact, but interrupt before routing the final.
+        if (isAvatarTalkingRef.current) {
+          void latestInterruptRef.current();
+        }
         dispatchAuthoritativeAvatarSpeech("app_browser", { text: transcript });
       }
     };
@@ -10430,7 +11721,19 @@ const LiveAvatarSessionComponent: React.FC<{
     };
     recognition.onend = () => {
       if (cancelled || fatalRecognitionError) return;
+      // MUTE 2026-08-21: stay stopped. Without this the 350ms restart loop
+      // reopens the recognizer applyMicMute just closed, ~3 times a second,
+      // for the whole mute.
+      if (micMutedRef.current) return;
       restartTimeout = setTimeout(() => {
+        restartTimeout = null;
+        // Re-check INSIDE the timer, not only above it. A continuous recognizer
+        // spends much of its life in this 350ms window (a silent user trips
+        // "no-speech", which is classified recoverable and lands here). A MUTE
+        // tap during it clears this timer through clearRestart() — this guard
+        // is the belt to that brace, for any future caller that flips the ref
+        // without going through applyMicMute.
+        if (micMutedRef.current) return;
         try {
           recognition.start();
         } catch (error) {
@@ -10444,7 +11747,10 @@ const LiveAvatarSessionComponent: React.FC<{
       }, 350);
     };
     try {
-      recognition.start();
+      // MUTE 2026-08-21: if this effect re-runs while the user is holding MUTE
+      // (a mid-mount reconnect, or a recognizer rebuild), do not hand back a hot
+      // mic they did not ask for.
+      if (!micMutedRef.current) recognition.start();
     } catch (error) {
       authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
         mode,
@@ -10455,7 +11761,10 @@ const LiveAvatarSessionComponent: React.FC<{
 
     return () => {
       cancelled = true;
-      if (restartTimeout) clearTimeout(restartTimeout);
+      if (speechRecognitionRef.current?.recognition === recognition) {
+        speechRecognitionRef.current = null;
+      }
+      clearRestart();
       if (authoritativeAvatarSpeechSourceRef.current === "app_browser") {
         authoritativeAvatarSpeechSourceRef.current = selectAvatarSpeechSource(
           mode,
@@ -10472,6 +11781,14 @@ const LiveAvatarSessionComponent: React.FC<{
     dispatchAuthoritativeAvatarSpeech,
     hasUserPressedVoiceStart,
     mode,
+    // MUTE 2026-08-21: micMuted is deliberately NOT in this list — this effect's
+    // own contract (see the comment above it) is that ordinary state changes
+    // must not stop/restart the recognizer, and mute is an ordinary state
+    // change. applyMicMute drives it imperatively instead. recognizerEpoch is
+    // the ONLY mute-related re-run: applyMicMute bumps it when un-muting could
+    // not restart the recognizer, so a would-be permanent deafness rebuilds
+    // itself instead of failing silently.
+    recognizerEpoch,
     voiceIsActive,
   ]);
 
@@ -11265,7 +12582,20 @@ const LiveAvatarSessionComponent: React.FC<{
   const chestPrompts = visibleThoughtPrompts.slice(0, 4);
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] flex flex-col">
+    <div
+      data-six-active-stage={
+        sessionState === SessionState.CONNECTED && isStreamReady ? "1" : undefined
+      }
+      className="aiasap-tablet-idle-stage fixed inset-0 h-[100svh] min-h-0 w-screen overflow-hidden bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] flex flex-col [--stage-width:100vw] [--stage-height:100svh] [--stage-top:0px] [--stage-bottom:0px] md:h-screen md:[--stage-width:calc(94vh*9/16)] md:[--stage-height:94vh] md:[--stage-top:3vh] md:[--stage-bottom:3vh]"
+    >
+      {shouldShowLoadingSurface && (
+          <div
+            data-six-loading-only="1"
+            className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden bg-transparent"
+        >
+          <SixLoadingIndicator />
+        </div>
+      )}
       {/* Session start error (e.g. no credits) - show message and do not auto-restart */}
       {sessionStartError && (
         <div className="absolute inset-x-0 top-0 z-50 bg-red-900/95 text-white px-4 py-4 text-center shadow-lg">
@@ -11495,22 +12825,15 @@ const LiveAvatarSessionComponent: React.FC<{
       )}
 
       {/* Text overlays — locked inside avatar frame top via --stage-top var (scales with viewport) */}
-      <div className="absolute left-0 right-0 z-10 flex flex-col items-center pb-1 pt-1 sm:pt-2 md:pt-0" style={{ top: "calc(var(--stage-top) + 0.25rem)" }}>
-        <div className="text-center px-4">
-          <div className="flex items-start justify-center">
-            <h1 className="aiasap-logo-mark relative top-[0.45rem] inline-block overflow-visible px-5 pt-1 pb-1 bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-[calc(var(--stage-width)*0.10)] font-bold italic leading-[1.12] tracking-normal text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
-              aiASAP
-            </h1>
-          </div>
-          <p className="mt-0 text-[calc(var(--stage-width)*0.025)] font-bold tracking-[0.3em] md:tracking-[0.22em] xl:tracking-[0.3em] uppercase bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]">
-            <TaglineText />
-          </p>
-          {/* G 2026-06-14 ride: "Signed in as ..." chip removed on G's request
-              (account stays signed in; this only took the on-screen text off). */}
-        </div>
-        {microphoneWarning && (
-          <div className="mt-4 bg-yellow-500 text-black px-4 py-2 rounded-md max-w-2xl text-center">
-            <p className="font-semibold">⚠️ Warning: {microphoneWarning}</p>
+      {!shouldShowLoadingSurface && (
+      <StageBrandLockup>
+        {(microphoneWarning || microphonePermissionNotice) && (
+          <div
+            className={`mt-4 bg-yellow-500 text-black px-4 py-2 rounded-md max-w-2xl text-center ${
+              shouldShowBlockedMicrophoneRecovery ? "hidden md:block" : ""
+            }`}
+          >
+            <p className="font-semibold">⚠️ Warning: {microphonePermissionNotice ?? microphoneWarning}</p>
           </div>
         )}
         {/* {isAnalyzingImage && (
@@ -11523,53 +12846,38 @@ const LiveAvatarSessionComponent: React.FC<{
             <p className="font-semibold">✅ Image analyzed successfully</p>
           </div>
         )} */}
-      </div>
+      </StageBrandLockup>
+      )}
+      {shouldShowBlockedMicrophoneRecovery && (
+        <MicrophoneRecoveryCard
+          onCheckAgain={() => void handleVoiceStartStop({ retryMicrophone: true })}
+        />
+      )}
 
       {/* Full screen video */}
       <div
-        className={`relative w-full flex-1 flex items-center justify-center pb-[8svh] md:pb-0 md:px-8 ${isCameraActive ? "pt-24" : ""}`}
+        data-six-stage-media="1"
+        className={`relative w-full flex-1 overflow-hidden md:flex md:items-center md:justify-center md:overflow-visible md:px-8 ${isCameraActive ? "pt-24" : ""}`}
       >
         {/* Avatar video - full screen when camera inactive, small overlay in left corner when active */}
         <video
           ref={videoRef}
+          poster="/startscreen-noband.png"
+          onLoadedData={(event) => attemptAvatarVideoPlayback(event.currentTarget)}
+          onCanPlay={(event) => attemptAvatarVideoPlayback(event.currentTarget)}
+          onPlaying={(event) => requestRenderableAvatarFrame(event.currentTarget)}
+          onTimeUpdate={(event) => requestRenderableAvatarFrame(event.currentTarget)}
           autoPlay // Native autoplay
           playsInline
           preload="auto"
           muted={true} // Start muted to prevent mouth movement during loading
-          className={`${
+          className={`six-primary-scene ${
             isCameraActive
               ? "absolute top-24 left-4 w-24 h-44 object-contain z-20 rounded-lg border-2 border-white shadow-2xl"
-              : `h-full w-full object-cover md:object-cover md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] rounded-[2.25rem] md:rounded-[2.25rem] border border-[#d7a05a]/40 md:border md:border-[#d7a05a]/40 ${
-                  // G 2026-06-13: a gold-amber PRESENCE RING around 6's full face
-                  // that pulses with BOTH voices. CRITICAL: the default mode is
-                  // CUSTOM, where the SDK's isAvatarTalking/isUserTalking do NOT
-                  // fire (6 speaks via repeatAudio/WebAudio fallback, the mic uses
-                  // our own ears loop). So we drive the ring off voiceSixTalking /
-                  // voiceUserTalking — the SAME proven signals the list thumbnail
-                  // uses — and only while 6's full face is on screen
-                  // (voicePresence === "avatar"; the list panel owns its own glow).
-                  // G 2026-06-14 RING FIX: the pulse classes were gated on
-                  // voicePresence === "avatar", but voiceSixTalking /
-                  // voiceUserTalking ONLY ever fire while presence is NOT
-                  // "avatar" (six=WebAudio mouth in list mode; user=ears loop,
-                  // which is a no-op in avatar mode). So the pulse could never
-                  // render. Drive the pulse off the talking signals FIRST,
-                  // independent of presence; idle is the always-on base ring.
-                  !isStreamReady
-                    ? "shadow-[0_0_0_1px_rgba(215,160,90,0.45)]"
-                    : voiceUserTalking
-                      ? "six-ring-user"
-                      : voiceSixTalking
-                        ? "six-ring-six"
-                        : "six-ring-idle"
-                }`
+              : "absolute inset-0 h-full w-full object-cover object-top rounded-none border-0 md:relative md:inset-auto md:m-0 md:object-cover md:object-top md:h-[94vh] md:max-h-[80rem] md:w-auto md:aspect-[9/16] md:rounded-[2.25rem] md:border md:border-[#d7a05a]/40 md:shadow-[0_0_0_1px_rgba(215,160,90,0.45),0_30px_90px_rgba(0,0,0,0.72)]"
           }`}
-          // Ride-fix (G 2026-08-20, from the iSolve compare): the stream
-          // carries a baked-in black header band; object-contain displayed
-          // it and pushed 6 low. Paint-only crop bias lifts 6 and clears the
-          // band; the element geometry and every --stage-* anchor are
-          // untouched. Tune 72% on the smoke if 6 sits a hair off.
-          style={isCameraActive ? undefined : { objectPosition: "50% 72%" }}
+          // START/returned STOP is the per-viewport crop authority. Keeping the
+          // live node object-top makes RUNNING consume that same visible box.
         />
 
         {/* r22 (G's laptop + phone: "no tap/click line... he looked alive but
@@ -11624,10 +12932,8 @@ const LiveAvatarSessionComponent: React.FC<{
               </div>
             ) : cameraAvailable === false && !fallbackImagePreview ? (
               // Loading fallback image
-              <div className="flex flex-col items-center justify-center w-full h-full max-w-4xl max-h-[calc(100vh-8rem)] bg-gray-900 rounded-lg p-8">
-                <div className="text-center">
-                  <p className="text-inset text-lg">Loading...</p>
-                </div>
+              <div className="flex flex-col items-center justify-center w-full h-full max-w-4xl max-h-[calc(100vh-8rem)] bg-[radial-gradient(135%_110%_at_50%_32%,#5a360f_0%,#3a220c_38%,#241608_70%,#190f05_100%)] rounded-lg p-8">
+                <SixLoadingIndicator />
               </div>
             ) : fallbackImagePreview ? (
               // User uploaded image preview
@@ -11705,33 +13011,12 @@ const LiveAvatarSessionComponent: React.FC<{
         )}
       </div>
 
-      {shouldShowLoadingSurface && (
-        <div className="fixed inset-x-0 z-30 flex -translate-y-1/2 justify-center px-4 pointer-events-none top-[calc(var(--stage-top)+var(--stage-height)*0.55)]">
-          <div className="text-center text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.72)]">
-            {/* G 2026-06-14: "a much nicer font." Swapped the blocky font-black
-                caps for the brand's elegant Lora serif (italic, the same family
-                feel as the italic aiASAP wordmark). SIZE / gold gradient / thin
-                sweep bar are LOCKED and unchanged ([[feedback_loading_screen_locked]]);
-                only the font changed, per G's explicit spec. */}
-            <p
-              className="text-[1.35rem] sm:text-[1.6rem] italic tracking-[0.01em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]"
-              style={{ fontFamily: "'Lora', Georgia, serif", fontWeight: 700 }}
-            >
-              Loading
-            </p>
-            <div className="mx-auto mt-3 h-1.5 w-36 overflow-hidden rounded-full bg-white/10">
-              <span className="block h-full w-1/2 animate-[loading-sweep_2.15s_ease-in-out_infinite] rounded-full bg-[#e0aa62]" />
-            </div>
-          </div>
-        </div>
-      )}
-
       {shouldShowBeginSurface && (
         <button
           type="button"
           aria-label="Begin talking with 6"
           className="fixed inset-0 z-30 cursor-pointer bg-transparent"
-          onClick={() => void handleVoiceStartStop()}
+          onClick={() => void handleVoiceStartStop({ retryMicrophone: true })}
         />
       )}
 
@@ -11797,7 +13082,7 @@ const LiveAvatarSessionComponent: React.FC<{
           )}
 
           {visionMode !== "streaming" && !isCameraActive && !hasUserPressedVoiceStart && !voiceIsActive && !shouldShowLoadingSurface && (
-            <div className="fixed left-1/2 bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.14)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.22)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
+            <div className="fixed left-1/2 bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.08)] md:bottom-[calc(var(--stage-bottom)+var(--stage-height)*0.14)] -translate-x-1/2 w-[94%] max-w-3xl z-20 px-3 flex flex-col items-center pointer-events-none">
               {sessionState !== SessionState.DISCONNECTED &&
                 isStreamReady && (
                   <div className="w-full flex items-center justify-center text-center">
@@ -11806,12 +13091,7 @@ const LiveAvatarSessionComponent: React.FC<{
                         className="inline-flex min-h-[3.75rem] flex-col items-center justify-center gap-1 text-[#e0aa62] drop-shadow-[0_10px_28px_rgba(0,0,0,0.6)]"
                         style={tapPromptFont}
                       >
-                        <span className="flex -translate-y-1.5 items-center text-[calc(var(--stage-width)*0.05)] font-bold italic tracking-[0.14em] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#9e6a35] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
-                          Tap/Click ANYWHERE
-                        </span>
-                        <span className="-translate-y-1 text-[calc(var(--stage-width)*0.10)] font-extrabold tracking-[-0.025em] leading-none bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent drop-shadow-[0_2px_18px_rgba(0,0,0,0.85)]" style={{ fontFamily: '"Lora", Georgia, serif' }}>
-                          To Talk To 6
-                        </span>
+                        <span className="sr-only">Microphone start control</span>
                       </span>
                     </p>
                   </div>
@@ -11827,7 +13107,7 @@ const LiveAvatarSessionComponent: React.FC<{
                       voiceStartAwaitingReady ||
                       (voiceIsLoading && !voiceIsActive)
                     }
-                    onClick={() => void handleVoiceStartStop()}
+                    onClick={() => void handleVoiceStartStop({ retryMicrophone: true })}
                   >
                     {/* <span className="inline-flex items-center gap-1.5">
                       <span
@@ -12378,37 +13658,83 @@ const LiveAvatarSessionComponent: React.FC<{
               where this same top-left button now reads START. VOICE drops the
               avatar entirely and keeps talking: the one control here that SAVES
               money instead of spending it. MUTE is the user's microphone (6's
-              ears). QUIET is 6's voice. */}
-          {sessionState === SessionState.CONNECTED &&
-            isStreamReady &&
+              ears). QUIET is 6's voice.
+
+              2026-08-21: MUTE finally has a variable of its own (micMuted). It
+              used to run handleVoiceStartStop, i.e. a second STOP, which is why
+              G said "the mute didn't work the first time" and why un-muting
+              re-spoke the opening line. micOff keeps the OLD derivation as its
+              second half on purpose: these controls sit at z-60 OVER the
+              invisible z-30 begin surface, so before the first tap the voice
+              loop genuinely is not running and 6 genuinely cannot hear anyone.
+              Dropping it would paint a live-mic icon on the very first frame of
+              the very first session and lie to a first-time visitor. */}
+          {!shouldShowLoadingSurface &&
             visionMode !== "streaming" &&
             !isCameraActive &&
             !isShoppingMode && (
+              <>
+              <SendLinkFallbackCard
+                status={sendLinkFallbackStatus}
+                email={sendLinkFallbackEmail}
+                onSend={handleSendLinkFallbackClick}
+              />
+              <ContactStatusCard state={buildInterestState} onStep={handleContactCardStep} />
+              <PublicContactCard />
+              {wildWorksOfferState === "shown" && (
+                <WildWorksLinkButton
+                  onDismiss={() => {
+                    wildWorksOfferStateRef.current = "idle";
+                    setWildWorksOfferState("idle");
+                  }}
+                />
+              )}
               <StageControls
-                running
-                micOff={!(voiceIsActive && hasUserPressedVoiceStart)}
+                mobileStartControls
+                running={sessionState === SessionState.CONNECTED && isStreamReady}
+                micOff={micMuted || (!(voiceIsActive && hasUserPressedVoiceStart) && !microphonePreflightGranted)}
                 quiet={voiceMuted}
-                hideVoice={!onVoiceOnly}
+                disabledStopStart={sessionState !== SessionState.CONNECTED || !isStreamReady}
                 onStopStart={() => {
                   logAppEvent("stage_control", { control: "stop", to: "stopped_on_stage" });
                   void handleEndSessionRef.current?.({ pause: true });
                 }}
-                onVoiceOnly={() => {
-                  logAppEvent("stage_control", { control: "voice_only", to: "on" });
-                  // Real teardown, then land in voice-only. Calling onVoiceOnly
-                  // directly here is what left the meter running.
-                  void handleEndSessionRef.current?.({ pause: true, toVoice: true });
-                }}
                 onToggleMic={() => {
+                  // 2026-08-21: while the loop is UP this is a microphone mute
+                  // and NOTHING else. It used to call handleVoiceStartStop(),
+                  // whose off-branch is a full voice-loop teardown — so MUTE was
+                  // a second STOP, and turning it back on cold-started the loop
+                  // and re-spoke the opening line ("Hi, I'm 6" x3 in 85s).
+                  // toggleMicMute reads the REF, so two fast taps cannot both
+                  // see a stale value and cancel each other out.
+                  const action = micPressAction(
+                    voiceIsActive,
+                    voiceStartAwaitingReady,
+                    voiceIsLoading,
+                  );
+                  if (action === "toggle_mute") {
+                    toggleMicMute();
+                    return;
+                  }
+                  // Loop not up yet — first tap on a fresh stage. UNCHANGED, and
+                  // load-bearing: these buttons sit at z-60 over the invisible
+                  // z-30 begin surface, so MUTE is the first thing a thumb lands
+                  // on and it is provably how the loop gets started (the
+                  // 21:05:57 `stage_control control=mic to=on` row is this
+                  // handler; the begin surface logs nothing). Make MUTE a pure
+                  // toggle and that first tap becomes a no-op and 6 stays deaf
+                  // on a billing session — worse than the bug.
+                  //
                   // Same guard the old Mic button carried as `disabled`: do not
                   // let a second press land while the voice loop is still coming
                   // up, or the start/stop toggles past itself.
-                  if (voiceStartAwaitingReady || (voiceIsLoading && !voiceIsActive)) return;
+                  if (action === "wait") return;
                   logAppEvent("stage_control", {
                     control: "mic",
-                    to: voiceIsActive && hasUserPressedVoiceStart ? "off" : "on",
+                    to: "on",
+                    how: "start",
                   });
-                  void handleVoiceStartStop();
+                  void handleVoiceStartStop({ retryMicrophone: true });
                 }}
                 onToggleQuiet={() => {
                   logAppEvent("stage_control", { control: "quiet", to: voiceMuted ? "off" : "on" });
@@ -12422,30 +13748,16 @@ const LiveAvatarSessionComponent: React.FC<{
                   void handleGalleryClick();
                 }}
               />
+              </>
             )}
 
-          {visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
-            <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] md:bottom-[calc((var(--stage-bottom)-0.875rem)/2)] md:top-auto left-1/2 -translate-x-1/2 z-40 flex items-center justify-center gap-1 pointer-events-auto">
-              <Link
-                href="/terms"
-                target="_blank"
-                className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
-              >
-                Terms
-              </Link>
-              <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">&middot;</span>
-              <span className="text-center text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">
-                &copy; 2026 aiASAP All Rights Reserved
-              </span>
-              <span className="text-[10px] sm:text-[11px] bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent">&middot;</span>
-              <Link
-                href="/privacy"
-                target="_blank"
-                className="text-[10px] sm:text-[11px] whitespace-nowrap bg-gradient-to-b from-[#ffe9c2] via-[#d7a05a] to-[#3a2108] bg-clip-text text-transparent hover:opacity-90 transition-opacity"
-              >
-                Privacy
-              </Link>
-            </div>
+          {!shouldShowLoadingSurface && visionMode !== "streaming" && !isCameraActive && !isShoppingMode && (
+            <StageLegalFooter
+              phoneFlow
+              phoneStackPaddingBottom="12px"
+              placementClassName="aiasap-tablet-idle-legal md:absolute md:bottom-2 md:left-1/2 md:-translate-x-1/2"
+              onBeforeNavigate={stopAvatarForLegal}
+            />
           )}
         </>
       )}
@@ -12470,15 +13782,11 @@ const LiveAvatarSessionComponent: React.FC<{
               </button>
             </div>
           </div>
-          <div className="fixed bottom-1 left-1/2 -translate-x-1/2 z-20">
-            <Link
-              href="/terms"
-              target="_blank"
-              className="block text-center text-[11px] sm:text-xs text-[#d7a05a]/70 hover:text-[#d7a05a] transition-colors py-1"
-            >
-              Terms
-            </Link>
-          </div>
+          <StageLegalFooter
+            phoneFlow
+            placementClassName="md:fixed md:bottom-1 md:left-1/2 md:-translate-x-1/2"
+            onBeforeNavigate={stopAvatarForLegal}
+          />
         </>
       )}
       <style>{`
@@ -12531,70 +13839,6 @@ const LiveAvatarSessionComponent: React.FC<{
           animation: prompt-dissolve 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
         }
 
-        /* G 2026-06-13: gold-amber PRESENCE RING around 6 that pulses with both
-           voices. Brand stops: cream #ffe9c2, amber #d7a05a, glow #f4d086.
-           Idle = steady thin amber; 6-talking = warm gold breathe; user-talking
-           = brighter, faster cream breathe. Driven by voiceSixTalking /
-           voiceUserTalking (the signals that actually fire in CUSTOM mode). */
-        .six-ring-idle {
-          box-shadow:
-            0 0 0 3px rgba(215, 160, 90, 0.7),
-            0 0 26px 6px rgba(244, 208, 134, 0.45),
-            0 30px 90px rgba(0, 0, 0, 0.72);
-          transition: box-shadow 300ms ease-out;
-          animation: six-ring-idle-breathe 2.6s ease-in-out infinite;
-        }
-        @keyframes six-ring-idle-breathe {
-          0%,
-          100% {
-            box-shadow:
-              0 0 0 3px rgba(215, 160, 90, 0.7),
-              0 0 26px 6px rgba(244, 208, 134, 0.45),
-              0 30px 90px rgba(0, 0, 0, 0.72);
-          }
-          50% {
-            box-shadow:
-              0 0 0 4px rgba(215, 160, 90, 0.85),
-              0 0 38px 10px rgba(244, 208, 134, 0.62),
-              0 30px 90px rgba(0, 0, 0, 0.72);
-          }
-        }
-        .six-ring-six {
-          animation: six-ring-pulse 1.15s ease-in-out infinite;
-        }
-        .six-ring-user {
-          animation: six-ring-pulse-user 0.9s ease-in-out infinite;
-        }
-        @keyframes six-ring-pulse {
-          0%,
-          100% {
-            box-shadow:
-              0 0 0 2px rgba(215, 160, 90, 0.6),
-              0 0 22px 5px rgba(244, 208, 134, 0.4),
-              0 30px 90px rgba(0, 0, 0, 0.72);
-          }
-          50% {
-            box-shadow:
-              0 0 0 6px rgba(215, 160, 90, 0.85),
-              0 0 46px 13px rgba(244, 208, 134, 0.72),
-              0 30px 90px rgba(0, 0, 0, 0.72);
-          }
-        }
-        @keyframes six-ring-pulse-user {
-          0%,
-          100% {
-            box-shadow:
-              0 0 0 2px rgba(255, 233, 194, 0.6),
-              0 0 24px 5px rgba(255, 233, 194, 0.42),
-              0 30px 90px rgba(0, 0, 0, 0.72);
-          }
-          50% {
-            box-shadow:
-              0 0 0 7px rgba(255, 233, 194, 0.95),
-              0 0 54px 15px rgba(255, 233, 194, 0.82),
-              0 30px 90px rgba(0, 0, 0, 0.72);
-          }
-        }
       `}</style>
     </div>
   );
@@ -12602,17 +13846,19 @@ const LiveAvatarSessionComponent: React.FC<{
 
 export const LiveAvatarSession: React.FC<{
   mode: "FULL" | "CUSTOM";
+  microphonePreflightGranted?: boolean;
   sessionAccessToken: string;
   onSessionStopped: (opts?: SessionStoppedReason) => void;
   onExit?: () => void;
   /** STOP: real teardown, but land on tap-to-return instead of Session Ended. */
   onPause?: () => void;
   onVoiceOnly?: () => void;
-}> = ({ mode, sessionAccessToken, onSessionStopped, onExit, onPause, onVoiceOnly }) => {
+}> = ({ mode, microphonePreflightGranted = false, sessionAccessToken, onSessionStopped, onExit, onPause, onVoiceOnly }) => {
   return (
     <LiveAvatarContextProvider sessionAccessToken={sessionAccessToken} mode={mode}>
       <LiveAvatarSessionComponent
         mode={mode}
+        microphonePreflightGranted={microphonePreflightGranted}
         onSessionStopped={onSessionStopped}
         onExit={onExit}
         onPause={onPause}

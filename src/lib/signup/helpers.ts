@@ -41,14 +41,21 @@ export const ACCOUNT_READY_NO_RE =
 export const EMAIL_EXPLICIT_CORRECTION_RE =
   /\b(?:(?:fix|correct|change)\s+(?:it|that|my\s+email|the\s+email|my\s+address|the\s+address)|take\s+(?:it|my\s+email|the\s+email|my\s+address|the\s+address)\s+again|(?:my|the)\s+(?:email|address)\s+(?:is|was|looks?)\s+(?:wrong|incorrect|not\s+(?:right|correct)))\b/i;
 export const EMAIL_GATE_CORRECTION_RE =
-  /^\s*(?:(?:actually\b.*(?:@|\bat\b.*\bdot\b).*|wrong\s+domain\b.*)|(?:(?:but|and)\s+)?(?:(?:no|now)\s*[,.-]?\s*)?(?:(?:that|it)(?:'?s|\s+is)\s+)?(?:wrong|incorrect|not\s+(?:written\s+)?(?:right|correct)|isn'?t\s+(?:written\s+)?(?:right|correct)|you\s+didn'?t\s+(?:write|show|spell|display|enter|type|get)\s+(?:it\s+)?(?:right|correct))[\s.!?]*)$/i;
+  /^\s*(?:(?:actually\b(?!@).*(?:@|\bat\b.*\bdot\b).*|wrong\s+domain\b.*)|(?:(?:but|and)\s+)?(?:(?:no|now)\s*[,.-]?\s*)?(?:(?:that|it)(?:'?s|\s+is)\s+)?(?:wrong|incorrect|not\s+(?:written\s+)?(?:right|correct)|isn'?t\s+(?:written\s+)?(?:right|correct)|you\s+didn'?t\s+(?:write|show|spell|display|enter|type|get)\s+(?:it\s+)?(?:right|correct))[\s.!?]*)$/i;
+const EMAIL_GATE_INLINE_CORRECTION_CUE_RE =
+  /\b(?:wrong|incorrect)\b(?!@)|\bnot\s+(?:right|correct)\b|\bisn'?t\s+(?:right|correct)\b|^\s*(?:(?:no|but)\b[\s,.-]*)?(?:(?:it|that)(?:'?s|\s+is)\s+)?actually\b(?!@)/i;
+const EMAIL_GATE_INLINE_ADDRESS_RE =
+  /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|\bat\b[^.!?]{0,64}\bdot\b)/i;
 export function hasEmailCorrectionIntent(
   text: string,
   atActiveEmailGate: boolean,
 ): boolean {
   return (
     EMAIL_EXPLICIT_CORRECTION_RE.test(text) ||
-    (atActiveEmailGate && EMAIL_GATE_CORRECTION_RE.test(text))
+    (atActiveEmailGate &&
+      (EMAIL_GATE_CORRECTION_RE.test(text) ||
+        (EMAIL_GATE_INLINE_CORRECTION_CUE_RE.test(text) &&
+          EMAIL_GATE_INLINE_ADDRESS_RE.test(text))))
   );
 }
 export const EMAIL_READBACK_REQUEST_RE =
@@ -86,6 +93,10 @@ export const EMAIL_ENTRY_REQUEST_RE =
 export const ACCOUNT_SETUP_REOFFER_COOLDOWN_MS = 90_000;
 export const END_CONVERSATION_RE =
   /\b(?:end|stop|finish|quit|exit|close|shut\s+down|wrap up|done with)\s+(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6)\b|\b(?:i'?m done|all done|that'?s all)\s+(?:with\s+)?(?:this|the|my)?\s*(?:conversation|session|chat|talk|site|app|avatar|six|6|for now)\b/i;
+// "Stop, Six" is an immediate spoken command, not a phrase to match inside
+// commentary ("That should not stop Six"). Keep it deliberately whole-turn.
+export const DIRECT_AVATAR_STOP_RE =
+  /^\s*(?:(?:please|okay|ok|hey)\s*,?\s*)?(?:stop\s*,?\s*(?:six|6)|(?:six|6)\s*,?\s*stop)(?:\s*(?:please|now))?\s*[.!?…]*\s*$/i;
 export const END_SESSION_CONFIRM_RE =
   /\b(?:yes|yeah|yep|yup|yea|sure|ok|okay|correct|right|do it|go ahead|close|stop|end|quit|exit|shut\s+(?:it\s+)?down|that'?s right|that is right|please)\b/i;
 export const END_SESSION_CANCEL_RE =
@@ -166,7 +177,17 @@ export function hasEndSessionIntent(text: string): boolean {
   }
   // A question about closing or a negated mention is not a request to close.
   if (END_SESSION_BLOCK_RE.test(text)) return false;
+  // The generic end-session regex is intentionally broad for phrases such as
+  // "close the session", but "stop Six" must be a standalone command so
+  // feedback about an interruption cannot tear down the conversation.
+  if (/\bstop\s*,?\s*(?:six|6)\b|\b(?:six|6)\s*,?\s*stop\b/i.test(text)) {
+    return isDirectAvatarStopCommand(text);
+  }
   return END_CONVERSATION_RE.test(text);
+}
+
+export function isDirectAvatarStopCommand(text: string): boolean {
+  return DIRECT_AVATAR_STOP_RE.test(text);
 }
 
 /**
@@ -199,6 +220,10 @@ export function confirmsEndSession(text: string): boolean {
 export const DEVICE_NAME_STOP_WORDS = new Set([
   "yes",
   "no",
+  "hi",
+  "him",
+  "her",
+  "them",
   "just",
   "okay",
   "ok",
@@ -880,4 +905,3 @@ export function extractAccountEmailCandidate(
   if (SPOKEN_EMAIL_NOISE_WORDS.has(local)) return null;
   return candidate;
 }
-

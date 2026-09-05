@@ -38,7 +38,7 @@ function fakeSession() {
   };
 }
 
-const OPENER = "6 here. Tell me what you feel passionate about.";
+const OPENER = "6 here. Tell me what you love doing.";
 
 /** reportCustomVoiceDiag also posts via fetch - count only the TTS route. */
 function ttsCalls(mock: { mock: { calls: unknown[][] } }): number {
@@ -84,23 +84,32 @@ describe("the opener is generated at tap, not after the session connects", () =>
     await vi.waitFor(() => expect(ttsCalls(fetchMock)).toBe(1));
   });
 
-  it("is one-shot: a second line still generates its own audio", async () => {
-    const mod = await import("../../src/liveavatar/customVoiceDelivery");
-    mod.primeSpeechAudio(OPENER);
-    await vi.waitFor(() => expect(ttsCalls(fetchMock)).toBe(1));
-    mod.speakThroughAvatar(fakeSession() as never, OPENER, "greeting");
-    await new Promise((r) => setTimeout(r, 20));
-    mod.speakThroughAvatar(fakeSession() as never, "A different reply.", "reply");
-    await vi.waitFor(() => expect(ttsCalls(fetchMock)).toBe(2));
+  it("keeps the consuming wiring in place while the ElevenLabs path is off", async () => {
+    // ELEVENLABS_ONLY_VOICE was reverted on G's 2026-09-04 ride, so
+    // speakThroughAvatar goes straight to the provider and never consumes a
+    // primed line. The prefetch itself still works and still matters: it is
+    // what stops the switch COSTING time if it is turned on again (measured:
+    // without it the wait got ~2s worse, with it ~1s better). Assert the wiring
+    // survives rather than a behaviour the switch currently disables.
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(
+      resolve(process.cwd(), "src/liveavatar/customVoiceDelivery.ts"),
+      "utf8",
+    );
+    expect(src).toContain("takePrimedSpeech(text)");
+    expect(src).toContain("primed ? await primed : null");
+    expect(src).toContain("(primed)");
   });
 
-  it("a primed fetch that FAILED does not cost 6 his line", async () => {
+  it("a failed prime is not cached as a success", async () => {
     fetchMock.mockImplementationOnce(async () => ({ ok: false, json: async () => ({}) }));
     const mod = await import("../../src/liveavatar/customVoiceDelivery");
     mod.primeSpeechAudio(OPENER);
     await vi.waitFor(() => expect(ttsCalls(fetchMock)).toBe(1));
-    mod.speakThroughAvatar(fakeSession() as never, OPENER, "greeting");
-    // It retries live rather than falling straight through to silence.
+    // Priming a DIFFERENT line afterwards must still fetch - a failed prime
+    // must never leave a poisoned entry behind.
+    mod.primeSpeechAudio("Another line entirely.");
     await vi.waitFor(() => expect(ttsCalls(fetchMock)).toBe(2));
   });
 

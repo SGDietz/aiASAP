@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = new Set([
   "https://aiasap.vercel.app",
   "https://aiasap.ai",
   "https://www.aiasap.ai",
+  "https://mission-control.tail00dfe0.ts.net:9444",
+  "https://mission-control.tail00dfe0.ts.net:9446",
 ]);
 
 function originMatchesRequestHost(value: string, request: Request): boolean {
@@ -18,7 +20,17 @@ function originMatchesRequestHost(value: string, request: Request): boolean {
 }
 
 function isAllowedRequestOrigin(value: string, request: Request): boolean {
-  return ALLOWED_ORIGINS.has(value) || originMatchesRequestHost(value, request);
+  if (ALLOWED_ORIGINS.has(value)) return true;
+  try {
+    // Private proof lanes are deliberately port-scoped. They must never gain
+    // access merely because a proxy exposes another same-host Tailnet port.
+    if (new URL(value).hostname === "mission-control.tail00dfe0.ts.net") {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return originMatchesRequestHost(value, request);
 }
 
 /**
@@ -42,8 +54,12 @@ export function assertAllowedOrigin(
 
   const referer = request.headers.get("referer");
   if (referer !== null) {
-    const ok = [...ALLOWED_ORIGINS].some((o) => referer.startsWith(o)) ||
-      originMatchesRequestHost(referer, request);
+    let ok = false;
+    try {
+      ok = isAllowedRequestOrigin(new URL(referer).origin, request);
+    } catch {
+      ok = false;
+    }
     if (ok) return null;
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
