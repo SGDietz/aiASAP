@@ -138,6 +138,34 @@ export function emailRows(
   return `<table role="presentation" class="rows">${body}</table>`;
 }
 
+/**
+ * The visitor's own words, as a pull quote. On a bug or feedback mail this is
+ * the single most important line in the message and it should not be buried in
+ * a paragraph of machine facts.
+ */
+export function emailQuote(text: string): string {
+  return `<div class="quote">&#8220;${escapeHtml(text)}&#8221;</div>`;
+}
+
+/**
+ * A short back-and-forth, oldest first. 6 and the visitor are told apart by
+ * colour and label rather than by two spaces of indent in a <pre> block.
+ */
+export function emailChat(
+  turns: Array<{ role: string; text: string }>,
+): string {
+  if (!turns.length) return "";
+  const body = turns
+    .map((turn) => {
+      const isUser = turn.role === "user";
+      return `<div class="turn${isUser ? " u" : ""}"><span class="who">${
+        isUser ? "They said" : "6"
+      }</span>${escapeHtml(turn.text)}</div>`;
+    })
+    .join("");
+  return `<div class="chat">${body}</div>`;
+}
+
 /** Pre-formatted block that keeps its own line breaks. */
 export function emailPre(text: string): string {
   return `<div class="pre">${escapeHtml(text)}</div>`;
@@ -165,7 +193,7 @@ export function emailShell(args: {
   const six =
     args.showSix === false
       ? ""
-      : `<span class="sixwrap"><img src="${SIX_PHOTO_URL}" alt="6, your a-i-buddy" class="six"></span>`;
+      : `<div class="sixrow"><span class="sixwrap"><img src="${SIX_PHOTO_URL}" alt="6, your a-i-buddy" class="six"></span></div>`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -183,6 +211,7 @@ export function emailShell(args: {
   /* 7px was sized for the three short words of the old tagline; the current
      one is four and wrapped onto two lines at that spacing. */
   .tag { font-family:${SANS}; font-size:12px; font-weight:800; letter-spacing:2.2px; text-transform:uppercase; color:${THEME.tagline}; margin:0 0 24px; text-align:center; }
+  .sixrow { text-align:center; }
   .sixwrap { display:inline-block; line-height:0; font-size:0; }
   .six { display:block; width:300px; max-width:78%; border-radius:34px; border:1px solid rgba(215,160,90,0.40); background:rgba(0,0,0,0.35); box-shadow:0 0 0 1px rgba(215,160,90,0.45), 0 30px 90px rgba(0,0,0,0.72); margin:0 auto; }
   h1 { font-size:26px; color:${THEME.heading}; margin:26px 0 12px; font-weight:800; }
@@ -194,6 +223,11 @@ export function emailShell(args: {
   .rows { width:100%; border-collapse:collapse; margin:0 0 18px; text-align:left; }
   .rows .k { width:34%; padding:7px 12px 7px 0; color:${THEME.tagline}; font-size:14px; vertical-align:top; }
   .rows .v { padding:7px 0; color:${THEME.body}; font-size:14px; font-weight:600; white-space:pre-wrap; }
+  .quote { margin:0 0 22px; padding:14px 20px; border-left:3px solid ${THEME.tagline}; background:rgba(215,160,90,0.07); border-radius:0 12px 12px 0; font-size:17px; line-height:1.5; color:${THEME.heading}; font-style:italic; text-align:left; }
+  .chat { margin:6px 0 18px; text-align:left; }
+  .turn { margin:0 0 8px; padding:11px 15px; border-radius:12px; background:${THEME.pageBg}; border:1px solid ${THEME.cardBorder}; font-size:14px; line-height:1.55; color:${THEME.body}; }
+  .turn.u { background:rgba(215,160,90,0.09); border-color:rgba(215,160,90,0.32); }
+  .who { display:block; font-size:11px; font-weight:800; letter-spacing:1.4px; text-transform:uppercase; color:${THEME.tagline}; margin:0 0 4px; }
   .pre { white-space:pre-wrap; text-align:left; background:${THEME.pageBg}; border:1px solid ${THEME.cardBorder}; border-radius:12px; padding:16px; font-family:${SANS}; font-size:14px; line-height:1.55; color:${THEME.body}; }
   .foot { text-align:center; padding:22px 20px 4px; font-family:${SANS}; font-size:12px; line-height:1.7; color:${THEME.foot}; }
   .foot a { text-decoration:none; color:${THEME.footLink}; }

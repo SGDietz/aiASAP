@@ -5,6 +5,7 @@ import { getUserId } from "../../../src/lib/auth/getUser";
 import { getSupabaseAdminConfig } from "../../../src/lib/supabaseAdmin";
 import { captureServerError } from "../../../src/lib/observability/serverLogger";
 import { sendPurposeEmail } from "../../../src/lib/emailSenders";
+import { emailShell, emailPre } from "../../../src/lib/emailTheme";
 
 // r30 (G 2026-06-12, email system round): when a user tells 6 something nice
 // or pitches an idea ("you should add...", "I wish you could..."), that's
@@ -129,6 +130,13 @@ export async function POST(request: Request) {
       to: TO,
       subject: `6 here - user feedback: "${trigger.slice(0, 50)}"`,
       text: report,
+      // G 2026-08-25: aiASAP theme colours. Copy unchanged - only painted.
+      html: emailShell({
+        title: `6 here - user feedback`,
+        heading: "New feedback from a user.",
+        align: "left",
+        bodyHtml: emailPre(report),
+      }),
     });
     emailed = sent.ok;
     emailError = sent.error;

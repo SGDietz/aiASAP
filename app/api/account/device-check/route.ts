@@ -18,7 +18,7 @@ function alertHtml(deviceLabel: string, whenText: string): string {
   return `<!DOCTYPE html><html><body style="margin:0;background:#0e0803;padding:36px 14px;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
   <div style="max-width:520px;margin:0 auto;background:#1d1209;border:1px solid #4a2f14;border-radius:22px;padding:34px 34px 26px;text-align:center;">
     <div style="font-family:'Arial Black','Archivo Black',Impact,sans-serif;font-style:italic;font-size:32px;color:#f4d086;">aiASAP</div>
-    <div style="font-size:12px;font-weight:800;letter-spacing:6px;text-transform:uppercase;color:#d9a85e;margin:2px 0 22px;">Take the Leap</div>
+    <div style="font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:#d9a85e;margin:2px 0 22px;">Cheap. Fast. Gorgeous. Brilliant.</div>
     <p style="font-size:16px;color:#e2bd84;margin:0 0 6px;">6 here &mdash; a new device just signed in to your account:</p>
     <p style="font-size:20px;color:#f1c87e;font-weight:800;margin:6px 0 4px;">${deviceLabel}</p>
     <p style="font-size:14px;color:#d9a85e;margin:0 0 18px;">${whenText}</p>

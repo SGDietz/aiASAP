@@ -5,6 +5,10 @@ import {
   extractFactsFromTurn,
   storeFacts,
 } from "../../../../src/lib/memory";
+import {
+  collapseTranscriptRows,
+  type TranscriptRowLike,
+} from "../../../../src/lib/transcript/collapseTranscriptRows";
 
 // Retro fact-extraction runs in after() once the response is flushed; Vercel
 // keeps the lambda alive until the after() promise resolves. Give it room for
@@ -189,6 +193,51 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Conversion/watchdog merge: a visitor may explore anonymously, then create
+  // the free account from the same conversation. Close that canonical draft in
+  // place; never create a second opportunity. This is intentionally best-effort
+  // until the local watchdog migration receives separate remote authorization.
+  try {
+    const opportunityRes = await fetch(
+      `${url}/rest/v1/visitor_opportunities?conversation_session_id=${inFilter}`,
+      {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          user_id: userId,
+          visitor_state: "completed",
+          opportunity_state: "account_created",
+          account_state: "created",
+          discovery_stage: "account_created",
+          terminal_at: null,
+          grace_until: null,
+          end_reason: null,
+        }),
+      },
+    );
+    if (opportunityRes.ok) {
+      const rows = (await opportunityRes.json()) as Array<{ id?: string }>;
+      perTable.visitor_opportunities = rows.length;
+      total += rows.length;
+      const opportunityIds = rows.map((row) => row.id).filter((id): id is string => typeof id === "string");
+      if (opportunityIds.length > 0) {
+        const opportunityFilter = `in.(${opportunityIds.map((id) => `"${id}"`).join(",")})`;
+        await fetch(
+          `${url}/rest/v1/opportunity_notification_outbox?opportunity_id=${opportunityFilter}&event_kind=eq.unfinished_opportunity&status=in.(detected,queued,failed)`,
+          {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({ status: "acknowledged", acknowledged_at: new Date().toISOString() }),
+          },
+        );
+      }
+    } else if (opportunityRes.status !== 404) {
+      console.warn("link-session: visitor opportunity merge skipped", opportunityRes.status);
+    }
+  } catch (error) {
+    console.warn("link-session: visitor opportunity merge unavailable", error);
+  }
+
   // Retro fact extraction: fetch the just-re-keyed conversation rows and run
   // extractFactsFromTurn on each user/assistant pair. Runs in after() so it
   // executes AFTER the response is flushed but is still awaited by Vercel to
@@ -219,8 +268,14 @@ export async function POST(request: NextRequest) {
       }
     }
     try {
+      // Ordered by created_at, not la_absolute_timestamp (2026-08-21): the
+      // app's own user rows (CUSTOM mode, /api/voice-mode/log-turn) carry NO
+      // la_absolute_timestamp, so under la order every one of them sorted
+      // LAST, behind every provider row, and never once formed a user ->
+      // assistant pair. la stays as the tiebreak so provider rows from one
+      // sync batch (same created_at to the ms) keep their spoken order.
       const messagesRes = await fetch(
-        `${url}/rest/v1/conversation_messages?session_id=${inFilter}&user_id=eq.${userId}&order=la_absolute_timestamp.asc&select=session_id,role,message,la_absolute_timestamp&limit=500`,
+        `${url}/rest/v1/conversation_messages?session_id=${inFilter}&user_id=eq.${userId}&order=created_at.asc,la_absolute_timestamp.asc&select=session_id,role,message,source,utterance_id,la_absolute_timestamp,created_at&limit=500`,
         { method: "GET", headers },
       );
       if (!messagesRes.ok) {
@@ -229,23 +284,22 @@ export async function POST(request: NextRequest) {
         );
         return;
       }
-      const messages = (await messagesRes.json()) as Array<{
-        session_id: string;
-        role: "user" | "assistant";
-        message: string;
-        la_absolute_timestamp: number;
-      }>;
+      const messages = (await messagesRes.json()) as TranscriptRowLike[];
 
-      // Pair user → next-assistant turns
+      // Fold the provider's pieces under the app's whole turn before pairing
+      // (2026-08-21, see src/lib/transcript/fragmentLink.ts), so the extractor
+      // sees "everything the user said -> 6's reply", never "Um," -> 6's reply.
+      // Then pair user → next-assistant turns, as before.
+      const folded = collapseTranscriptRows(messages);
       const turns: Array<{ userMessage: string; assistantReply: string }> = [];
-      for (let i = 0; i < messages.length; i++) {
-        const m = messages[i];
+      for (let i = 0; i < folded.length; i++) {
+        const m = folded[i];
         if (m.role !== "user") continue;
-        const next = messages[i + 1];
+        const next = folded[i + 1];
         if (!next || next.role !== "assistant") continue;
         turns.push({
-          userMessage: m.message.trim(),
-          assistantReply: next.message.trim(),
+          userMessage: m.text.trim(),
+          assistantReply: next.text.trim(),
         });
       }
       // Most-recent turns carry the freshest topic; cap to bound the OpenAI

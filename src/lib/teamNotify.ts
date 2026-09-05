@@ -17,6 +17,16 @@
  */
 
 import { sendPurposeEmail } from "./emailSenders";
+import {
+  emailShell,
+  emailRows,
+  emailParagraph,
+  emailFine,
+  emailDivider,
+  emailButton,
+  emailButtonSecondary,
+  escapeHtml,
+} from "./emailTheme";
 import { sendTelegramAlert } from "./telegramAlert";
 
 export type TeamNotifyKind =
@@ -29,7 +39,8 @@ export type TeamNotifyKind =
   | "new_account"
   | "build_feedback"
   | "mission_answered"
-  | "consent_declined";
+  | "consent_declined"
+  | "follow_up_requested";
 
 /** Plain-English headline per kind. The subject line is read on a lock screen. */
 const HEADLINES: Record<TeamNotifyKind, string> = {
@@ -51,6 +62,7 @@ const HEADLINES: Record<TeamNotifyKind, string> = {
   build_feedback: "gave feedback on their build",
   mission_answered: "answered the questions 6 had",
   consent_declined: "said no to being recorded",
+  follow_up_requested: "asked you to follow up",
 };
 
 /**
@@ -76,6 +88,7 @@ export type TeamNotifyInput = {
    * most decision-changing first, because this gets read on a phone.
    */
   facts?: Array<[label: string, value: string | null | undefined]>;
+  secureLinks?: Array<{ label: string; href: string }>;
   /** What the team actually has to DO. One sentence. */
   nextStep?: string;
   sessionId?: string | null;
@@ -94,20 +107,23 @@ export function buildTeamNotifyText(input: TeamNotifyInput): string {
   const when = new Date().toLocaleString("en-US", {
     timeZone: "America/New_York",
   });
-  const lines: string[] = [
-    `${esc(input.who)} ${HEADLINES[input.kind]}.`,
-    "",
-    `When: ${when} Eastern`,
-  ];
-  if (input.email) lines.push(`Email: ${esc(input.email)}`);
-  if (input.phone) lines.push(`Phone: ${esc(input.phone)}`);
   const facts = (input.facts ?? []).filter(
     (f): f is [string, string] => Boolean(f[1] && String(f[1]).trim()),
   );
+  // Summary-first (independent-audit fix, 2026-09-03): the substantive
+  // inquiry summary/topic is the first meaningful content after the greeting
+  // headline, BEFORE any When / Email / Phone / Session metadata. The
+  // metadata is still present, just after the topic, because G reads this on
+  // a phone and wants "what do they want" before "how to reach them".
+  const lines: string[] = [`${esc(input.who)} ${HEADLINES[input.kind]}.`];
   if (facts.length) {
     lines.push("");
     for (const [label, value] of facts) lines.push(`${label}: ${esc(value)}`);
   }
+  lines.push("", `When: ${when} Eastern`);
+  if (input.email) lines.push(`Email: ${esc(input.email)}`);
+  if (input.phone) lines.push(`Phone: ${esc(input.phone)}`);
+  for (const link of input.secureLinks ?? []) lines.push(`${link.label}: ${esc(link.href)}`);
   if (input.nextStep) {
     lines.push("", `NEXT: ${input.nextStep}`);
   }
@@ -120,6 +136,65 @@ export function buildTeamNotifyText(input: TeamNotifyInput): string {
     "but everything above should be enough to act on without opening it.",
   );
   return lines.join("\n");
+}
+
+/**
+ * The same notification, in the aiASAP theme (G, 2026-08-25: all aiASAP emails
+ * should be in the aiASAP theme colours). This email had NO styling at all -
+ * it was the only aiASAP email still going out as bare text while the
+ * magic-link, account-deletion, data-download and reminder emails all carried
+ * the locked gold-on-brown look.
+ *
+ * The text version above is NOT replaced. It still ships as the plain-text
+ * alternative on the same message, so a watch or a text-only client still
+ * shows something readable, and deliverability does not suffer.
+ *
+ * Design choice: left-aligned rows and no photo of 6. This is G reading it on
+ * a phone to find out who did what and what he has to do - the facts are the
+ * point, and a 300px portrait above them would push the useful part off the
+ * first screen. Same palette, same card, same wordmark as every other aiASAP
+ * email.
+ */
+export function buildTeamNotifyHtml(input: TeamNotifyInput): string {
+  const when = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+  });
+  const facts = (input.facts ?? []).filter(
+    (f): f is [string, string] => Boolean(f[1] && String(f[1]).trim()),
+  );
+  // Summary-first row order (independent-audit fix, 2026-09-03): facts —
+  // which lead with the substantive topic ("What they want to talk about") —
+  // render BEFORE the When / Email / Phone / Session metadata rows.
+  const rows: Array<[string, string | null | undefined]> = [
+    ...facts.map(([label, value]) => [label, esc(value)] as [string, string]),
+    ["When", when + " Eastern"],
+    ["Email", input.email ? esc(input.email) : null],
+    ["Phone", input.phone ? esc(input.phone) : null],
+    ["Session", input.sessionId ? esc(input.sessionId) : null],
+  ];
+  const nextStep = input.nextStep
+    ? emailParagraph("<strong>NEXT:</strong> " + escapeHtml(input.nextStep))
+    : "";
+  const secureLinks = (input.secureLinks ?? [])
+    .filter((link) => Boolean(link.href && link.label))
+    .map((link, index) => index === 0
+      ? emailButton(link.href, escapeHtml(link.label))
+      : emailButtonSecondary(link.href, escapeHtml(link.label)))
+    .join("");
+  return emailShell({
+    title: "aiASAP: " + esc(input.who) + " " + HEADLINES[input.kind],
+    heading: esc(input.who) + " " + HEADLINES[input.kind] + ".",
+    align: "left",
+    bodyHtml: [
+      emailRows(rows),
+      secureLinks,
+      nextStep,
+      emailDivider(),
+      emailFine(
+        "The full conversation is in Supabase conversation_messages if you need it - but everything above should be enough to act on without opening it.",
+      ),
+    ].join(""),
+  });
 }
 
 export type TeamNotifyResult = {
@@ -147,6 +222,7 @@ export async function notifyTeam(
   }
 
   const text = buildTeamNotifyText(input);
+  const html = buildTeamNotifyHtml(input);
   const subject = `aiASAP: ${esc(input.who)} ${HEADLINES[input.kind]}`;
 
   let emailed = false;
@@ -157,6 +233,7 @@ export async function notifyTeam(
       to,
       subject,
       text,
+      html,
       // Same real event twice -> Resend drops the duplicate rather than G
       // getting told twice about one person.
       idempotencyKey: `team:${input.kind}:${input.dedupeKey}`,

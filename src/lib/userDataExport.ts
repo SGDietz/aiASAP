@@ -1,4 +1,8 @@
 import { getSupabaseAdminConfig } from "./supabaseAdmin";
+import {
+  collapseTranscriptRows,
+  type TranscriptRowLike,
+} from "./transcript/collapseTranscriptRows";
 
 /**
  * Shared user-data gather (G 2026-06-07). One source of truth for "everything we
@@ -104,10 +108,28 @@ function escHtml(v: unknown): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
-function sortedMessages(d: Record<string, unknown>): Record<string, unknown>[] {
-  return asRows(d.conversation_messages)
-    .filter((m) => cleanMsg(m))
-    .sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")));
+// Fold the provider's pieces under the app's whole turn (2026-08-21) so "You:"
+// prints once per thing said. The table keeps up to eight provider STT rows per
+// breath next to the app's one sentence (see src/lib/transcript/fragmentLink.ts)
+// and this download printed every one of them. A piece the app never accepted
+// (an orphan "Um,") still prints - nothing is hidden that is not already shown.
+function historyTurns(d: Record<string, unknown>) {
+  const rows: TranscriptRowLike[] = [];
+  for (const m of asRows(d.conversation_messages)) {
+    const message = cleanMsg(m);
+    if (!message) continue;
+    rows.push({
+      id: typeof m.id === "string" ? m.id : null,
+      role: String(m.role ?? ""),
+      message,
+      source: typeof m.source === "string" ? m.source : null,
+      utterance_id: typeof m.utterance_id === "string" ? m.utterance_id : null,
+      la_absolute_timestamp:
+        typeof m.la_absolute_timestamp === "number" ? m.la_absolute_timestamp : null,
+      created_at: typeof m.created_at === "string" ? m.created_at : null,
+    });
+  }
+  return collapseTranscriptRows(rows);
 }
 // The facts/contacts tables hold many near-duplicate rows (every mention re-saved).
 // A user export must read CLEAN, so collapse case-insensitive repeats and drop the
@@ -190,7 +212,7 @@ export function renderUserExportText(payload: UserExport): string {
  *  ASK for it - never bundled into the default profile export. */
 export function renderConversationHistoryText(payload: UserExport): string {
   const d = payload.data as Record<string, unknown>;
-  const msgs = sortedMessages(d);
+  const msgs = historyTurns(d);
   const out: string[] = [];
   out.push("YOUR CONVERSATION HISTORY WITH 6");
   out.push(`For ${payload.account.email ?? "your account"}`);
@@ -201,13 +223,13 @@ export function renderConversationHistoryText(payload: UserExport): string {
   }
   let lastDay = "";
   for (const m of msgs) {
-    const day = fmtDay(m.created_at);
+    const day = fmtDay(m.createdAt);
     if (day && day !== lastDay) {
       out.push("");
       out.push(`[${day}]`);
       lastDay = day;
     }
-    out.push(`  ${m.role === "assistant" ? "6 " : "You"}: ${cleanMsg(m)}`);
+    out.push(`  ${m.role === "assistant" ? "6 " : "You"}: ${m.text}`);
   }
   return out.join("\n");
 }

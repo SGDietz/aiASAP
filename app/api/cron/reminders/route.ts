@@ -85,7 +85,8 @@ function reminderEmailHtml(
   .card { max-width: 540px; margin:0 auto; background:#1d1209; background-color:#1d1209; border:1px solid #4a2f14; border-radius:24px; overflow:hidden; box-shadow:0 24px 70px rgba(0,0,0,.6); }
   .inner { padding: 40px 40px 30px; text-align:center; font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif; }
   .wordmark { font-family:'Arial Black','Archivo Black',Impact,sans-serif; font-style:italic; font-size:36px; letter-spacing:.5px; color:#f4d086; margin:0 0 4px; }
-  .tag { font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif; font-size:14px; font-weight:800; letter-spacing:7px; text-transform:uppercase; color:#d9a85e; margin:0 0 24px; }
+  /* G, 2026-09-04: "it is no longer take the leap, change that too" and "all emails should have the top of 6, his face at least". Copy + asset only - the locked LAYOUT is untouched. 7px spacing wrapped the longer tagline onto two lines, so 12px/2.2px here as in emailTheme. */
+  .tag { font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif; font-size:12px; font-weight:800; letter-spacing:2.2px; text-transform:uppercase; color:#d9a85e; margin:0 0 24px; }
   .sixwrap { display:inline-block; line-height:0; font-size:0; }
   .six { display:block; width:300px; max-width:78%; border-radius:34px; border:1px solid rgba(215,160,90,0.40); background:rgba(0,0,0,0.35); box-shadow:0 0 0 1px rgba(215,160,90,0.45), 0 30px 90px rgba(0,0,0,0.72); margin:0 auto; }
   .lead { font-size:16px; color:#e2bd84; margin:26px 0 6px; }
@@ -105,8 +106,8 @@ function reminderEmailHtml(
     <div class="card">
       <div class="inner">
         <div class="wordmark">aiASAP</div>
-        <div class="tag">Take the Leap</div>
-        <span class="sixwrap"><img src="https://wqszxsqzkaatghyrqviv.supabase.co/storage/v1/object/public/email-assets/startscreen_trim.png" alt="6, your a-i-buddy" class="six"></span>
+        <div class="tag">Cheap. Fast. Gorgeous. Brilliant.</div>
+        <span class="sixwrap"><img src="https://wqszxsqzkaatghyrqviv.supabase.co/storage/v1/object/public/email-assets/six_face.png" alt="6, your a-i-buddy" class="six"></span>
         <p class="lead">6 here &mdash; you asked me not to let you forget:</p>
         <h1>${safeTitle}</h1>
         <p class="when">${safeWhenText}</p>

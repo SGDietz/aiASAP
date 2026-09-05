@@ -1,7 +1,11 @@
 import { assertAllowedOrigin, truncateUtf8String } from "../../../../src/lib/apiRouteSecurity";
 import { checkRateLimit } from "../../../../src/lib/rateLimit";
 import { buildMagicLinkEmailHtml } from "../../../../src/lib/magicLinkEmail";
-import { notifyTeam } from "../../../../src/lib/teamNotify";
+import {
+  createHttpAccountNotifyOutbox,
+  createResendAccountNotifyTransport,
+  deliverAccountCreatedNotification,
+} from "../../../../src/lib/accountCreatedNotify";
 
 const EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
@@ -278,28 +282,31 @@ export async function POST(request: Request) {
     );
   }
 
-  // TELL THE TEAM (G, 2026-08-21: "when anything new comes in that the team
-  // needs to know about, an auto email is sent with all the important info").
-  // A person handing over their email IS the "something new" — it is the first
-  // moment a visitor becomes a real prospect. Fire-and-forget on purpose: a
-  // notification failure must never break somebody's sign-in.
-  void notifyTeam({
-    kind: "new_account",
-    who: fullName || email,
-    email,
-    facts: [
-      ["Name given", fullName],
-      [
-        "Lists they asked about",
-        lists.length ? lists.map((l) => String(l)).slice(0, 10).join(", ") : null,
-      ],
-    ],
-    nextStep:
-      "Nothing to do yet - this is just so you know they exist. The interview comes next.",
-    sessionId,
-    // One real signup = one email, however many times this route is retried.
-    dedupeKey: `${email}:${sessionId ?? "nosession"}`,
-  });
+  // TELL THE TEAM — durable + awaited (2026-09-03 audit). The old
+  // fire-and-forget team notification dropped the note on any Resend failure
+  // and left nothing to retry. Now: an outbox row is inserted and the send
+  // is awaited.
+  // A transport failure keeps a durable row in `failed`/`sending` for the
+  // /api/cron/lead-follow-ups drainer. The dedupe key is
+  // `account_created:<email>` — a distinct namespace from the verbal
+  // `submit_contact` follow-up (`follow_up_requested:<sha256(...)>`) and the
+  // visitor receipt (`visitor_confirmation:<sha256(...)>`), so this event
+  // cannot duplicate against either. A notification failure still never
+  // breaks the sign-in: we log and continue.
+  if (serviceRoleKey) {
+    try {
+      await deliverAccountCreatedNotification({
+        store: createHttpAccountNotifyOutbox(supaUrl, serviceRoleKey),
+        transport: createResendAccountNotifyTransport(),
+        email,
+        fullName,
+        sessionId,
+        lists: lists.map((l) => String(l)),
+      });
+    } catch (notifyError) {
+      console.error("account_created_notification threw:", notifyError);
+    }
+  }
 
   return new Response(
     JSON.stringify({ ok: true, emailSent: true, pendingStateToken }),

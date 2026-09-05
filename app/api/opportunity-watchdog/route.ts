@@ -13,6 +13,7 @@ import {
   type OpportunityEndReason,
   type OpportunityState,
 } from "../../../src/lib/opportunityWatchdog";
+import { internalTrafficSignals } from "../../../src/lib/internalTraffic";
 import {
   createHttpFollowUpOutbox,
   createResendFollowUpTransport,
@@ -192,6 +193,22 @@ export async function POST(request: NextRequest) {
     hostname: host,
     forwardedFor: request.headers.get("x-forwarded-for"),
   });
+  // WHO IS THIS, REALLY (2026-09-04). `operatorExcluded` above has never once
+  // been true for G - the id/email allowlists and the marker secret are unset
+  // and nothing issues that cookie, so he passes as a stranger every time he
+  // tests signed out on the public domain.
+  //
+  // These signals catch how he actually tests: his phone comes in over
+  // Tailscale (`*.ts.net`, and 100.64.0.0/10 which the private-IP regex misses
+  // entirely). We record the DERIVED LABELS only - never the raw IP - so the
+  // notification drain can suppress our own visits without the database ever
+  // holding a visitor address.
+  const internalSignals = internalTrafficSignals({
+    hostname: host,
+    forwardedFor: request.headers.get("x-forwarded-for"),
+    userAgent: request.headers.get("user-agent"),
+    operatorExcluded,
+  });
   const testerLabel = normalizeTesterLabel(body.tester_label);
   const conversationSessionId = typeof body.conversation_session_id === "string" && isSafeTranscriptionSessionId(body.conversation_session_id)
     ? body.conversation_session_id : null;
@@ -238,6 +255,7 @@ export async function POST(request: NextRequest) {
           testerLabel,
           deviceClass,
           referrer,
+          internalSignals,
         });
       }
     }
@@ -494,7 +512,10 @@ export async function POST(request: NextRequest) {
     if (!update.ok) throw new Error(`watchdog update failed ${update.status}`);
 
     if (shouldQueueUnfinished(state, now)) {
-      await queueOutbox(url, serviceRoleKey, row, "unfinished_opportunity", buildMinimalAlertPayload(row.id, sessionId, state));
+      await queueOutbox(url, serviceRoleKey, row, "unfinished_opportunity", {
+        ...buildMinimalAlertPayload(row.id, sessionId, state),
+        internalSignals,
+      });
       if (["draft", "build_interest", "contact_captured"].includes(state.opportunityState)) {
         state = { ...state, opportunityState: "abandoned" };
         await fetch(`${url}/rest/v1/visitor_opportunities?id=eq.${encodeURIComponent(row.id)}`, {

@@ -3,6 +3,7 @@ import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
 import { sendTelegramAlert } from "../../../../src/lib/telegramAlert";
 import { notifyTeam } from "../../../../src/lib/teamNotify";
 import { ABANDONED_AFTER_MS } from "../../../../src/lib/interview/ledger";
+import { API_KEY, API_URL, AVATAR_ID, VOICE_ID } from "../../secrets";
 
 /**
  * THE CLOUD WATCHER. G, 2026-08-21:
@@ -69,6 +70,36 @@ async function query(
     return { rows: Array.isArray(rows) ? rows : [], reachable: true };
   } catch {
     return { rows: [], reachable: false };
+  }
+}
+
+/**
+ * Ask the provider whether an id still exists. Read-only: never mints, never
+ * costs a credit. "unknown" means we could not reach them, which is NOT the
+ * same as the id being gone - see the caller.
+ */
+async function providerIdState(
+  collection: string,
+  id: string,
+): Promise<"ok" | "missing" | "unknown"> {
+  if (!API_KEY || !API_URL) return "unknown";
+  try {
+    const res = await fetch(`${API_URL.replace(/\/$/, "")}/v1/${collection}/${id}`, {
+      headers: {
+        "x-api-key": API_KEY,
+        Accept: "application/json",
+        // Cloudflare in front of the provider rejects a bare fetch UA with a
+        // 1010 "browser signature banned", which would read as unknown forever.
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+      },
+      cache: "no-store",
+    });
+    if (res.ok) return "ok";
+    if (res.status === 404) return "missing";
+    return "unknown";
+  } catch {
+    return "unknown";
   }
 }
 
@@ -159,7 +190,46 @@ export async function GET(request: Request) {
     });
   }
 
-  // ── 5. the worst state of all: we cannot see ──────────────────────────────
+  // ── 5. the ids we mint with must still EXIST ─────────────────────────────
+  // WildWorks went down for real visitors on 2026-09-04 because production was
+  // minting against a LiveAvatar context that had been DELETED. The provider
+  // said so plainly - "Context not found" - but nothing was watching, so a
+  // stale value sat for 35 days and surfaced as a dead site rather than an
+  // alert. These are read-only GETs against the provider. They never mint and
+  // never cost a credit.
+  //
+  // NOT checked here: LIVEAVATAR_CONTEXT_ID. aiASAP deliberately sends NO
+  // context_id (removed 2026-08-21, the export in app/api/secrets.ts is
+  // commented out), and the value still sitting in .env points at a context
+  // that no longer exists. Checking a value nothing reads would alarm every
+  // fifteen minutes about nothing, which is how an alert channel dies.
+  const providerChecks: Array<[string, string, string]> = [
+    ["avatar", "avatars", AVATAR_ID],
+    ["voice", "voices", VOICE_ID],
+  ];
+  for (const [label, collection, id] of providerChecks) {
+    if (!id) {
+      findings.push({
+        headline: `LIVEAVATAR ${label.toUpperCase()} ID IS NOT SET`,
+        detail: `The ${label} id is empty, so a session cannot be minted at all.`,
+      });
+      continue;
+    }
+    const state = await providerIdState(collection, id);
+    if (state === "missing") {
+      findings.push({
+        headline: `THE ${label.toUpperCase()} 6 USES NO LONGER EXISTS`,
+        detail:
+          `LiveAvatar returned 404 for ${label} ${id}. Every session mint will ` +
+          `fail with the provider's generic "Add credits" message, which is NOT ` +
+          `a billing problem. Point the env var at a live id and redeploy.`,
+      });
+    }
+    // "unknown" = the provider was unreachable. That is not proof the id is
+    // gone, and crying wolf here would train G to ignore this alarm.
+  }
+
+  // ── 6. the worst state of all: we cannot see ──────────────────────────────
   if (blind) {
     findings.push({
       headline: "CANNOT READ THE DATABASE",

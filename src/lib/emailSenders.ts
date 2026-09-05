@@ -15,7 +15,8 @@ export type EmailPurpose =
   | "crash"
   | "feedback"
   | "digest"
-  | "account";
+  | "account"
+  | "visitor";
 
 const SENDERS: Record<EmailPurpose, string> = {
   bug: process.env.BUG_REPORT_FROM_EMAIL || "6 from aiASAP <BugAlert@aiasap.ai>",
@@ -23,6 +24,7 @@ const SENDERS: Record<EmailPurpose, string> = {
   feedback: "6 from aiASAP <UserFeedback@aiasap.ai>",
   digest: "6 from aiASAP <Reports@aiasap.ai>",
   account: process.env.ACCOUNT_LINK_FROM_EMAIL || "aiASAP <accounts@aiasap.ai>",
+  visitor: process.env.AIASAP_VISITOR_FROM_EMAIL || "6 from aiASAP <hello@aiasap.ai>",
 };
 
 export function senderFor(purpose: EmailPurpose): string {
@@ -30,18 +32,34 @@ export function senderFor(purpose: EmailPurpose): string {
 }
 
 /**
- * Purpose-routed plain-text email via Resend. Best-effort: returns
- * { ok, error } instead of throwing — email must never break a caller.
+ * Purpose-routed email via Resend. Best-effort: returns { ok, error } instead
+ * of throwing — email must never break a caller.
+ *
+ * `html` added 2026-08-25 (G: all aiASAP emails should be in the aiASAP theme
+ * colours). It is OPTIONAL and additive — every existing caller that passes
+ * only `text` behaves exactly as before. When both are given, `text` stays on
+ * the message as the plain-text alternative: it is what text-only clients and
+ * watches render, and dropping it hurts deliverability. Build the html with
+ * `emailShell` from ./emailTheme so the look stays in one place.
  */
 export async function sendPurposeEmail(opts: {
   purpose: EmailPurpose;
   to: string;
   subject: string;
   text: string;
+  html?: string;
   idempotencyKey?: string;
-}): Promise<{ ok: boolean; error: string | null }> {
+  /**
+   * Optional Reply-To address. Added narrowly for the visitor confirmation
+   * (so a visitor's REPLY lands at the aiASAP team address instead of the
+   * outbound-only hello@aiasap.ai sender that nobody reads). The founder
+   * email path must NOT set this — it would misroute team replies. Enforced
+   * at the callsite; this file just forwards the header to Resend.
+   */
+  replyTo?: string;
+}): Promise<{ ok: boolean; error: string | null; id: string | null }> {
   const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) return { ok: false, error: "RESEND_API_KEY missing" };
+  if (!resendKey) return { ok: false, error: "RESEND_API_KEY missing", id: null };
   const headers: Record<string, string> = {
     Authorization: `Bearer ${resendKey}`,
     "Content-Type": "application/json",
@@ -56,12 +74,16 @@ export async function sendPurposeEmail(opts: {
         to: [opts.to],
         subject: opts.subject,
         text: opts.text,
+        ...(opts.html ? { html: opts.html } : {}),
+        ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
       }),
     });
+    const body = (await res.json().catch(() => null)) as { id?: unknown } | null;
+    const id = body && typeof body.id === "string" && body.id.trim() ? body.id.trim() : null;
     return res.ok
-      ? { ok: true, error: null }
-      : { ok: false, error: `resend ${res.status}` };
+      ? { ok: true, error: null, id }
+      : { ok: false, error: `resend ${res.status}`, id: null };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: e instanceof Error ? e.message : String(e), id: null };
   }
 }

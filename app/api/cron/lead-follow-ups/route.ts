@@ -14,6 +14,11 @@ import {
   createResendAccountNotifyTransport,
   drainDueAccountNotifications,
 } from "../../../../src/lib/accountCreatedNotify";
+import {
+  createHttpOpportunityAlertOutbox,
+  createResendOpportunityAlertTransport,
+  drainDueOpportunityAlerts,
+} from "../../../../src/lib/opportunityAlertNotify";
 import { getSupabaseAdminConfig } from "../../../../src/lib/supabaseAdmin";
 import { sendOperationalAlert } from "../../../../src/lib/operationalAlert";
 
@@ -40,8 +45,22 @@ export async function GET(request: Request) {
       store: createHttpAccountNotifyOutbox(url, serviceRoleKey),
       transport: createResendAccountNotifyTransport(),
     });
-    const groups = { follow_ups: followUps, visitor_receipts: visitors, account_notifications: accounts };
-    const flat = [...followUps, ...visitors, ...accounts];
+    // G, 2026-09-04: "build the drain with the internal filter." Until this
+    // existed, `new_visitor` and `unfinished_opportunity` were queued and never
+    // sent - 100 rows with attempt_count 0. The filter runs inside the drain and
+    // dead-letters our own visits with the reason, so G is told about strangers
+    // only and the suppression stays auditable.
+    const alerts = await drainDueOpportunityAlerts({
+      store: createHttpOpportunityAlertOutbox(url, serviceRoleKey),
+      transport: createResendOpportunityAlertTransport(),
+    });
+    const groups = {
+      follow_ups: followUps,
+      visitor_receipts: visitors,
+      account_notifications: accounts,
+      visitor_alerts: alerts,
+    };
+    const flat = [...followUps, ...visitors, ...accounts, ...alerts];
     const failed = flat.filter((result) => result.status === "failed");
     // Retryable single-row failures stay quiet. A cluster in one drain run is
     // an operational incident and gets one deduplicated, PII-free alert.

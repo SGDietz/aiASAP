@@ -49,7 +49,7 @@ function pageHtml(status: "ok" | "bad" | "error"): string {
 <body>
   <main class="card">
     <div class="brand"><em>aiASAP</em></div>
-    <div class="tag">Take the Leap</div>
+    <div class="tag">Cheap. Fast. Gorgeous. Brilliant.</div>
     <h1>${title}</h1>
     <p>${copy.replace("_aiASAP_", "<em>aiASAP</em>")}</p>
   </main>
