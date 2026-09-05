@@ -83,7 +83,7 @@ describe("open stage-control contents", () => {
     expect(visibleGridWidth).toBeCloseTo(priorWidth - priorGap / 2, 8);
   });
 
-  it("copies the contact gradient authority into labels, Legal, and SVG icons", () => {
+  it("puts the labels, Legal, and the SVG icons on the wordmark blend", () => {
     const controls = source("src/components/StageControls.tsx");
     const css = source("app/globals.css");
     expect(css).toContain("var(--aiasap-contact-gold-1) 0%");
@@ -96,9 +96,21 @@ describe("open stage-control contents", () => {
     expect(css).toContain("text-shadow: none !important");
     expect(css).toContain("filter: drop-shadow(0 1px 1px rgba(37, 18, 5, 0.78)) !important");
     expect(css).toContain("stroke-opacity: 1");
+    // G, 2026-09-04 late: "Make this start gallery mute quiet all that also the
+    // same color blends and the icons as aiASAP." The four chest words and the
+    // four chest icons now carry the wordmark's own three stops, the same ones
+    // the footer took a few minutes earlier. The gradient's ID is historical -
+    // these icons are its only users.
     expect(controls).toContain('id="aiasap-contact-gold-gradient"');
-    expect(controls).toContain('stopColor="var(--aiasap-contact-gold-1)"');
-    expect(controls).toContain('stopColor="var(--aiasap-contact-gold-4)"');
+    expect(controls).toContain('stopColor="var(--aiasap-wordmark-1)"');
+    expect(controls).toContain('stopColor="var(--aiasap-wordmark-3)"');
+    expect(css).toContain("--aiasap-wordmark-1: #ffe9c2;");
+    expect(css).toContain("--aiasap-wordmark-2: #d7a05a;");
+    expect(css).toContain("--aiasap-wordmark-3: #3a2108;");
+    const blend = css.slice(css.indexOf("THE BOTTOM THREE, IN THE WORDMARK'S OWN BLEND"));
+    expect(blend).toContain('[data-stage-controls="1"] [data-stage-control-inline-label="1"]');
+    expect(blend).toContain('[data-public-contact-ink="1"]');
+    expect(blend).toContain('[data-stage-legal-line="1"] .aiasap-legal-ink');
   });
 
   it("sizes every rendered glyph to 110 percent of the visible label", () => {

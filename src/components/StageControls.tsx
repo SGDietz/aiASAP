@@ -155,11 +155,16 @@ export function StageControls({
     >
       <svg aria-hidden="true" width="0" height="0" className="absolute">
         <defs>
+          {/* NAME IS HISTORICAL, STOPS ARE THE WORDMARK'S. G, 2026-09-04 late:
+              "Make this start gallery mute quiet all that also the same color
+              blends and the icons as aiASAP." These are the three stops off
+              the wordmark in StageBrandLockup.tsx, same as the footer. The id
+              is left alone because these four icons are its only users and
+              renaming it buys nothing but risk mid-iteration. */}
           <linearGradient id="aiasap-contact-gold-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--aiasap-contact-gold-1)" />
-            <stop offset="34%" stopColor="var(--aiasap-contact-gold-2)" />
-            <stop offset="70%" stopColor="var(--aiasap-contact-gold-3)" />
-            <stop offset="100%" stopColor="var(--aiasap-contact-gold-4)" />
+            <stop offset="0%" stopColor="var(--aiasap-wordmark-1)" />
+            <stop offset="50%" stopColor="var(--aiasap-wordmark-2)" />
+            <stop offset="100%" stopColor="var(--aiasap-wordmark-3)" />
           </linearGradient>
         </defs>
       </svg>
@@ -226,11 +231,16 @@ export function DormantStageControls() {
     >
       <svg aria-hidden="true" width="0" height="0" className="absolute">
         <defs>
+          {/* NAME IS HISTORICAL, STOPS ARE THE WORDMARK'S. G, 2026-09-04 late:
+              "Make this start gallery mute quiet all that also the same color
+              blends and the icons as aiASAP." These are the three stops off
+              the wordmark in StageBrandLockup.tsx, same as the footer. The id
+              is left alone because these four icons are its only users and
+              renaming it buys nothing but risk mid-iteration. */}
           <linearGradient id="aiasap-contact-gold-gradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--aiasap-contact-gold-1)" />
-            <stop offset="34%" stopColor="var(--aiasap-contact-gold-2)" />
-            <stop offset="70%" stopColor="var(--aiasap-contact-gold-3)" />
-            <stop offset="100%" stopColor="var(--aiasap-contact-gold-4)" />
+            <stop offset="0%" stopColor="var(--aiasap-wordmark-1)" />
+            <stop offset="50%" stopColor="var(--aiasap-wordmark-2)" />
+            <stop offset="100%" stopColor="var(--aiasap-wordmark-3)" />
           </linearGradient>
         </defs>
       </svg>

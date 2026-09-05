@@ -2154,9 +2154,11 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
    StageBrandLockup.tsx - Tailwind places from/via/to at 0/50/100%. Named here
    so the two can never drift apart again.
 
-   ONLY the three footer items move. The four chest labels share the same
-   :where() rule further up and stay on the contact-gold four-stop, because G
-   named the bottom of the screen and nothing else.
+   Then, minutes later: "Make this start gallery mute quiet all that also the
+   same color blends and the icons as aiASAP." So the four chest WORDS joined
+   the list below, and the four chest ICONS took the same stops through the
+   SVG gradient they are stroked with (StageControls.tsx). Everything G can
+   see on the front door now runs on one blend.
    ======================================================================== */
 :root {
   --aiasap-wordmark-1: #ffe9c2;
@@ -2167,7 +2169,8 @@ html.aiasap-tablet-device [data-stage-controls="1"].stage-controls-cluster {
 [data-public-contact-ink="1"],
 [data-stage-legal-line="1"] .aiasap-legal-ink,
 [data-stage-legal-line="1"] .aiasap-legal-separator,
-[data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] > span {
+[data-phone-bottom-stack="1"][data-phone-flow="1"] [data-stage-legal-line="1"] > span,
+[data-stage-controls="1"] [data-stage-control-inline-label="1"] {
   background-image: linear-gradient(
     180deg,
     var(--aiasap-wordmark-1) 0%,
